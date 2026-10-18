@@ -23,7 +23,18 @@ export function reversalDone(o: CybsOutcome<any>): boolean {
   if (o.kind === "ok") return o.data?.status === "REVERSED";
   if (o.kind === "rejected") {
     const b = o.body as { reason?: string } | null;
-    return b?.reason === "AUTH_ALREADY_REVERSED";
+    // testrest: a 2nd reversal of the same auth → 400 MISSING_AUTH (verified 2026-10-17)
+    return b?.reason === "AUTH_ALREADY_REVERSED" || b?.reason === "MISSING_AUTH";
+  }
+  return false;
+}
+
+/** A timeout-reversal outcome that means "no hold remains". Anything else (401/403/404/429, 5xx, network) must NOT release the share. */
+export function timeoutReversalDone(o: CybsOutcome<any>): boolean {
+  if (o.kind === "ok") return o.data?.status === "REVERSED";
+  if (o.kind === "rejected" && o.http === 400) {
+    const reason = (o.body as { reason?: string } | null)?.reason;
+    return reason === "INVALID_DATA" /* never-sent (verified) */ || reason === "AUTH_ALREADY_REVERSED" || reason === "MISSING_AUTH";
   }
   return false;
 }
@@ -35,10 +46,13 @@ export function cardFromAuth(d: AuthResp, transientJwt?: string): { brand: strin
   let last4 = c?.suffix ?? null;
   if ((!type || !last4) && transientJwt) {
     try {
+      // Microform v2 (mf-2.x) transient tokens carry card data at content.paymentInformation.card.number; older ones at data.
       const p = JSON.parse(Buffer.from(transientJwt.split(".")[1]!, "base64url").toString());
-      const num: string | undefined = p?.data?.number;
+      const n = p?.content?.paymentInformation?.card?.number;
+      const num: string | undefined = n?.maskedValue ?? p?.data?.number;
+      const t = n?.detectedCardTypes?.[0] ?? p?.data?.type;
       if (!last4 && num) last4 = num.slice(-4);
-      if (!type && p?.data?.type) type = String(p.data.type);
+      if (!type && t) type = String(t);
     } catch {
       /* masked data unavailable */
     }

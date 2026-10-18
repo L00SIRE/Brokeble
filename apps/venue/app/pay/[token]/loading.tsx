@@ -2,7 +2,7 @@ import { Shell } from "./StateCard";
 
 export default function Loading() {
   return (
-    <Shell>
+    <Shell source="loading…">
       <div role="status" aria-label="Loading payment page" className="mt-6 animate-pulse space-y-4">
         <div className="h-6 w-3/4 rounded bg-neutral-200" />
         <div className="h-4 w-full rounded bg-neutral-200" />

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { sql } from "../db";
-import { cardFromAuth, classifyAuth, cybsService, reversalDone, type CybsOutcome, type AuthResp } from "../cybs";
+import { cardFromAuth, classifyAuth, cybsService, cybsSource, reversalDone, type CybsOutcome, type AuthResp } from "../cybs";
 import { isSandboxHost } from "../cybs/config";
 import { env } from "../env";
 import { hashToken } from "../token";
@@ -122,7 +122,7 @@ export async function authorize(token: string, body: AuthorizeBody): Promise<Pay
   // AUTHORIZED: re-check the order under its row lock (also serializes with checkout and cancel).
   const card = cardFromAuth(data!, body.transientTokenJwt);
   const brand = card.brand ?? customer?.card_brand ?? null;
-  const last4 = card.last4 ?? customer?.card_last4 ?? null;
+  const last4 = card.last4 ?? customer?.card_last4 ?? (body.sandbox_test_card ? "1111" : null); // the sandbox test card PAN is fixed
   const ids: number[] = [];
   const outcomeState = await sql().begin(async (tx) => {
     const [o] = await tx<OrderRow[]>`select * from venue.orders where id = ${s.order_id} for update`;
@@ -140,7 +140,7 @@ export async function authorize(token: string, body: AuthorizeBody): Promise<Pay
     }
     ids.push(await enqueue(tx as never, {
       order: o!, share: { id: s.id, payer_ref: s.payer_ref }, type: "share.authorized",
-      data: { amount_cents: s.amount_cents, card_brand: brand, card_last4: last4, cybs_payment_id_short: data!.id!.slice(-8) },
+      data: { amount_cents: s.amount_cents, card_brand: brand, card_last4: last4, cybs_payment_id_short: data!.id!.slice(-8), cybs_source: cybsSource().id },
     }));
     return "held" as const;
   });

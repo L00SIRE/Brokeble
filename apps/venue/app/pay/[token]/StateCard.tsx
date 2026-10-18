@@ -7,10 +7,10 @@ export const clock = (hhmm: string) => {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 };
 
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children, source }: { children: ReactNode; source: string }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-4 py-8">
-      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Tab Partner Venue · sandbox merchant of record</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">SquadTab Partner Venue (demo) · {source}</p>
       {children}
     </main>
   );

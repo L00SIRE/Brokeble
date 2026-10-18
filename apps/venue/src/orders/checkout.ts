@@ -1,6 +1,6 @@
 import type { CommitResult, TapVerifyReport } from "@tab/shared";
 import { sql } from "../db";
-import { cybsService } from "../cybs";
+import { cybsService, cybsSource } from "../cybs";
 import { deliver, enqueue } from "../outbox";
 import { runOp } from "../payments";
 import { decideCommit, type CommitDecision } from "./commit";
@@ -68,7 +68,7 @@ export async function checkout(orderId: string, body: Buffer, tap: TapVerifyRepo
       await tx`update venue.shares set status = 'CAPTURED', updated_at = now() where id = ${s.id}`;
       evIds.push(await enqueue(tx as never, {
         order: order!, share: { id: s.id, payer_ref: s.payer_ref }, type: "share.captured",
-        data: { amount_cents: s.amount_cents, cybs_capture_id_short: capId ? capId.slice(-8) : null },
+        data: { amount_cents: s.amount_cents, cybs_capture_id_short: capId ? capId.slice(-8) : null, cybs_source: cybsSource().id },
       }));
     });
     await deliver(evIds);

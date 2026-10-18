@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardFromAuth, classifyAuth, reversalDone, type CybsOutcome, type AuthResp } from "../src/cybs";
+import { cardFromAuth, classifyAuth, reversalDone, timeoutReversalDone, type CybsOutcome, type AuthResp } from "../src/cybs";
 import { opIds } from "../src/ids";
 
 const ok = (data: AuthResp): CybsOutcome<AuthResp> => ({ kind: "ok", http: 201, data });
@@ -49,6 +49,24 @@ describe("reversal + card helpers", () => {
     expect(reversalDone({ kind: "rejected", http: 400, body: { reason: "AUTH_ALREADY_REVERSED" } })).toBe(true);
     expect(reversalDone({ kind: "rejected", http: 400, body: { reason: "OTHER" } })).toBe(false);
     expect(reversalDone({ kind: "unknown", http: null })).toBe(false);
+  });
+  it("MISSING_AUTH (2nd reversal on testrest) counts as released", () => {
+    expect(reversalDone({ kind: "rejected", http: 400, body: { reason: "MISSING_AUTH" } })).toBe(true);
+  });
+  it("timeoutReversalDone only accepts definitive 'no hold' replies", () => {
+    expect(timeoutReversalDone({ kind: "ok", http: 201, data: { status: "REVERSED" } })).toBe(true);
+    expect(timeoutReversalDone({ kind: "ok", http: 201, data: { status: "PENDING" } })).toBe(false);
+    for (const reason of ["INVALID_DATA", "AUTH_ALREADY_REVERSED", "MISSING_AUTH"]) {
+      expect(timeoutReversalDone({ kind: "rejected", http: 400, body: { reason } })).toBe(true);
+    }
+    expect(timeoutReversalDone({ kind: "rejected", http: 400, body: { reason: "OTHER" } })).toBe(false);
+    for (const http of [401, 403, 404, 429]) expect(timeoutReversalDone({ kind: "rejected", http, body: { reason: "INVALID_DATA" } })).toBe(false);
+    expect(timeoutReversalDone({ kind: "unknown", http: 502 })).toBe(false);
+    expect(timeoutReversalDone({ kind: "unknown", http: null })).toBe(false);
+  });
+  it("reads card data from a Microform v2 transient token (content.paymentInformation, no data key)", () => {
+    const jwt = ["h", Buffer.from(JSON.stringify({ content: { paymentInformation: { card: { number: { maskedValue: "XXXXXXXXXXXX1111", detectedCardTypes: ["001"] } } } } })).toString("base64url"), "s"].join(".");
+    expect(cardFromAuth({}, jwt)).toEqual({ brand: "VISA", last4: "1111" });
   });
   it("reads brand/last4 from either response block", () => {
     expect(cardFromAuth({ paymentAccountInformation: { card: { suffix: "1111", type: "001" } } })).toEqual({ brand: "VISA", last4: "1111" });

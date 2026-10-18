@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { cybsService } from "@/cybs";
+import { cybsService, cybsSource, isSharedSandbox } from "@/cybs";
 import { isSandboxHost } from "@/cybs/config";
 import { env } from "@/env";
 import { loadByToken, savedCard, pageStateOf } from "./load";
@@ -15,7 +15,7 @@ export default async function PayPage({ params }: PageProps<"/pay/[token]">) {
   if (!share || !order || state !== "ready") {
     const amount = share ? money(share.amount_cents) : "";
     return (
-      <Shell>
+      <Shell source={cybsSource().label}>
         {state === "booked" ? (
           <StateCard tone="good" title={`Everyone's in. Charged ${amount}.`} />
         ) : state === "already_held" ? (
@@ -25,7 +25,7 @@ export default async function PayPage({ params }: PageProps<"/pay/[token]">) {
         ) : state === "unconfirmed" ? (
           <StateCard tone="bad" title="We couldn't confirm your hold." body="Nothing has been charged. You'll get a fresh link in about a minute." />
         ) : (
-          <StateCard title="This link has expired or was already used." body="Text Tab for a fresh one." />
+          <StateCard title="This link has expired or was already used." body="Text SquadTab for a fresh one." />
         )}
       </Shell>
     );
@@ -45,7 +45,7 @@ export default async function PayPage({ params }: PageProps<"/pay/[token]">) {
   const b = order.bundle as { date: string; dinner: { time: string }; show: { time: string } };
 
   return (
-    <Shell>
+    <Shell source={cybsSource().label}>
       <h1 className="mt-4 text-lg font-semibold text-balance">Prepaid dinner + show bundle</h1>
       <p className="mt-1 text-neutral-600 text-pretty">
         {b.date} · dinner {clock(b.dinner.time)} · show {clock(b.show.time)} · party of {order.party_size}
@@ -64,6 +64,7 @@ export default async function PayPage({ params }: PageProps<"/pay/[token]">) {
         initialFailed={captureFailed}
         saved={customer ? { brand: customer.card_brand, last4: customer.card_last4 } : null}
         sandboxFallback={live && isSandboxHost(env().CYBS_RUN_ENV)}
+        sharedSandbox={isSharedSandbox()}
       />
     </Shell>
   );

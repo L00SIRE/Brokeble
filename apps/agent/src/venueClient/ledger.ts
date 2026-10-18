@@ -21,9 +21,11 @@ export async function emitLedger(ev: VenueEvent): Promise<void> {
     if (row) {
       const amount = typeof ev.data.amount_cents === "number" ? ev.data.amount_cents : (row.amount ?? 0);
       const short = ev.data.cybs_payment_id_short ?? ev.data.cybs_capture_id_short;
+      // Label where the id came from so a simulated id never looks like a real one (the agent never reads CYBS_*; M1).
+      const prefix = ev.data.cybs_source === "sim" ? "SIM " : ev.data.cybs_source === "testrest" ? "sandbox " : "";
       await emit({
         type: "ledger", order_id: ev.order_id, lane: row.lane, status, amount_cents: amount,
-        cybs_id_short: typeof short === "string" ? `…${short}` : null,
+        cybs_id_short: typeof short === "string" ? `${prefix}…${short}` : null,
       });
     }
   }

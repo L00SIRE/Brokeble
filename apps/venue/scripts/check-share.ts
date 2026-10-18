@@ -10,6 +10,11 @@ if (!s?.cybs_payment_id) throw new Error("share has no cybs_payment_id");
 const ops = await sql()`select op, attempt, status, http_status, cybs_id from venue.payment_ops where share_id = ${id} order by id`;
 console.log("share", id, s.status);
 console.table(ops);
-const t = await cybsService().getTransaction(s.cybs_payment_id);
+// TSS can 404 for ~1-3 s right after an auth: retry a few times.
+let t = await cybsService().getTransaction(s.cybs_payment_id);
+for (let i = 0; i < 3 && t.kind === "rejected" && t.http === 404; i++) {
+  await new Promise((r) => setTimeout(r, 3000));
+  t = await cybsService().getTransaction(s.cybs_payment_id);
+}
 console.log("cybersource:", t.kind, t.kind === "ok" ? { applicationInformation: (t.data as any).applicationInformation } : t.kind === "rejected" ? t.body : t.code);
 await sql().end();

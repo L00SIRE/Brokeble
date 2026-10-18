@@ -1,6 +1,6 @@
 // POST /ops/sweep, called by the agent's due_job every 30 s. Every action is a conditional UPDATE, so overlapping sweeps are safe.
 import { sql } from "../db";
-import { cybsService } from "../cybs";
+import { cybsService, timeoutReversalDone } from "../cybs";
 import { deliver, enqueue } from "../outbox";
 import { runOp } from "../payments";
 import { cancelOrder, finishCancel, reverseShare } from "../orders/cancel";
@@ -14,7 +14,9 @@ export async function sweep() {
   await sql()`update venue.shares set status = 'AUTH_UNKNOWN', updated_at = now() where status = 'TIMEOUT_REVERSING' and updated_at < now() - interval '120 seconds'`;
 
   // (b) AUTH_UNKNOWN > 60 s → timeout reversal by the original auth transactionId (never a blind retry of the auth)
-  const unknown = await sql()<{ id: string }[]>`select id from venue.shares where status = 'AUTH_UNKNOWN' and updated_at < now() - interval '60 seconds'`;
+  const unknown = await sql()<{ id: string }[]>`
+    select s.id from venue.shares s where s.status = 'AUTH_UNKNOWN' and s.updated_at < now() - interval '60 seconds'
+      and (select count(*) from venue.payment_ops p where p.share_id = s.id and p.op = 'timeout_reverse') < 5`;
   for (const { id } of unknown) {
     const [s] = await sql()<ShareRow[]>`
       update venue.shares set status = 'TIMEOUT_REVERSING', updated_at = now()
@@ -29,7 +31,7 @@ export async function sweep() {
     const { outcome } = await runOp(s.id, "timeout_reverse", ({ code }) =>
       cybsService().timeoutReverse(code, auth.transaction_id, s.amount_cents, "auth outcome unknown"),
     );
-    const released = outcome.kind === "ok" || outcome.kind === "rejected"; // 4xx meaning per S5 (PLAN §19) must be confirmed
+    const released = timeoutReversalDone(outcome); // a 401/403/404/429 or 5xx must never release a share that may still hold funds
     if (!released) {
       await sql()`update venue.shares set status = 'AUTH_UNKNOWN', updated_at = now() where id = ${s.id}`;
       continue;

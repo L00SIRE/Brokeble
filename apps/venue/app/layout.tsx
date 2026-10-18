@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tab Partner Venue (sandbox merchant of record)",
+  title: "SquadTab Partner Venue (demo merchant)",
   description: "Sandbox merchant of record for Tab. No real payments.",
 };
 

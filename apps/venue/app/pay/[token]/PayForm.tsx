@@ -13,7 +13,7 @@ const btnCls = "h-12 w-full rounded-xl bg-neutral-900 px-4 text-base font-semibo
 
 export function PayForm(p: {
   token: string; amountLabel: string; mode: "live" | "mock"; capture: Capture | null; initialFailed: boolean;
-  saved: Saved; sandboxFallback: boolean;
+  saved: Saved; sandboxFallback: boolean; sharedSandbox: boolean;
 }) {
   const [view, setView] = useState<View>(p.initialFailed ? "form_failed" : "ready");
   const [useSaved, setUseSaved] = useState(!!p.saved);
@@ -95,7 +95,7 @@ export function PayForm(p: {
   if (view === "already_held") return <Banner tone="good" title="Your hold is in place.">Not charged yet.</Banner>;
   if (view === "booked") return <Banner tone="good" title="Everyone's in.">Charged {p.amountLabel}.</Banner>;
   if (view === "cancelled") return <Banner title="Plan cancelled.">Nobody was charged; your pending authorization was released.</Banner>;
-  if (view === "expired") return <Banner title="This link has expired or was already used.">Text Tab for a fresh one.</Banner>;
+  if (view === "expired") return <Banner title="This link has expired or was already used.">Text SquadTab for a fresh one.</Banner>;
   if (view === "unconfirmed") return <Banner tone="bad" title="We couldn't confirm your hold.">Nothing has been charged. You&apos;ll get a fresh link in about a minute.</Banner>;
   if (view === "declined") {
     return (
@@ -125,6 +125,11 @@ export function PayForm(p: {
         </>
       ) : (
         <>
+          {p.sharedSandbox ? (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 text-pretty">
+              Test cards only. This is Cybersource&apos;s shared public sandbox: use 4111 1111 1111 1111, any future expiry, any CVC, and a made-up name.
+            </p>
+          ) : null}
           <input name="name" autoComplete="cc-name" placeholder={live ? "Name on card" : "Name (mock: decline or timeout)"} className={inputCls} aria-label="Name on card" />
           {live ? (
             <>
@@ -143,7 +148,7 @@ export function PayForm(p: {
           <input name="zip" inputMode="numeric" autoComplete="postal-code" placeholder="ZIP" className={inputCls} aria-label="ZIP" />
           <label className="flex min-h-11 items-start gap-2 text-sm text-neutral-700">
             <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} className="mt-1 size-4" />
-            <span>Save this card with Tab Partner Venue for one-tap holds next time (stored as a Cybersource token)</span>
+            <span>Save this card with SquadTab Partner Venue for one-tap holds next time (stored as a Cybersource sandbox token)</span>
           </label>
           <button className={btnCls} disabled={busy}>{busy ? "Holding…" : live ? `Hold ${p.amountLabel}` : "Mock hold (no card)"}</button>
         </>

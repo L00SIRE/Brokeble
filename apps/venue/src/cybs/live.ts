@@ -1,6 +1,7 @@
 import cybs from "cybersource-rest-client";
 import { env } from "../env";
 import { cybsConfig, isSandboxHost } from "./config";
+import { isSharedSandbox } from "./source";
 import type { AuthResp, AuthorizeArgs, CybsOutcome, CybsService } from "./service";
 
 const usd = (cents: number) => (cents / 100).toFixed(2);
@@ -40,7 +41,10 @@ export function authBody(a: AuthorizeArgs) {
   if (a.sandboxTestCard && !isSandboxHost(env().CYBS_RUN_ENV)) throw new Error("sandboxTestCard is sandbox-only");
   const oneTap = !a.transientTokenJwt && !!a.customerId && !a.sandboxTestCard;
   const save = a.saveCard && !oneTap;
-  const b = a.billTo;
+  // Shared public merchant: anyone with its published keys can read transactions, so send only fixed placeholder billing data.
+  const b = isSharedSandbox()
+    ? { first_name: "Test", last_name: "Payer", postal_code: "94105", email: "noreply@example.com", address1: "1 Market St", locality: "San Francisco", administrativeArea: "CA" }
+    : a.billTo;
   return {
     clientReferenceInformation: { code: a.code, transactionId: a.transactionId },
     processingInformation: {

@@ -1,4 +1,4 @@
-// Sandbox smoke (PLAN §19 spikes S1/S2/S3/S5). Run: pnpm --filter @tab/venue exec tsx --env-file=../../.env scripts/cybs-smoke.ts
+// Sandbox smoke (PLAN §19 spikes S1/S2/S3/S5). Run from apps/venue: pnpm exec tsx --env-file=.env.local scripts/cybs-smoke.ts
 // Override with CYBS_RUN_ENV=testrest.cybersource.com CYBS_AUTH_TYPE=http_signature. Uses the sandbox test card server-side. Prints status codes and key NAMES only; never tokens, PANs or credentials.
 import { randomBytes } from "node:crypto";
 
@@ -8,6 +8,8 @@ Object.assign(process.env, {
   VENUE_HOOK_SECRET: "x".repeat(16), VENUE_OPS_KEY: "x".repeat(16),
 });
 const { liveCybs: c } = await import("../src/cybs/live");
+const { cybsSource } = await import("../src/cybs/source");
+console.log("source:", cybsSource().label);
 
 const tag = randomBytes(4).toString("hex");
 const keys = (o: unknown): string[] => (o && typeof o === "object" ? Object.keys(o as object) : []);
@@ -49,6 +51,7 @@ const a3 = await auth(`smoke-${tag}-3`, tid);
 show("auth3", a3);
 show("tr-known", await c.timeoutReverse(`smoke-${tag}-tr1`, tid, 100, "timeout"));
 show("tr-never", await c.timeoutReverse(`smoke-${tag}-tr2`, randomBytes(15).toString("hex"), 100, "timeout"));
+show("tr-known-again", await c.timeoutReverse(`smoke-${tag}-tr3`, tid, 100, "timeout")); // 2nd timeout reversal of the same transactionId: UNVERIFIED reason, record it
 
 console.log("== S6 capture context");
 try {
