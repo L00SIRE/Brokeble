@@ -1,6 +1,6 @@
--- 003_roles.sql: least-privilege roles. Source of truth: docs/PLAN.md §6.
--- Run with psql variables (never commit real values):
---   psql "$DATABASE_URL" -v AGENT_DB_PW="$AGENT_DB_PW" -v VENUE_DB_PW="$VENUE_DB_PW" -f db/migrations/003_roles.sql
+-- db/roles.sql: least-privilege roles (M1). Source of truth: docs/PLAN.md §6. NOT a migration: run it once via psql
+-- as the owner role, after db:migrate has created the schemas (never commit real passwords):
+--   psql "$OWNER_DATABASE_URL" -v AGENT_DB_PW="$AGENT_DB_PW" -v VENUE_DB_PW="$VENUE_DB_PW" -f db/roles.sql
 -- Re-runnable: roles are created once, passwords are (re)set every run.
 -- UNVERIFIED: login as tab_agent.<projectref> via Supavisor; fallback is a single role (see db/README.md).
 
@@ -37,8 +37,8 @@ grant usage on schema venue to tab_venue;
 grant select, insert, update, delete on all tables in schema venue to tab_venue;
 grant usage, select on all sequences in schema venue to tab_venue;
 
--- Tables added by later migrations (e.g. 004_pay_links.sql) inherit the same grants
--- when they are created by the role that applies migrations.
+-- Tables added by later migrations (004_pay_links, 005+_venue_*) inherit the same grants. Default privileges
+-- apply only to objects created by the role running this file, so migrations must run as that same owner role.
 alter default privileges in schema app grant select, insert, update, delete on tables to tab_agent;
 alter default privileges in schema app grant usage, select on sequences to tab_agent;
 alter default privileges in schema venue grant select, insert, update, delete on tables to tab_venue;

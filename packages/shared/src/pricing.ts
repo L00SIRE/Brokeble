@@ -1,10 +1,12 @@
 // priceBundle(): the single price formula used by the agent filter AND venue order pricing (PLAN §8, M3).
 // all_in_pp_cents = ceilToDollar(dinner_usd*100*(1+TAX+TIP) + show_usd*100*(1+TAX))
 
-export const TAX = 0.0975; // UNVERIFIED LA rate; confirm before 11 PM (PLAN §19)
+// CDTFA Special Notice L-1037: LA County 9.750% → 10.250% from Oct 1, 2026. City of LA by address is UNVERIFIED
+// (PLAN §19 smoke test: CDTFA lookup for 325 Westwood Plaza, 90095).
+export const TAX = 0.1025;
 export const TIP = 0.18;
 
-// Integer basis points so 0.0975 etc. never hit float rounding at a dollar boundary.
+// Integer basis points so 0.1025 etc. never hit float rounding at a dollar boundary.
 const BPS = 10_000;
 const TAX_BPS = Math.round(TAX * BPS);
 const TIP_BPS = Math.round(TIP * BPS);

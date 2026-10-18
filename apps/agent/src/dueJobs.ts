@@ -44,6 +44,23 @@ export async function enqueue(
   return rows.length > 0;
 }
 
+/** What each owner's register.ts receives: register its kinds at boot, enqueue at runtime. */
+export type Jobs = { register: typeof registerJob; enqueue: typeof enqueue };
+export const jobs: Jobs = { register: registerJob, enqueue };
+
+/**
+ * Dedupe keys for kinds enqueued by one owner and handled by another (docs/research/standard-names.md). Build
+ * them here, never by hand, so both sides agree; a mismatched key silently defeats the (kind, dedupe_key) guard.
+ */
+export const jobKeys = {
+  /** kind `recompute`: B's plan.onOptionsReady(planId) enqueues it; A handles it. */
+  recomputeOptions: (planId: string) => `recompute:${planId}:options`,
+  /** kind `check_research_ready` (B). */
+  checkResearchReady: (planId: string, researchRunId: string) => `${planId}:${researchRunId}`,
+  /** kind `voice_nudge`: A schedules it at approve_at − 15 min when VOICE_ENABLED; B handles it. */
+  voiceNudge: (planId: string, version: number) => `voice:${planId}:${version}`,
+} as const;
+
 // ---------- store (SQL), injectable for tests ----------
 export interface JobStore {
   /** Atomically lease up to `limit` ready jobs of the given kinds; bumps attempts. */

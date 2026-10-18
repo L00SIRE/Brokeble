@@ -5,30 +5,31 @@ const b = (dinner: number, show: number) => ({ dinner: { est_high_pp_usd: dinner
 
 describe("priceBundle", () => {
   it("uses the PLAN constants", () => {
-    expect(TAX).toBe(0.0975);
+    expect(TAX).toBe(0.1025); // CDTFA L-1037
     expect(TIP).toBe(0.18);
   });
 
   it("applies tax+tip to dinner, tax only to show, and rounds up to a whole dollar", () => {
-    // 20*1.2775 + 10*1.0975 = 25.55 + 10.975 = 36.525 → $37
+    // 20*1.2825 + 10*1.1025 = 25.65 + 11.025 = 36.675 → $37
     expect(priceBundle(b(20, 10))).toBe(3700);
-    // 40*1.2775 = 51.10 → $52
+    // 40*1.2825 = 51.30 → $52
     expect(priceBundle(b(40, 0))).toBe(5200);
-    // 0 + 25*1.0975 = 27.4375 → $28
+    // 0 + 25*1.1025 = 27.5625 → $28
     expect(priceBundle(b(0, 25))).toBe(2800);
   });
 
   it("does not round up an exact dollar (no float drift)", () => {
-    // 100*1.0975 = 109.75; 400*1.2775 = 511.00 exactly
-    expect(priceBundle(b(400, 0))).toBe(51100);
-    expect(priceBundle(b(0, 400))).toBe(43900);
+    // 400*1.2825 = 513.00 and 400*1.1025 = 441.00 exactly; 0.1025 is not exact in binary floating point
+    expect(priceBundle(b(400, 0))).toBe(51300);
+    expect(priceBundle(b(0, 400))).toBe(44100);
+    expect(priceBundle(b(400, 400))).toBe(95400);
     expect(priceBundle(b(0, 0))).toBe(0);
   });
 
   it("matches the formula for every integer pair up to $120", () => {
     for (let d = 0; d <= 120; d += 7) {
       for (let s = 0; s <= 120; s += 5) {
-        const exact = (d * 12775 + s * 10975) / 10000; // dollars
+        const exact = (d * 12825 + s * 11025) / 10000; // dollars
         const all = priceBundle(b(d, s));
         expect(all % 100).toBe(0);
         expect(all / 100).toBeGreaterThanOrEqual(exact);

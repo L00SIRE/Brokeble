@@ -105,6 +105,8 @@ export const PublicBundle = z.strictObject({
   pitch: z.string().max(280),
 });
 export type PublicBundle = z.infer<typeof PublicBundle>;
+export const RateCandidate = PublicBundle.extend({ index: z.number().int().min(1).max(20) }); // rating input only
+export type RateCandidate = z.infer<typeof RateCandidate>;
 
 // ---------- delegate I/O (LLM-facing schemas: only types/enums; code validates ranges after) ----------
 export const DelegateInput = z.strictObject({
@@ -262,7 +264,12 @@ export const VenueEvent = z.strictObject({
   ]),
   share_id: z.string().nullable(),
   payer_ref: z.string().nullable(),
-  data: z.record(z.string(), z.unknown()), // e.g. {cybs_payment_id_short, card_last4} | TapVerifyReport
+  // Per type (C §3.1): share.authorized {amount_cents, card_brand, card_last4, cybs_payment_id_short ('…'+last 8)};
+  // share.declined {pay_url, expires_at}; share.released {retry, pay_url?, expires_at?} (retry decides whether a retry
+  // link is sent); share.captured {amount_cents, cybs_capture_id_short}; order.captured {total_cents};
+  // order.cancelled {reason}; order.needs_attention {share_ids}. The venue never emits tap.verified.
+  // pay_url travels only on this HMAC hook; never written to app.events/SSE/logs.
+  data: z.record(z.string(), z.unknown()),
 });
 export type VenueEvent = z.infer<typeof VenueEvent>;
 
@@ -379,6 +386,7 @@ export const SseEvent = z.discriminatedUnion("type", [
     type: z.literal("counters"), groups_converted: z.number().int(),
     fronted_by_individual_cents: z.literal(0), holds_released: z.number().int(),
   }),
+  // Partial list: the console merges contexts by name. B emits scout_input:*, A emits fanout + delegate:*.
   z.strictObject({
     type: z.literal("xray"),
     contexts: z.array(

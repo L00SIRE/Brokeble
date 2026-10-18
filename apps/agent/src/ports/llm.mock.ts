@@ -1,7 +1,7 @@
 // LLM_MODE=mock: deterministic keyword parses so flows and tests run offline. Same contract as the real adapter:
 // the input is one person's DelegateInput (P2) and the output is a schema value that code validates afterwards.
 import { createHash } from "node:crypto";
-import type { BallotConstraint, BallotParse, BudgetParse, DelegateInput, DietaryTag, Preferences, PublicBundle, Ratings, Vibe } from "@tab/shared";
+import type { BallotConstraint, BallotParse, BudgetParse, DelegateInput, DietaryTag, Preferences, PublicBundle, RateCandidate, Ratings, Vibe } from "@tab/shared";
 import type { LLMPort } from "./types";
 
 const DIETARY: [RegExp, DietaryTag][] = [
@@ -66,10 +66,10 @@ export class MockLLM implements LLMPort {
     return { approvals: none ? [] : approvals, constraints, none_of_these: none, intent: decided ? "ballot" : "other", confidence: decided ? "high" : "low" };
   }
 
-  async rateBundles(prefs: Preferences, bundles: PublicBundle[]): Promise<Ratings> {
+  async rateBundles(prefs: Preferences, candidates: RateCandidate[]): Promise<Ratings> {
     const seed = JSON.stringify(prefs);
     return {
-      ratings: bundles.map((b) => {
+      ratings: candidates.map((b) => {
         const jitter = parseInt(createHash("sha256").update(seed + b.id).digest("hex").slice(0, 4), 16) / 0xffff;
         const fit = prefs.dietary.filter((d) => b.dietary_fit.includes(d)).length * 0.1;
         return { index: b.index, score: Math.min(1, Math.max(0.05, 0.4 + 0.4 * jitter + fit)) };

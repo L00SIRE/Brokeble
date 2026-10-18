@@ -13,6 +13,7 @@ import type {
   OrderStatus,
   Preferences,
   PublicBundle,
+  RateCandidate,
   Ratings,
   ResearchBrief,
 } from "@tab/shared";
@@ -37,11 +38,11 @@ export interface PlannerPort {                         // B. real: CREAO REST. m
   downloadArtifact(runId: string, artifactId: string): Promise<Uint8Array>; // follows redirect; never forwards Bearer cross-origin
 }
 
-export interface LLMPort {                             // A (delegates) + B (ratings). real: Anthropic. mock: deterministic canned parses
+export interface LLMPort {                             // A owns the one adapter (src/delegates/anthropicLLM.ts, one recorder for P5/P7); B owns rate/repair prompts (src/decide/ratePrompt.ts). mock: deterministic canned parses
   parseBudget(i: DelegateInput): Promise<BudgetParse>;          // claude-haiku-5-5
   parsePreferences(i: DelegateInput): Promise<Preferences>;     // claude-haiku-5-5
   parseBallot(i: DelegateInput, shortlist: PublicBundle[]): Promise<BallotParse>; // claude-haiku-5-5
-  rateBundles(prefs: Preferences, bundles: PublicBundle[]): Promise<Ratings>;      // claude-sonnet-5-5, effort "low"
+  rateBundles(prefs: Preferences, candidates: RateCandidate[]): Promise<Ratings>;      // claude-sonnet-5-5, effort "low"
   repairScoutJson(raw: string, category: "dinner" | "show"): Promise<unknown>;    // claude-haiku-5-5; Scout text only
 }
 

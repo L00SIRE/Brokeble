@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "../src/db";
 import { enqueue, pgJobStore } from "../src/dueJobs";
-import { emit, fetchEventsAfter, startEventBroadcaster, subscribe, type StoredEvent } from "../src/events";
+import { emit, eventsRoutes, fetchEventsAfter, startEventBroadcaster, subscribe, type StoredEvent } from "../src/events";
 
 const run = randomUUID().slice(0, 8);
 const kind = `test.${run}`;
@@ -53,6 +53,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("postgres integration", () => {
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
   });
 
+  it("GET /events/snapshot returns { last_id, events: { id, data }[] }: the last 500, oldest first", async () => {
+    for (let i = 0; i < 3; i++) await emit({ type: "system", level: "info", msg: `snap ${run} ${i}` });
+    const res = await eventsRoutes.request(`/events/snapshot?k=${process.env.CONSOLE_KEY}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { last_id: number; events: StoredEvent[] };
+    const ids = body.events.map((e) => e.id);
+    expect(body.events.length).toBeLessThanOrEqual(500);
+    expect(ids).toEqual([...ids].sort((a, b) => a - b));
+    expect(body.last_id).toBe(ids.at(-1));
+    // Other DB-gated files may emit concurrently into the same database, so match this run's rows only.
+    const mine = body.events.filter((e) => e.data.type === "system" && e.data.msg.startsWith(`snap ${run} `));
+    expect(mine.map((e) => e.data)).toEqual([0, 1, 2].map((i) => ({ type: "system", level: "info", msg: `snap ${run} ${i}` })));
+    expect(Object.keys(body.events[0]!).sort()).toEqual(["data", "id"]);
+  });
+
   it("emit broadcasts committed events and never rolled-back ones", async () => {
     const got: StoredEvent[] = [];
     const unsubscribe = subscribe((e) => got.push(e));
@@ -63,9 +78,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("postgres integration", () => {
       })
       .catch(() => {});
     const id = await emit({ type: "system", level: "info", msg: `committed ${run}` });
+    const mineNow = () => got.filter((e) => e.data.type === "system" && e.data.msg.includes(run));
+    // NOTIFY delivery can lag under a parallel suite: wait for the committed event, then a short grace for strays.
+    for (let t = 0; t < 50 && mineNow().length === 0; t++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 300));
     unsubscribe();
-    const mine = got.filter((e) => e.data.type === "system" && e.data.msg.includes(run));
+    const mine = mineNow();
     expect(mine.map((e) => e.id)).toEqual([id]);
     expect((await fetchEventsAfter(id - 1, 1))[0]).toEqual({ id, data: { type: "system", level: "info", msg: `committed ${run}` } });
   });

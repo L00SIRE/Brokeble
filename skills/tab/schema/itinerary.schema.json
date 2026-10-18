@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plan_ref": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "stops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "dinner",
+              "show"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 400
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "address",
+          "time",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "logistics": {
+      "type": "object",
+      "properties": {
+        "getting_there": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "parking": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "doors": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "dress_code": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "know_before": {
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "getting_there",
+        "parking",
+        "doors",
+        "dress_code",
+        "know_before"
+      ],
+      "additionalProperties": false
+    },
+    "ics": {
+      "type": "string",
+      "maxLength": 20000,
+      "format": "starts_with",
+      "pattern": "^BEGIN:VCALENDAR.*"
+    },
+    "notion_url": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uri"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "plan_ref",
+    "title",
+    "date",
+    "stops",
+    "logistics",
+    "ics",
+    "notion_url"
+  ],
+  "additionalProperties": false
+}

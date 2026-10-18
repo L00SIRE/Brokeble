@@ -1,29 +1,21 @@
-// pnpm db:migrate — applies db/migrations/*.sql in name order to $DATABASE_URL, once each.
-// Run as the schema owner (Supabase `postgres`), not tab_agent: e.g. `DATABASE_URL=<owner url> pnpm db:migrate`
-// (a shell value overrides apps/agent/.env.local). Applied files are recorded in public.tab_schema_migrations.
-// Files with psql meta-commands (003_roles.sql) go through psql with their `:'VAR'` values from the environment
-// (AGENT_DB_PW, VENUE_DB_PW); if any is unset the file is skipped with a notice (single-role local dev).
-import { spawnSync } from "node:child_process";
+// pnpm db:migrate — applies db/migrations/*.sql in name order to $OWNER_DATABASE_URL, once each, each in a transaction.
+// OWNER_DATABASE_URL is the schema owner (Supabase `postgres`; direct or session pooler, not the :6543 transaction
+// pooler). Never tab_agent: db/roles.sql's default privileges cover only tables the owner creates. Local/CI only.
+// Applied files are recorded in public.tab_schema_migrations. Roles are NOT a migration: run db/roles.sql once via psql.
 import { readdir, readFile } from "node:fs/promises";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
+const url = process.env.OWNER_DATABASE_URL;
 if (!url) {
-  console.error("db:migrate needs DATABASE_URL (owner role)");
+  console.error("db:migrate needs OWNER_DATABASE_URL (postgres-role URL; local/CI only, see db/README.md)");
   process.exit(1);
 }
 const dir = new URL("../../../db/migrations/", import.meta.url);
 const sql = postgres(url, { max: 1, onnotice: () => {} });
-
-/** libpq env vars instead of argv, so no password shows up in the process list. */
-function pgEnv(u: URL): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    PGHOST: u.hostname, PGPORT: u.port || "5432", PGUSER: decodeURIComponent(u.username),
-    PGPASSWORD: decodeURIComponent(u.password), PGDATABASE: decodeURIComponent(u.pathname.slice(1)) || "postgres",
-    ...(u.searchParams.get("sslmode") ? { PGSSLMODE: u.searchParams.get("sslmode")! } : {}),
-  };
+class MigrationError extends Error {
+  override name = "MigrationError";
 }
+let current: string | undefined;
 
 try {
   await sql`create table if not exists public.tab_schema_migrations (name text primary key, applied_at timestamptz not null default now())`;
@@ -31,30 +23,24 @@ try {
   const files = (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort();
   for (const name of files) {
     if (applied.has(name)) continue;
+    current = name;
     const text = await readFile(new URL(name, dir), "utf8");
-    if (/^\\/m.test(text)) {
-      const vars = [...new Set([...text.matchAll(/:'(\w+)'/g)].map((m) => m[1]!))];
-      const missing = vars.filter((v) => !process.env[v]);
-      if (missing.length) {
-        console.warn(`skip ${name}: needs ${missing.join(", ")} (see db/README.md)`);
-        continue;
-      }
-      // Variables are \set on stdin, quoted psql-style ('' escapes '), so values never reach argv.
-      const prelude = vars.map((v) => `\\set ${v} '${process.env[v]!.replace(/'/g, "''")}'\n`).join("");
-      const r = spawnSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"], { input: prelude + text, env: pgEnv(new URL(url)), stdio: ["pipe", "inherit", "inherit"] });
-      if (r.error || r.status !== 0) throw new Error(`${name}: psql failed${r.error ? ` (${r.error.message})` : ""}`);
-      await sql`insert into public.tab_schema_migrations (name) values (${name})`;
-    } else {
-      await sql.begin(async (tx) => {
-        await tx.unsafe(text).simple();
-        await tx`insert into public.tab_schema_migrations (name) values (${name})`;
-      });
-    }
+    // postgres.js sends plain SQL; a psql meta-command (\set, \gexec, :'VAR') would fail mid-file.
+    if (/^\s*\\/m.test(text)) throw new MigrationError(`psql meta-commands are not allowed in migrations (put them in db/roles.sql)`);
+    await sql.begin(async (tx) => {
+      await tx.unsafe(text).simple();
+      await tx`insert into public.tab_schema_migrations (name) values (${name})`;
+    });
     console.log(`applied ${name}`);
   }
   console.log("db:migrate done");
 } catch (e) {
-  console.error(`db:migrate failed: ${e instanceof Error ? e.message : String(e)}`);
+  // Server-side SQL errors (PostgresError) are safe and useful to print; connection-level errors can name the host
+  // or user, so for those print only the error name and code. Never print the error object.
+  const err = e instanceof Error ? e : new Error("unknown");
+  const code = "code" in err ? String(err.code) : "";
+  const detail = err.name === "PostgresError" || err instanceof MigrationError ? `: ${err.message}` : "";
+  console.error(`db:migrate failed${current ? ` in ${current}` : ""}: ${err.name}${code ? ` [${code}]` : ""}${detail}`);
   console.error("If a file was already applied by hand, record it: insert into public.tab_schema_migrations (name) values ('<file>');");
   process.exitCode = 1;
 } finally {

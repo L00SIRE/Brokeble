@@ -3,11 +3,11 @@
 import { env, type Env } from "../env";
 import { emit } from "../events";
 import { errInfo, log } from "../log";
-import { AnthropicLLM } from "./llm.anthropic";
+import { AnthropicLLM } from "../delegates/anthropicLLM";
 import { MockLLM } from "./llm.mock";
 import { MockMessaging } from "./messaging.mock";
-import { PhotonMessaging } from "./messaging.photon";
-import { CreaoPlanner } from "./planner.creao";
+import { PhotonMessaging } from "../photon/messaging";
+import { CreaoPlanner } from "../creao/client";
 import { MockPlanner } from "./planner.mock";
 import type { LLMPort, MessagingPort, PlannerPort, VenuePort } from "./types";
 import { LiveVenue } from "./venue.live";

@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plan_ref": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "dinner",
+        "show"
+      ]
+    },
+    "options": {
+      "minItems": 6,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "const": "dinner"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "address": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 200
+              },
+              "area": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "price_tier": {
+                "type": "string",
+                "enum": [
+                  "<$25",
+                  "$25-50",
+                  "$50+"
+                ]
+              },
+              "est_low_pp_usd": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "est_high_pp_usd": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "price_evidence_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "dietary_fit": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "vegetarian",
+                    "vegan",
+                    "pescatarian",
+                    "gluten_free",
+                    "dairy_free",
+                    "nut_free",
+                    "halal",
+                    "kosher"
+                  ]
+                }
+              },
+              "pitch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 140
+              },
+              "opens": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "closes": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "hours_evidence_url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "category",
+              "name",
+              "address",
+              "area",
+              "url",
+              "price_tier",
+              "est_low_pp_usd",
+              "est_high_pp_usd",
+              "price_evidence_url",
+              "dietary_fit",
+              "pitch",
+              "opens",
+              "closes",
+              "hours_evidence_url"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "const": "show"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "address": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 200
+              },
+              "area": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "price_tier": {
+                "type": "string",
+                "enum": [
+                  "<$25",
+                  "$25-50",
+                  "$50+"
+                ]
+              },
+              "est_low_pp_usd": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "est_high_pp_usd": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "price_evidence_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "dietary_fit": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "vegetarian",
+                    "vegan",
+                    "pescatarian",
+                    "gluten_free",
+                    "dairy_free",
+                    "nut_free",
+                    "halal",
+                    "kosher"
+                  ]
+                }
+              },
+              "pitch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 140
+              },
+              "show_start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "show_end_est": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "showtime_evidence_url": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "category",
+              "name",
+              "address",
+              "area",
+              "url",
+              "price_tier",
+              "est_low_pp_usd",
+              "est_high_pp_usd",
+              "price_evidence_url",
+              "dietary_fit",
+              "pitch",
+              "show_start",
+              "show_end_est",
+              "showtime_evidence_url"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "plan_ref",
+    "category",
+    "options"
+  ],
+  "additionalProperties": false
+}

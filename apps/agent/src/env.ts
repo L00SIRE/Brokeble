@@ -5,6 +5,19 @@ import * as z from "zod";
 const secret32 = z.string().min(32);
 const url = z.url();
 
+/** DEMO_TEAM is PII (phones): parse failures must never echo the value, so JSON errors are replaced, not rethrown. */
+const DemoTeam = z
+  .string()
+  .transform((s, ctx) => {
+    try {
+      return JSON.parse(s) as unknown;
+    } catch {
+      ctx.addIssue({ code: "custom", message: "must be a JSON array of {phone_e164, first_name}" });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.array(z.strictObject({ phone_e164: z.e164(), first_name: z.string().trim().min(1).max(40) })).max(8));
+
 const Env = z
   .object({
     NODE_ENV: z.string().default("development"),
@@ -12,6 +25,8 @@ const Env = z
     PUBLIC_BASE_URL: url.optional(),
     WEB_ORIGIN: url.default("http://localhost:3000"),
     DATABASE_URL: url,
+    OWNER_DATABASE_URL: url.optional(), // migrations only (postgres role); local/CI, never on Fly or Vercel
+    TEST_DATABASE_URL: url.optional(), // DB-gated tests; local/CI only
 
     MESSAGING_MODE: z.enum(["photon", "mock"]).default("mock"),
     PHOTON_API_KEY: z.string().startsWith("pho_sk_").optional(),
@@ -27,6 +42,7 @@ const Env = z
     CREAO_CONCIERGE_APP_ID: z.string().optional(),
     CREAO_HOOK_SECRET: secret32.optional(),
     TAB_AGENT_TOKEN: secret32.optional(),
+    AGENT_API_ALLOW_TEST_REF: z.stringbool().default(false), // 1 only while building the CREAO agents
 
     VENUE_MODE: z.enum(["live", "mock"]).default("mock"),
     VENUE_BASE_URL: url.optional(),
@@ -39,6 +55,14 @@ const Env = z
     CONSOLE_KEY: z.string().min(16).optional(),
     OPERATOR_KEY: z.string().min(16).optional(),
     DEMO_TIMERS: z.stringbool().default(false),
+    DEMO_TEAM: DemoTeam.default([]),
+    DEMO_CODE: z.string().regex(/^\d{4}$/).default("4821"),
+    TYPING_REFRESH_MS: z.coerce.number().int().min(1000).max(60_000).default(5000),
+    VOICE_ENABLED: z.stringbool().default(false),
+    ELEVENLABS_API_KEY: z.string().optional(),
+    ELEVENLABS_AGENT_ID: z.string().optional(),
+    ELEVENLABS_PHONE_NUMBER_ID: z.string().optional(),
+    ELEVENLABS_WEBHOOK_SECRET: z.string().optional(),
     NOTION_TOKEN: z.string().optional(),
     NOTION_PARENT_PAGE_ID: z.string().optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -52,6 +76,8 @@ const Env = z
     need(e.LLM_MODE === "anthropic", ["ANTHROPIC_API_KEY"], "LLM_MODE=anthropic");
     need(e.PLANNER_MODE === "live", ["CREAO_API_KEY", "CREAO_SCOUT_APP_ID", "CREAO_CONCIERGE_APP_ID", "CREAO_HOOK_SECRET"], "PLANNER_MODE=live");
     need(e.VENUE_MODE === "live", ["VENUE_BASE_URL", "TAP_KEY_ID", "TAP_PRIVATE_KEY_PEM_B64", "VENUE_HOOK_SECRET", "VENUE_OPS_KEY"], "VENUE_MODE=live");
+    need(e.NODE_ENV === "production", ["PAYER_REF_SECRET"], "NODE_ENV=production");
+    need(e.VOICE_ENABLED, ["ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID", "ELEVENLABS_PHONE_NUMBER_ID", "ELEVENLABS_WEBHOOK_SECRET"], "VOICE_ENABLED=1");
   });
 
 export type Env = z.infer<typeof Env>;

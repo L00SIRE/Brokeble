@@ -1,0 +1,26 @@
+{
+  "plan": {
+    "title": "Dinner + show",
+    "area": "Westwood / Sawtelle",
+    "time_start": "18:30",
+    "time_end": "23:00",
+    "party_target": 4
+  },
+  "members": [
+    {
+      "target_pp_cents": 4500,
+      "hard_max_pp_cents": 6000,
+      "prefs": { "cuisines_like": ["thai", "ramen"], "cuisines_avoid": [], "dietary": [], "vibe": ["casual", "lively"], "earliest_start": null, "latest_end": null, "dealbreakers": [] }
+    },
+    {
+      "target_pp_cents": 5500,
+      "hard_max_pp_cents": null,
+      "prefs": { "cuisines_like": ["italian"], "cuisines_avoid": ["sushi"], "dietary": ["vegetarian"], "vibe": ["lively"], "earliest_start": null, "latest_end": "23:00", "dealbreakers": [] }
+    },
+    {
+      "target_pp_cents": 4000,
+      "hard_max_pp_cents": 5000,
+      "prefs": { "cuisines_like": ["mexican", "tacos"], "cuisines_avoid": [], "dietary": [], "vibe": ["casual"], "earliest_start": "18:00", "latest_end": null, "dealbreakers": [] }
+    }
+  ]
+}

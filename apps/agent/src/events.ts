@@ -157,7 +157,7 @@ eventsRoutes.get("/events", consoleOnly, (c) => {
   });
 });
 
-/** Recent history for a console that just opened. Shape per B's proposal (C-6); A owns the final contract. */
+/** GET /events/snapshot?k= → { last_id, events: { id, data }[] }: the last 500 events, oldest first (PLAN §18). */
 eventsRoutes.get("/events/snapshot", consoleOnly, async (c) => {
   const rows = await sql<{ id: string; data: SseEvent }[]>`
     select t.id::text as id, t.data from (select id, data from app.events order by id desc limit ${PAGE}) t order by t.id`;

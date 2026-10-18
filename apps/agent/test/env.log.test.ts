@@ -29,6 +29,50 @@ describe("parseEnv", () => {
   it("requires DATABASE_URL", () => {
     expect(() => parseEnv({})).toThrow(/DATABASE_URL/);
   });
+
+  it("mock mode boots with every optional var missing, using the PLAN §11 defaults", () => {
+    const e = parseEnv({ DATABASE_URL: DB });
+    expect(e.OWNER_DATABASE_URL).toBeUndefined();
+    expect(e.TEST_DATABASE_URL).toBeUndefined();
+    expect(e.AGENT_API_ALLOW_TEST_REF).toBe(false);
+    expect(e.DEMO_TEAM).toEqual([]);
+    expect(e.DEMO_CODE).toBe("4821");
+    expect(e.TYPING_REFRESH_MS).toBe(5000);
+    expect(e.VOICE_ENABLED).toBe(false);
+  });
+
+  it("parses the new vars", () => {
+    const e = parseEnv({
+      DATABASE_URL: DB, OWNER_DATABASE_URL: DB, TEST_DATABASE_URL: DB, AGENT_API_ALLOW_TEST_REF: "1", DEMO_CODE: "1234",
+      TYPING_REFRESH_MS: "8000", DEMO_TEAM: '[{"phone_e164":"+13105550101","first_name":"Ana"}]',
+    });
+    expect(e.AGENT_API_ALLOW_TEST_REF).toBe(true);
+    expect(e.DEMO_CODE).toBe("1234");
+    expect(e.TYPING_REFRESH_MS).toBe(8000);
+    expect(e.DEMO_TEAM).toEqual([{ phone_e164: "+13105550101", first_name: "Ana" }]);
+    expect(() => parseEnv({ DATABASE_URL: DB, DEMO_CODE: "48a1" })).toThrow(/DEMO_CODE/);
+  });
+
+  it("DEMO_TEAM errors name the key but never echo the PII value", () => {
+    for (const bad of ["[{phone_e164:+13105550199}", '[{"phone_e164":"3105550199","first_name":"Zed"}]']) {
+      try {
+        parseEnv({ DATABASE_URL: DB, DEMO_TEAM: bad });
+        expect.unreachable();
+      } catch (e) {
+        expect(String(e)).toMatch(/DEMO_TEAM/);
+        expect(String(e)).not.toContain("3105550199");
+        expect(String(e)).not.toContain("Zed");
+      }
+    }
+  });
+
+  it("VOICE_ENABLED=1 requires the ElevenLabs set", () => {
+    expect(() => parseEnv({ DATABASE_URL: DB, VOICE_ENABLED: "1" })).toThrow(/ELEVENLABS_API_KEY[\s\S]*ELEVENLABS_WEBHOOK_SECRET/);
+    const e = parseEnv({
+      DATABASE_URL: DB, VOICE_ENABLED: "1", ELEVENLABS_API_KEY: "k", ELEVENLABS_AGENT_ID: "a", ELEVENLABS_PHONE_NUMBER_ID: "p", ELEVENLABS_WEBHOOK_SECRET: "s",
+    });
+    expect(e.VOICE_ENABLED).toBe(true);
+  });
 });
 
 describe("logger redaction", () => {

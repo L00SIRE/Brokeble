@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import * as shared from "../src/index";
 import {
   AgentProgress, Ballot, BallotParse, BudgetParse, Bundle, CommitResult, ConciergeInput, CreaoRun, CreateOrderRequest,
-  CreateOrderResponse, DelegateInput, InboundEvent, Itinerary, OrderStatus, Preferences, PublicBundle, Ratings,
+  CreateOrderResponse, DelegateInput, InboundEvent, Itinerary, OrderStatus, Preferences, PublicBundle, RateCandidate, Ratings,
   ResearchBrief, ScoutOption, ScoutSubmission, SseEvent, TemplateId, COPY, VARS, ValidationResult, VenueEvent,
 } from "../src/index";
 import { PrivateConstraints } from "../src/private";
@@ -46,6 +47,7 @@ const fixtures: Array<[string, { parse: (v: unknown) => unknown }, unknown]> = [
     dinner_time: "18:30", show_start: "20:30", show_end_est: "22:00", all_in_pp_cents: 5800,
   }],
   ["PublicBundle", PublicBundle, publicBundle],
+  ["RateCandidate", RateCandidate, { ...publicBundle, index: 15 }],
   ["DelegateInput", DelegateInput, { user_first_name: "Sam", stage: "budget", message_text: "30 tops" }],
   ["BudgetParse", BudgetParse, { target_pp_cents: 3000, hard_max_pp_cents: null, confidence: "high" }],
   ["Preferences", Preferences, {
@@ -83,6 +85,10 @@ const fixtures: Array<[string, { parse: (v: unknown) => unknown }, unknown]> = [
     event_id: "evt_1", at, order_id: "ord_0123456789", plan_ref: uuid, type: "share.authorized",
     share_id: "shr_a", payer_ref: "a".repeat(32), data: { card_last4: "1111" },
   }],
+  ["VenueEvent share.released{retry}", VenueEvent, {
+    event_id: "evt_2", at, order_id: "ord_0123456789", plan_ref: uuid, type: "share.released",
+    share_id: "shr_a", payer_ref: "a".repeat(32), data: { retry: true, pay_url: url, expires_at: at },
+  }],
   ["InboundEvent", InboundEvent, {
     event_id: "evt_1", seq: 12, message_id: "pho_msg_1", platform: "imessage", from_handle: "+13105550100", from_user_id: "u1",
     agent_user_id: "a1", space_id: "s1", space_kind: "direct", content_type: "text", text: "JOIN 4821", parent_message_id: null, received_at: at,
@@ -116,6 +122,7 @@ const sseEvents: unknown[] = [
   { type: "ledger", order_id: "ord_1", lane: 1, status: "CAPTURED", amount_cents: 3700, cybs_id_short: null },
   { type: "counters", groups_converted: 3, fronted_by_individual_cents: 0, holds_released: 2 },
   { type: "xray", contexts: [{ name: "delegate:lane-2", locked: true, preview: null }] },
+  { type: "xray", contexts: [{ name: "scout_input:dinner", locked: false, preview: '{"category":"dinner"}' }] }, // partial list
   { type: "delivery", lane: null, message_id_short: "msg…", status: "delivered" },
   { type: "system", level: "info", msg: "ready" },
 ];
@@ -129,6 +136,13 @@ describe("contract round-trip", () => {
 
   it.each(sseEvents.map((e) => [(e as { type: string }).type, e]))("SseEvent %s round-trips", (_t, e) => {
     expect(SseEvent.parse(JSON.parse(JSON.stringify(e)))).toEqual(e);
+  });
+
+  it("RateCandidate allows rating indices 1..20 while PublicBundle stays 1..3", () => {
+    expect(RateCandidate.safeParse({ ...publicBundle, index: 20 }).success).toBe(true);
+    expect(RateCandidate.safeParse({ ...publicBundle, index: 21 }).success).toBe(false);
+    expect(RateCandidate.safeParse({ ...publicBundle, index: 0 }).success).toBe(false);
+    expect(PublicBundle.safeParse({ ...publicBundle, index: 4 }).success).toBe(false);
   });
 
   it("covers every SseEvent variant", () => {
@@ -150,6 +164,16 @@ describe("strictness (privacy)", () => {
 
   it("P1: PrivateConstraints is not exported from the public entry", () => {
     expect("PrivateConstraints" in shared).toBe(false);
+  });
+
+  it("tap helpers (node:crypto) stay behind the ./tap subpath, out of browser bundles", () => {
+    expect("canonicalConsent" in shared).toBe(false);
+    expect("consentFromOrder" in shared).toBe(false);
+  });
+
+  it("package exports are exactly . ./private ./tap ./pricing ./templates", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { exports: Record<string, string> };
+    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./pricing", "./private", "./tap", "./templates"]);
   });
 
   it("ScoutOption enforces est_high >= est_low and the category discriminator", () => {

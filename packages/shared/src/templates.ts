@@ -26,6 +26,22 @@ export const TemplateId = z.enum([
   "T_DECLINED_RETRY",
   "T_ITINERARY",
   "T_ORG_JOIN_STATUS",
+  // A-additive (A plan §3.3 / T5)
+  "T_HELP",
+  "T_STATUS",
+  "T_OUT_ACK",
+  "T_RECEIPTS",
+  "T_FORGOTTEN",
+  "T_ORGANIZER_ONLY",
+  "T_BALLOT_CLARIFY",
+  "T_BUDGET_CONFIRM_NOCAP",
+  "T_SMALL_GROUP",
+  "T_NOT_IN_PLAN",
+  "T_CARD_REMOVED",
+  // B C-4 voice recaps (copy by A): a call never moves money, so each recap points back to a text action.
+  "T_VOICE_RECAP_IN",
+  "T_VOICE_RECAP_OUT",
+  "T_VOICE_RECAP_LATER",
 ]);
 export type TemplateId = z.infer<typeof TemplateId>;
 
@@ -57,6 +73,21 @@ export const COPY = {
   T_DECLINED_RETRY: "That card didn't go through (only you see this). Try again: {url}",
   T_ITINERARY: "Your night, planned: {itinerary_url} · Add to calendar: {ics_url}",
   T_ORG_JOIN_STATUS: "{k} of {n} joined. Reply GO to plan with {k}, or WAIT.",
+  T_HELP: "Text STATUS, I'M OUT, RECEIPTS, CHANGE BUDGET or FORGET ME. Your budget stays between us.",
+  T_STATUS: "{title}: {phase}.",
+  T_OUT_ACK: "Got it, you're out of {title}. Nobody's told why.",
+  T_RECEIPTS: "Your bookings:\n{lines}",
+  T_FORGOTTEN: "Done. I deleted your budget, preferences and votes.",
+  T_ORGANIZER_ONLY: "Only the organizer can do that.",
+  T_BALLOT_CLARIFY: "Which ones would you be happy with? Reply with numbers, like '1 3'.",
+  T_BUDGET_CONFIRM_NOCAP: "Just between us: no hard cap. Text 'change budget' anytime.",
+  T_SMALL_GROUP: "Heads up: with fewer than 3 people, it's easier to guess each other's limits. Reply GO again to continue.",
+  T_NOT_IN_PLAN: "I don't see you in a plan yet. Open the join link your friend shared.",
+  T_CARD_REMOVED: "Done. Your saved card is removed from the venue.",
+  T_VOICE_RECAP_IN:
+    "Thanks for the call! Tap the hold link I sent to lock in {title}. Nobody's charged unless everyone's in by {deadline}.",
+  T_VOICE_RECAP_OUT: "Thanks for the call. If you're sitting this one out, text I'M OUT. Nobody's told why.",
+  T_VOICE_RECAP_LATER: "Thanks for the call. No rush: your hold link for {title} works until {deadline}.",
 } as const satisfies Record<TemplateId, string>;
 
 const s = z.string().min(1);
@@ -87,6 +118,20 @@ export const VARS = {
   T_DECLINED_RETRY: z.strictObject({ url: z.url() }),
   T_ITINERARY: z.strictObject({ itinerary_url: z.url(), ics_url: z.url() }),
   T_ORG_JOIN_STATUS: z.strictObject({ k: count, n: count }),
+  T_HELP: none,
+  T_STATUS: z.strictObject({ title: s, phase: s }), // phase from a fixed code map; never names or budgets
+  T_OUT_ACK: z.strictObject({ title: s }),
+  T_RECEIPTS: z.strictObject({ lines: s }), // code-built lines, or "None yet."
+  T_FORGOTTEN: none,
+  T_ORGANIZER_ONLY: none,
+  T_BALLOT_CLARIFY: none,
+  T_BUDGET_CONFIRM_NOCAP: none,
+  T_SMALL_GROUP: none,
+  T_NOT_IN_PLAN: none,
+  T_CARD_REMOVED: none,
+  T_VOICE_RECAP_IN: z.strictObject({ title: s, deadline: s }),
+  T_VOICE_RECAP_OUT: none,
+  T_VOICE_RECAP_LATER: z.strictObject({ title: s, deadline: s }),
 } as const satisfies Record<TemplateId, z.ZodObject>;
 
 export type TemplateVars<T extends TemplateId> = z.infer<(typeof VARS)[T]>;
