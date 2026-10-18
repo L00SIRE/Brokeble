@@ -6,6 +6,7 @@
 // appear below; the projector view stays readable from 5 m.
 import type { TapStep } from "@tab/shared";
 import { useEffect, useState } from "react";
+import type { TapTestReply } from "@/lib/agent";
 import { DotIcon } from "@/components/brand/DotIcon";
 import type { ConsoleState } from "@/lib/consoleReducer";
 import { tapSummary, type TapLine } from "@/lib/consoleView";
@@ -97,6 +98,20 @@ function BusinessChecks({ business }: { business: Business }) {
   );
 }
 
+const KIND_LABEL: Record<TapTestKind, string> = { tamper: "Tamper", replay: "Replay", expired: "Expired", wrong_tag: "Wrong tag" };
+
+/** One plain line for a judge: which step rejected the cheat, why, and whether that is the step it should hit. */
+export function tapResultText(kind: TapTestKind, r: TapTestReply): string {
+  if (!r.ok) return r.message ?? "The test could not run.";
+  const label = KIND_LABEL[kind];
+  if (r.captured) return `${label}: the merchant accepted it. This should not happen.`;
+  if (r.failed_step == null) return `${label}: rejected. ${r.reason ?? ""}`.trim();
+  const name = STEP_NAMES[r.failed_step - 1];
+  const step = `step ${r.failed_step} of 6${name ? ` (${STEP_LABEL[name]})` : ""}`;
+  const match = r.matched ? `expected step ${r.expected_step}, matched` : `expected step ${r.expected_step}`;
+  return `${label}: rejected at ${step}. ${r.reason ?? ""} Nothing was charged. ${match}.`.replace(/\s+/g, " ");
+}
+
 function TestButtons({ onTapTest }: { onTapTest: (kind: TapTestKind) => Promise<unknown> }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
@@ -104,11 +119,10 @@ function TestButtons({ onTapTest }: { onTapTest: (kind: TapTestKind) => Promise<
     setBusy(true);
     setResult("");
     try {
-      await onTapTest(kind);
-      setResult(`Sent ${kind.replace("_", " ")} test. Watch the checks above.`);
+      setResult(tapResultText(kind, (await onTapTest(kind)) as TapTestReply));
     } catch {
       // Error text can carry URLs; show a fixed next step instead.
-      setResult("Request failed. Check the operator key and that an order exists.");
+      setResult("Could not reach the agent. Check the operator key and try again.");
     } finally {
       setBusy(false);
     }
@@ -127,7 +141,7 @@ function TestButtons({ onTapTest }: { onTapTest: (kind: TapTestKind) => Promise<
           {label}
         </button>
       ))}
-      <span role="status" aria-live="polite" className="text-(--c-2)">
+      <span role="status" aria-live="polite" className="basis-full text-(--c-fg)">
         {busy ? "Sending…" : result}
       </span>
     </div>

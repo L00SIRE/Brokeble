@@ -52,10 +52,29 @@ const post = (body: unknown, headers?: HeadersInit): RequestInit => ({
 /** /ops/* reply. `released` is the seat count from release-seats and release-untexted. */
 const OpsResult = z.object({ ok: z.boolean(), released: z.number().int().nonnegative().optional() });
 
+/** POST /ops/tap-test reply: a verdict (200) or a readable refusal (4xx). Either way the body is parsed, never thrown away. */
+export const TapTestReply = z.object({
+  ok: z.boolean(),
+  message: z.string().optional(),
+  expected_step: z.number().int().optional(),
+  failed_step: z.number().int().nullable().optional(),
+  failed_name: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  matched: z.boolean().optional(),
+  captured: z.boolean().optional(),
+});
+export type TapTestReply = z.infer<typeof TapTestReply>;
+
 export const agent = {
   createPlan: (body: CreatePlanRequest) => request("/plans", CreatePlanResponse, post(CreatePlanRequest.parse(body))),
   join: (body: JoinRequest) => request("/join", JoinResponse, post(JoinRequest.parse(body))),
   snapshot: async (key: string) => request(`/events/snapshot?k=${encodeURIComponent(key)}`, await loadSnapshotSchema()),
+  tapTest: async (operatorKey: string, kind: string): Promise<TapTestReply> => {
+    const res = await fetch(`${BASE}/ops/tap-test`, post({ kind }, { Authorization: `Bearer ${operatorKey}` }));
+    const parsed = TapTestReply.safeParse(await res.json().catch(() => null));
+    if (parsed.success && (res.ok || parsed.data.message)) return parsed.data;
+    throw new AgentError(res.status, "POST /ops/tap-test failed");
+  },
   ops: (action: OpsAction, operatorKey: string, body: { kind?: string } = {}) =>
     request(`/ops/${action}`, OpsResult, post(body, { Authorization: `Bearer ${operatorKey}` })),
 };

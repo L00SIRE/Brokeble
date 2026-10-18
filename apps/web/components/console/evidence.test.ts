@@ -3,8 +3,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CreaoRunView } from "@/lib/consoleReducer";
 import { CreaoLane, elapsedFor, formatElapsed } from "./CreaoLane";
-import { stepRows, TapPanel } from "./TapPanel";
+import { stepRows, TapPanel, tapResultText } from "./TapPanel";
 import { formatPreview, sortContexts, XrayPanel } from "./Xray";
+
+describe("tapResultText", () => {
+  it("names the rejecting step, the reason and the match", () => {
+    const t = tapResultText("tamper", { ok: true, expected_step: 6, failed_step: 6, reason: "content-digest mismatch: body changed after signing", matched: true, captured: false });
+    expect(t).toContain("rejected at step 6 of 6 (Signature good)");
+    expect(t).toContain("content-digest mismatch");
+    expect(t).toContain("Nothing was charged");
+    expect(t).toContain("expected step 6, matched");
+  });
+  it("shows the refusal message when there is no order", () => {
+    expect(tapResultText("replay", { ok: false, message: "No order to test yet." })).toBe("No order to test yet.");
+  });
+});
 
 const run = (o: Partial<CreaoRunView> = {}): CreaoRunView => ({
   run_id: "abcdef1234567890",

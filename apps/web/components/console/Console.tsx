@@ -64,7 +64,7 @@ export function Console({ consoleKey, children }: { consoleKey: string | null; c
   const stopped = money.mode === "released" || state.plan?.state === "CANCELLED" || state.plan?.state === "CANCELLING";
   const concierge = stopped ? "stopped" : money.mode !== "captured" && money.heldCount > 0 ? "waits" : null;
   // TAP failure-injection buttons appear only with the ops bar (?ops=1); they reuse its operator key.
-  const onTapTest = ops ? (kind: TapTestKind) => agent.ops("tap-test", readOperatorKey(), { kind }) : undefined;
+  const onTapTest = ops ? (kind: TapTestKind) => agent.tapTest(readOperatorKey(), kind) : undefined;
   // Without a usable key nothing is read: say so in the line read from 5 m, never "Waiting for the group" (§7.3).
   const status: Status = !consoleKey
     ? { big: "Not connected.", small: "Add the console key to the link to watch the plan live." }

@@ -49,14 +49,16 @@ describe("failedSteps (venue sweep 500 body)", () => {
 });
 
 describe("runTapTest", () => {
-  it("refuses replay while the first leg would capture", async () => {
+  it("replay on a fully held OPEN order is rejected and captures nothing", async () => {
     const venue = new MockVenue();
     const o = await venue.createOrder({
       plan_ref: crypto.randomUUID(), plan_version: 1, party_size: 2, payer_refs: ["a".repeat(32), "b".repeat(32)], deadline_at: new Date(Date.now() + 3.6e6).toISOString(),
       bundle: { bundle_key: "bnd_0123456789", date: "2026-10-18", dinner: { name: "D", address: "addr 1", time: "18:00", est_high_pp_usd: 20 }, show: { name: "S", address: "addr 2", time: "20:00", est_high_pp_usd: 10 } },
     });
     for (const s of o.shares) venue.authorize(s.share_id);
-    await expect(runTapTest("replay", o.order_id, venue)).rejects.toThrow(/refused/);
+    const r = await runTapTest("replay", o.order_id, venue);
+    expect(r.result).toBe("rejected");
+    expect((await venue.getOrder(o.order_id)).status).toBe("OPEN");
     expect((await runTapTest("tamper", o.order_id, venue)).expected_step).toBe(6);
   });
 

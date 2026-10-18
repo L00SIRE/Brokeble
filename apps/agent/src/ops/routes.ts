@@ -8,6 +8,8 @@ import { env } from "../env";
 import { ports } from "../ports";
 import { releaseAllExceptTeam, releaseUntexted } from "../join/seats";
 import * as plans from "../repo/plans";
+import { errInfo, log } from "../log";
+import { VenueHttpError } from "../venueClient";
 import { runTapTest } from "../venueClient/tapTest";
 import { replayDemo, ReplayError, resetDemo } from "./reset";
 
@@ -50,16 +52,42 @@ export async function handleReplay(c: Context): Promise<Response> {
   }
 }
 
-/** TapTestBody → C's runTapTest(kind, latestPlanWithOrder().venue_order_id) → 200 {ok:true}. Never triggers cancel. 409 {ok:false} without an order. */
+/** The step the venue rejected at, and whether it is the step this kind is meant to hit. */
+export function tapVerdict(r: Awaited<ReturnType<typeof runTapTest>>) {
+  const failed = r.tap.steps.find((s) => !s.ok) ?? null;
+  return {
+    result: r.result,
+    expected_step: r.expected_step,
+    failed_step: failed?.n ?? null,
+    failed_name: failed?.name ?? null,
+    reason: r.tap.reason ?? failed?.detail ?? null,
+    matched: failed?.n === r.expected_step,
+    captured: r.result === "captured",
+  };
+}
+
+/**
+ * TapTestBody -> runTapTest(kind, latestPlanWithOrder().venue_order_id). Never cancels, never commits (every kind is
+ * rejected by the venue; see tapTest.ts). Never a 5xx: no order or a venue-side refusal is 409, an unreachable or
+ * misbehaving venue is 424, each with a readable `message`.
+ */
 export async function handleTapTest(c: Context): Promise<Response> {
   const denied = requireOperator(c);
   if (denied) return denied;
   const body = TapTestBody.safeParse(await c.req.json().catch(() => null));
-  if (!body.success) return c.json({ ok: false, error: "invalid", issues: z.flattenError(body.error).fieldErrors }, 400);
-  const orderId = (await plans.latestPlanWithOrder())?.venue_order_id;
-  if (!orderId) return c.json({ ok: false, error: "no_order" }, 409);
-  const { result } = await runTapTest(body.data.kind, orderId, ports.venue);
-  return c.json({ ok: true, result });
+  if (!body.success) return c.json({ ok: false, error: "invalid", message: "Unknown test kind.", issues: z.flattenError(body.error).fieldErrors }, 400);
+  try {
+    const orderId = (await plans.latestPlanWithOrder())?.venue_order_id;
+    if (!orderId) return c.json({ ok: false, error: "no_order", message: "No order to test yet. The plan has to reach ordering first." }, 409);
+    const r = await runTapTest(body.data.kind, orderId, ports.venue);
+    return c.json({ ok: true, ...tapVerdict(r) });
+  } catch (e) {
+    log.error(errInfo(e), "ops tap-test failed");
+    if (e instanceof VenueHttpError && e.status >= 400 && e.status < 500) {
+      return c.json({ ok: false, error: "venue_refused", message: `The venue could not find or serve this order (HTTP ${e.status}).` }, 409);
+    }
+    return c.json({ ok: false, error: "venue_unavailable", message: "The venue did not answer. Try again in a few seconds." }, 424);
+  }
 }
 
 /** B's startLiveScoutDemo() → 200 {ok:true, ...result} or 429 {ok:false, reason:"debounced"}. */
