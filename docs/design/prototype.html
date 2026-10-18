@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFB224">
+<title>SquadTab Signal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23FFB224%22/%3E%3Cpath fill=%22%23100E0A%22 fill-rule=%22evenodd%22 d=%22M6 9h20a2 2 0 0 1 2 2v2.4a2.6 2.6 0 0 0 0 5.2V21a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.4a2.6 2.6 0 0 0 0-5.2V11a2 2 0 0 1 2-2ZM21 11.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2ZM21 15a1 1 0 1 0 0 2a1 1 0 1 0 0-2ZM21 18.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2Z%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400..800&family=Funnel+Sans:wght@400..700&family=Martian+Mono:wdth,wght@75..112.5,300..800&display=swap" rel="stylesheet">
+<style>
+/* SquadTab "Signal" prototype, v2 ("the ticket"). Tokens mirror docs/design/design-system.md section 3. */
+:root{
+  --sodium:#FFB224; --sodium-hi:#FFC65A; --sodium-deep:#E59A12; --on-sodium-2:#3A2A06;
+  --ink:#100E0A; --ink-2:#1A1813; --ink-3:#24211A; --rule-night:#34302A;
+  --paper:#F6F1E6; --paper-2:#EDE6D6; --on-paper-2:#6B6355; --rule-paper:#D8CFBC;
+  --night-2:#A39C8C; --night-3:#8C8576;
+  --go:#3BE38B; --go-ink:#0B6B3F;
+  --font-display:"Funnel Display", ui-sans-serif, system-ui, sans-serif;
+  --font-sans:"Funnel Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:"Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease-out:cubic-bezier(.2,.8,.2,1);
+  --ease-snap:cubic-bezier(.7,0,.2,1);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--ink);color:var(--ink);font-family:var(--font-sans);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:inherit}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid currentColor;outline-offset:3px}
+canvas{flex:none;max-width:none;display:block}
+p{margin:0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.mono{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5}
+
+/* ---------- Wordmark: a ticket with a perforation (the tab), never a dot grid ---------- */
+.wordmark{display:inline-flex;align-items:center;gap:9px;text-decoration:none;font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:-.045em;line-height:1}
+.wordmark svg{width:30px;height:20px;flex:none}
+
+/* ---------- Dot icons (7x7, one medium with the signal numerals) ---------- */
+svg.di{width:22px;height:22px;flex:none}
+
+/* ---------- Buttons and inputs ---------- */
+.field-input{width:100%;min-width:0;height:58px;padding:0 18px;border:2px solid var(--ink);border-radius:6px;background:#fff;font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:17px;letter-spacing:.01em}
+.field-input::placeholder{color:var(--on-paper-2);opacity:1}
+.field-input:focus{outline:none;box-shadow:0 0 0 1px var(--ink)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;height:58px;padding:0 26px;border:0;border-radius:6px;background:var(--ink);color:var(--sodium);font-family:var(--font-sans);font-weight:700;font-size:17px;letter-spacing:-.01em;cursor:pointer;white-space:nowrap;text-decoration:none;touch-action:manipulation;transition:transform .08s}
+.btn:active{transform:translateY(1px)}
+.btn .arrow{display:inline-block;transition:transform .25s var(--ease-out)}
+.btn:hover .arrow{transform:translateX(3px)}
+.btn.on-ink{background:var(--sodium);color:var(--ink)}
+.btn svg.di{width:20px;height:20px}
+.textbtn{background:none;border:0;padding:6px 0;font-weight:600;font-size:15px;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:2px;cursor:pointer}
+details>summary{cursor:pointer;list-style:none}
+details>summary::-webkit-details-marker{display:none}
+
+/* =====================================================================
+   HERO: sodium field, giant headline, and the ticket (the plan) as the hero object.
+   ===================================================================== */
+.hero{position:relative;min-height:100svh;background:var(--sodium);overflow:hidden;isolation:isolate}
+.hero canvas.rings{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.hero-inner{position:relative;z-index:1;min-height:100svh;max-width:1440px;margin:0 auto;display:grid;grid-template-rows:auto auto 1fr auto;padding:22px 48px 18px;gap:0}
+.hero header{display:flex;align-items:center;justify-content:space-between}
+.hero header a.navlink{font-size:15px;font-weight:650;text-decoration:none;padding:8px 0;background:linear-gradient(currentColor,currentColor) 0 100%/100% 2px no-repeat}
+.lede{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);column-gap:48px;align-items:end;padding:34px 0 26px}
+.lede h1{font-family:var(--font-display);font-weight:770;font-size:clamp(46px,6.6vw,100px);line-height:.88;letter-spacing:-.055em;margin:0;text-wrap:balance}
+.lede-side{padding-bottom:8px;display:grid;gap:10px}
+.lede-side .tagline{font-family:var(--font-display);font-weight:680;font-size:clamp(19px,1.6vw,24px);letter-spacing:-.03em;line-height:1.12}
+.lede-side .sub{font-size:16.5px;line-height:1.45;color:var(--on-sodium-2);max-width:28em}
+
+/* ---- The ticket ---- */
+.ticket-hero{--perf:22px;position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--perf) 372px;align-self:start;filter:none}
+.t-main{background:var(--ink);color:var(--paper);border-radius:14px 0 0 14px;padding:24px 34px 22px;display:grid;grid-template-rows:auto 1fr auto;min-width:0}
+.t-top{display:flex;justify-content:space-between;align-items:baseline;gap:20px}
+.t-top .eyebrow{font-size:15px;color:var(--night-2)}
+.t-top .eyebrow b{color:var(--paper);font-weight:650}
+.t-flag{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:13px;color:var(--night-2);white-space:nowrap;transition:color .3s}
+.t-flag[data-mode="booked"]{color:var(--go)}
+.t-price{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;column-gap:14px;padding:6px 0 10px}
+.t-price .cur{font-family:var(--font-display);font-weight:800;font-size:92px;line-height:1;letter-spacing:-.04em;color:var(--sodium);align-self:start;margin-top:22px}
+.t-price canvas.price{--ph:clamp(240px,calc(100svh - 525px),400px);height:var(--ph);width:calc(var(--ph) * 1.62)}
+.t-each{align-self:end;padding-bottom:20px;display:grid;gap:6px}
+.t-each .each{font-family:var(--font-display);font-weight:760;font-size:46px;line-height:.9;letter-spacing:-.045em;color:var(--sodium)}
+.t-price .cur,.t-each .each{transition:color .5s var(--ease-out)}
+.ticket-hero[data-torn="true"] .t-price .cur,.ticket-hero[data-torn="true"] .t-each .each{color:var(--paper)}
+.t-each .fits{font-size:15.5px;line-height:1.35;color:var(--night-2);max-width:13em}
+.t-foot{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:36px;align-items:end;border-top:1px solid var(--rule-night);padding-top:16px}
+.seats{display:grid;grid-template-columns:repeat(4,minmax(96px,auto));column-gap:20px;list-style:none;margin:0;padding:0}
+.seat{display:grid;grid-template-columns:16px auto;column-gap:9px;row-gap:2px;align-items:center}
+.seat .lamp{grid-row:1/3;width:14px;height:14px;border-radius:50%;border:2px solid var(--paper);transition:background-color .25s,border-color .25s}
+.seat .nm{font-family:var(--font-display);font-weight:650;font-size:20px;letter-spacing:-.03em;line-height:1}
+.seat .st{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12.5px;color:var(--night-2);line-height:1.2;white-space:nowrap}
+.seat[data-s="HELD"] .lamp{background:var(--sodium);border-color:var(--sodium)}
+.seat[data-s="HELD"] .st{color:var(--sodium)}
+.seat[data-s="CAPTURED"] .lamp{background:var(--go);border-color:var(--go)}
+.seat[data-s="CAPTURED"] .st{color:var(--go)}
+.seat[data-s="RELEASED"] .lamp,.seat[data-s="DECLINED"] .lamp{border-style:dashed;border-color:var(--night-2)}
+.t-status{text-align:right;justify-self:end;max-width:30em}
+.t-status b{display:block;font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:-.03em;line-height:1.1}
+.t-status span{display:block;font-size:15px;color:var(--night-2);margin-top:3px}
+
+/* the perforation between the plan and your seat: punched holes, two notches, and a tear on capture */
+.t-perf{position:relative;background:radial-gradient(circle 3.4px at 50% 50%,var(--sodium) 96%,transparent) 0 6px/100% 15px repeat-y,linear-gradient(90deg,var(--ink) 50%,var(--paper) 50%)}
+.t-perf::before,.t-perf::after{content:"";position:absolute;left:50%;width:30px;height:30px;margin-left:-15px;border-radius:50%;background:var(--sodium);z-index:2}
+.t-perf::before{top:-15px}.t-perf::after{bottom:-15px}
+.t-perf .tear{position:absolute;left:50%;top:0;bottom:0;width:6px;margin-left:-3px;background:var(--sodium);transform:scaleY(0);transform-origin:50% 0;transition:transform .7s var(--ease-snap)}
+.ticket-hero[data-torn="true"] .t-perf .tear{transform:scaleY(1)}
+
+.t-stub{background:var(--paper);color:var(--ink);border-radius:0 14px 14px 0;padding:24px 28px 22px;display:flex;flex-direction:column;min-width:0}
+.stub-kicker{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12.5px;color:var(--on-paper-2);margin-bottom:8px}
+.t-stub h2{font-family:var(--font-display);font-weight:740;font-size:27px;line-height:1;letter-spacing:-.04em;margin:0 0 16px}
+.scan{display:grid;grid-template-columns:168px minmax(0,1fr);gap:16px;align-items:end}
+.scan svg{width:168px;height:168px;display:block;color:var(--ink)}
+.scan p{font-size:15px;line-height:1.4;color:var(--on-paper-2)}
+.scan p b{color:var(--ink);font-weight:650}
+.or-number{margin-top:auto;padding-top:14px;border-top:1px solid var(--rule-paper)}
+.or-number summary{font-weight:650;font-size:15px;display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+.or-number summary::after{content:"+";font-family:var(--font-mono);font-size:18px}
+.or-number[open] summary::after{content:"–"}
+.or-number form{display:grid;gap:8px;padding-top:8px}
+.or-number label{font-weight:600;font-size:14px}
+.or-number .btn{width:100%}
+
+/* phone stub: the start is the first line of a conversation */
+.chatstart{display:grid;gap:10px}
+.chatstart label{font-weight:650;font-size:15px}
+.firsttext{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:baseline;border-left:3px solid var(--sodium);padding:4px 0 4px 12px}
+.firsttext .k{grid-column:1/-1;font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12px;color:var(--on-paper-2)}
+.firsttext q{grid-column:1/-1;font-size:16px;font-weight:600;quotes:"“" "”"}
+.legal{font-size:13px;color:var(--on-paper-2);line-height:1.4}
+.legal summary{display:inline;text-decoration:underline;text-underline-offset:3px}
+.legal p{margin-top:4px}
+.only-phone{display:none}
+.only-desk{display:contents}
+
+.hero footer{display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:14.5px;padding-top:14px}
+.hero footer a{font-weight:650;text-underline-offset:4px;text-decoration-thickness:2px}
+.motion-toggle{display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:10px 0;font-weight:650;font-size:13.5px;cursor:pointer}
+.motion-toggle .glyph{display:inline-flex;gap:3px}
+.motion-toggle .glyph i{display:block;width:4px;height:12px;background:currentColor;border-radius:1px}
+.motion-toggle[aria-pressed="true"] .glyph i:last-child{clip-path:polygon(0 0,100% 50%,0 100%);width:10px}
+.motion-toggle[aria-pressed="true"] .glyph i:first-child{display:none}
+
+/* ---------- Board sections (prototype only) ---------- */
+.board{padding:96px 48px;position:relative}
+.board-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;max-width:1360px;margin:0 auto 40px;flex-wrap:wrap}
+.board-head h2{font-family:var(--font-display);font-weight:720;font-size:clamp(30px,3.4vw,48px);letter-spacing:-.04em;line-height:1;margin:0}
+.board-head p{max-width:36em;font-size:16px}
+.route{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12px;display:block;margin-bottom:12px}
+
+.join-board{background:var(--paper);color:var(--ink)}
+.join-board .route,.join-board .board-head p{color:var(--on-paper-2)}
+.screens{display:flex;gap:36px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.screen-wrap{display:grid;gap:14px;justify-items:start;margin:0}
+.screen-wrap figcaption{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12px;color:var(--on-paper-2)}
+.screen{width:375px;min-height:720px;border-radius:30px;overflow:hidden;position:relative;border:1px solid var(--rule-paper);display:flex;flex-direction:column;background:var(--paper)}
+.screen.in{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.screen .top{display:flex;justify-content:space-between;align-items:center;padding:22px 22px 12px}
+.screen .top .wordmark{font-size:19px}
+.screen .top .wordmark svg{width:26px;height:17px}
+.screen-body{display:flex;flex-direction:column;gap:22px;padding:0 22px 22px;flex:1}
+
+.ticket{background:var(--sodium);border-radius:16px 16px 0 0;padding:20px 20px 24px;position:relative;
+  -webkit-mask:radial-gradient(circle 7px at 50% 100%,#0000 98%,#000) 0 0/18px 100% repeat-x;mask:radial-gradient(circle 7px at 50% 100%,#0000 98%,#000) 0 0/18px 100% repeat-x}
+.ticket .eyebrow{font-size:15px;font-weight:600;margin:0 0 6px;color:var(--on-sodium-2)}
+.ticket h3{font-family:var(--font-display);font-weight:780;font-size:40px;letter-spacing:-.05em;line-height:.92;margin:0 0 10px}
+.ticket .meta{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:12.5px}
+.ticket .count-row{display:flex;align-items:center;justify-content:space-between;margin-top:18px;padding-top:14px;border-top:2px dotted var(--ink)}
+.lamps{display:flex;gap:7px}
+.lamps i{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;display:block}
+.lamps i.on{background:currentColor}
+.count-row .count{font-weight:700;font-size:15px}
+
+.promises{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.promises li{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:start;font-size:15.5px;line-height:1.4}
+.promises svg.di{margin-top:0}
+.join-form{display:grid;gap:8px}
+.join-form label{font-weight:600;font-size:15px}
+.join-form .btn{width:100%;margin-top:4px}
+
+.ready h3{font-family:var(--font-display);font-weight:760;font-size:38px;letter-spacing:-.05em;line-height:.95;margin:0}
+.ready .note{font-size:15px;color:var(--on-paper-2)}
+.ready .already{display:flex;gap:10px;align-items:center;font-size:15px;font-weight:600;padding:12px 14px;border:2px solid var(--ink);border-radius:6px}
+.share-stack{display:grid;gap:6px;margin-top:auto}
+.share-stack .btn{width:100%}
+.share-stack .textbtn{justify-self:center}
+
+.in-body{padding:26px 22px 22px;display:flex;flex-direction:column;flex:1}
+.in-body h3{font-family:var(--font-display);font-weight:760;font-size:52px;letter-spacing:-.055em;line-height:.9;margin:0 0 16px}
+.in-body h3 .stop{color:var(--sodium)}
+.in-body p{color:var(--night-2);font-size:16px}
+.in-tally{margin:30px 0 6px;display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--rule-night)}
+.in-tally .big{font-family:var(--font-display);font-weight:760;font-size:44px;letter-spacing:-.045em;line-height:1;color:var(--sodium)}
+.in-tally .lbl{font-size:14px;color:var(--night-2);margin-top:6px}
+.in-tally .lamps{color:var(--paper)}
+.checklist{list-style:none;margin:6px 0 0;padding:0;display:grid}
+.checklist li{display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--rule-night);font-size:16px}
+.checklist li small{display:block;color:var(--night-2);font-size:13.5px}
+.in-body .btn{margin-top:auto;width:100%}
+
+/* =====================================================================
+   TRUST CONSOLE (16:9). Console-local variables make the paper projector variant one attribute.
+   ===================================================================== */
+.console-board{background:var(--ink);color:var(--paper)}
+.console-board .route,.console-board .board-head p{color:var(--night-2)}
+.theme-switch{display:inline-flex;border:1.5px solid var(--night-2);border-radius:6px;overflow:hidden}
+.theme-switch button{background:none;border:0;padding:8px 16px;font-weight:650;font-size:14px;color:var(--paper);cursor:pointer}
+.theme-switch button[aria-pressed="true"]{background:var(--paper);color:var(--ink)}
+.console-wrap{max-width:1360px;margin:0 auto;container-type:inline-size}
+.console{
+  --c-bg:var(--ink); --c-fg:var(--paper); --c-2:var(--night-2); --c-3:var(--night-3); --c-rule:var(--rule-night);
+  --c-line:var(--night-2); --c-held-line:var(--sodium); --c-go-line:var(--go); --c-go-text:var(--go); --c-lamp-edge:var(--paper);
+  --c-redact:#2A2314; --c-redact-dot:#C98A16;
+  position:relative;aspect-ratio:16/9;background:var(--c-bg);color:var(--c-fg);border:1px solid var(--rule-night);border-radius:10px;overflow:hidden;isolation:isolate}
+.console[data-theme="paper"]{
+  --c-bg:var(--paper); --c-fg:var(--ink); --c-2:var(--on-paper-2); --c-3:var(--on-paper-2); --c-rule:var(--rule-paper);
+  --c-line:var(--on-paper-2); --c-held-line:#B07209; --c-go-line:var(--go-ink); --c-go-text:var(--go-ink); --c-lamp-edge:var(--ink);
+  --c-redact:#E6DCC6; --c-redact-dot:#8A5A08; border-color:var(--rule-paper)}
+.console canvas.field{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.c-grid{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:minmax(0,1fr) 27.5cqw;grid-template-rows:auto auto minmax(0,1fr) auto auto;padding:1.5cqw 2.1cqw 1.4cqw}
+.c-head{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:2cqw;padding-bottom:1cqw;border-bottom:1px solid var(--c-rule)}
+.c-head .left{display:flex;align-items:center;gap:1.4cqw;min-width:0}
+.c-head .wordmark{font-size:1.75cqw;gap:.6cqw}
+.c-head .wordmark svg{width:2.2cqw;height:1.47cqw}
+.c-head .title{font-size:1.3cqw;font-weight:650}
+.c-head .plan{font-size:1.1cqw;color:var(--c-2);white-space:nowrap}
+.c-head .right{display:flex;align-items:center;gap:1.6cqw;font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:1cqw;color:var(--c-2);white-space:nowrap}
+.live{display:flex;align-items:center;gap:.6cqw}
+.live i{width:.75cqw;height:.75cqw;border-radius:50%;background:var(--c-fg);display:block;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+.status-line{grid-column:1;padding:1.2cqw 0 1cqw}
+.status-line .big{font-family:var(--font-display);font-weight:720;font-size:3.6cqw;line-height:.95;letter-spacing:-.045em}
+.status-line .small{font-size:1.35cqw;color:var(--c-2);margin-top:.5cqw}
+.gate-title{grid-column:2;grid-row:2;align-self:end;padding:0 0 1.1cqw 2.4cqw;font-family:var(--font-display);font-weight:680;font-size:1.75cqw;line-height:1.05;letter-spacing:-.03em}
+
+.lanes{grid-column:1;grid-row:3;list-style:none;margin:0;padding:0;display:grid;grid-template-rows:repeat(4,minmax(0,1fr));min-height:0;border-top:1px solid var(--c-rule)}
+.lane{position:relative;display:grid;grid-template-columns:1.5cqw 19.6cqw minmax(0,1fr) 8.6cqw 8.4cqw 3cqw;align-items:center;column-gap:1.15cqw;border-bottom:1px solid var(--c-rule);min-height:0}
+.lamp{width:1.3cqw;height:1.3cqw;border-radius:50%;border:.17cqw solid var(--c-lamp-edge);display:block;transition:background-color .2s,border-color .2s}
+.lane[data-stage="HELD"] .lamp{background:var(--sodium);border-color:var(--sodium)}
+.lane[data-stage="CAPTURED"] .lamp{background:var(--go);border-color:var(--go)}
+.console[data-theme="paper"] .lane[data-stage="HELD"] .lamp,.console[data-theme="paper"] .lane[data-stage="CAPTURED"] .lamp{border-color:var(--ink)}
+.lane[data-stage="RELEASED"] .lamp,.lane[data-stage="DECLINED"] .lamp{border-style:dashed;border-color:var(--c-line)}
+.who{display:grid;gap:.5cqw;min-width:0}
+.lane .name{font-family:var(--font-display);font-weight:680;font-size:2.2cqw;letter-spacing:-.035em;line-height:1}
+.proof{display:flex;align-items:center;gap:.7cqw;font-size:1.05cqw;color:var(--c-2);white-space:nowrap}
+.proof b{color:var(--c-fg);font-weight:650}
+canvas.redact{height:1.25cqw;border-radius:.25cqw}
+
+.rail{display:grid;grid-template-columns:repeat(4,1fr);position:relative}
+.rail::before{content:"";position:absolute;left:.5cqw;right:12%;top:.55cqw;height:.16cqw;background:var(--c-rule)}
+.rail .fill{position:absolute;left:.5cqw;top:.55cqw;height:.16cqw;background:var(--c-fg);width:0;transition:width .5s var(--ease-snap)}
+.rail span{position:relative;display:grid;gap:.4cqw;font-size:.98cqw;color:var(--c-2);white-space:nowrap}
+.rail span::before{content:"";width:1.1cqw;height:1.1cqw;border-radius:.2cqw;border:.16cqw solid var(--c-line);background:var(--c-bg);display:block;transition:background-color .2s,border-color .2s}
+.rail span.done{color:var(--c-fg)}
+.rail span.done::before{background:var(--c-fg);border-color:var(--c-fg)}
+.lane[data-stage="HELD"] .rail span.now::before{background:var(--sodium);border-color:var(--sodium)}
+.lane[data-stage="HELD"] .rail span.now{color:var(--c-fg);font-weight:650}
+.lane[data-stage="CAPTURED"] .rail span.done::before{background:var(--go);border-color:var(--go)}
+.lane[data-stage="CAPTURED"] .rail .fill{background:var(--c-go-line)}
+.rail span.endmark::before{background:var(--c-bg);border-color:var(--c-fg);border-style:solid;
+  background-image:linear-gradient(135deg,transparent 42%,var(--c-fg) 42% 58%,transparent 58%)}
+.rail span.endmark{color:var(--c-fg);font-weight:650}
+
+.amt{display:grid;justify-items:end;gap:.2cqw;font-family:var(--font-mono);font-variation-settings:"wdth" 87.5}
+.amt .v{font-weight:650;font-size:1.85cqw;letter-spacing:-.02em;line-height:1;transition:color .2s}
+.amt .cap{font-family:var(--font-sans);font-size:.98cqw;color:var(--c-2)}
+.lane[data-stage="VOTED"] .amt .v{color:var(--c-2)}
+
+.chip{justify-self:end;font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-weight:700;font-size:1.12cqw;letter-spacing:.04em;padding:.45cqw .85cqw;border-radius:.35cqw;border:.15cqw solid var(--c-line);color:var(--c-fg);white-space:nowrap}
+.lane[data-stage="HELD"] .chip{background:var(--sodium);border-color:var(--sodium);color:var(--ink)}
+.lane[data-stage="CAPTURED"] .chip{background:var(--go);border-color:var(--go);color:var(--ink)}
+.console[data-theme="paper"] .lane[data-stage="HELD"] .chip,.console[data-theme="paper"] .lane[data-stage="CAPTURED"] .chip{border-color:var(--ink)}
+.lane[data-stage="RELEASED"] .chip,.lane[data-stage="DECLINED"] .chip{border-style:dashed}
+.lane.flash .chip{animation:chipIn .42s var(--ease-out)}
+@keyframes chipIn{0%{transform:translateY(-.3cqw);opacity:.2}100%{transform:none;opacity:1}}
+
+/* the gate: every lane feeds one bus; money moves only when the bus is full */
+.feed{position:relative;align-self:stretch}
+.feed .line{position:absolute;left:0;right:0;top:50%;height:.2cqw;margin-top:-.1cqw;background:repeating-linear-gradient(90deg,var(--c-3) 0 .4cqw,transparent .4cqw .8cqw);transition:background .25s}
+.feed .seg{position:absolute;right:0;top:.35cqw;bottom:.35cqw;width:.6cqw;border-radius:.15cqw;background:var(--c-rule);transition:background-color .25s}
+.lane[data-stage="HELD"] .feed .line{background:var(--c-held-line)}
+.lane[data-stage="HELD"] .feed .seg{background:var(--sodium)}
+.lane[data-stage="CAPTURED"] .feed .line,.lane[data-stage="CAPTURED"] .feed .seg{background:var(--c-go-line)}
+.console[data-theme="paper"] .lane[data-stage="HELD"] .feed .seg{background:var(--c-held-line)}
+
+.gate{grid-column:2;grid-row:3;display:flex;flex-direction:column;min-height:0;padding-left:2.4cqw;position:relative}
+.meter{position:relative;padding:.6cqw 0 .9cqw}
+.meter::before{content:"";position:absolute;left:-2.4cqw;width:1.8cqw;top:3cqw;height:.2cqw;background:var(--c-rule);transition:background-color .25s}
+.meter[data-mode="full"]::before{background:var(--c-held-line)}
+.meter[data-mode="captured"]::before{background:var(--c-go-line)}
+.m-lbl{font-size:1.15cqw;color:var(--c-2)}
+.m-big{font-family:var(--font-display);font-weight:740;letter-spacing:-.045em;line-height:1;margin-top:.3cqw;display:flex;align-items:baseline;gap:.7cqw;white-space:nowrap}
+.m-big .n{font-size:4.3cqw}
+.m-big .of{font-size:1.9cqw;color:var(--c-2);letter-spacing:-.02em}
+.meter[data-mode="captured"] .m-big .n{color:var(--c-go-text)}
+.m-sub{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:1.25cqw;margin-top:.6cqw}
+.m-sub b{font-weight:700}
+.m-cells{display:grid;grid-template-columns:repeat(4,1fr);gap:.35cqw;margin-top:.7cqw;max-width:15cqw}
+.m-cells i{height:.6cqw;border-radius:.15cqw;background:var(--c-rule)}
+.m-cells i.on{background:var(--sodium)}
+.meter[data-mode="captured"] .m-cells i{background:var(--go)}
+.meter[data-mode="released"] .m-cells i.on{background:transparent;box-shadow:inset 0 0 0 .12cqw var(--c-line)}
+.counters{margin-top:auto;border-top:1px solid var(--c-rule);padding:.8cqw 0 .6cqw;display:grid;gap:.6cqw}
+.cnt{display:flex;align-items:center;gap:.9cqw}
+.cnt .dn{display:flex;align-items:center;gap:.25cqw}
+.cnt .dn .cur{font-family:var(--font-display);font-weight:800;font-size:2.3cqw;line-height:1}
+.cnt canvas{height:2.1cqw}
+.cnt p{font-size:1.05cqw;line-height:1.2;color:var(--c-2)}
+.cnt.small canvas{height:1.5cqw}
+.cnt-pair{display:grid;grid-template-columns:1fr 1fr;gap:1cqw}
+
+/* privacy band: hidden, and checked */
+.xray{grid-column:1/-1;grid-row:4;display:grid;grid-template-columns:15cqw minmax(0,1fr) minmax(0,1.35fr);column-gap:2.4cqw;align-items:start;border-top:1px solid var(--c-rule);padding:1.2cqw 0 1.1cqw}
+.x-title{font-family:var(--font-display);font-weight:700;font-size:1.75cqw;line-height:1.05;letter-spacing:-.03em}
+.x-h{font-size:1.02cqw;color:var(--c-2);margin-bottom:.5cqw}
+.x-open{font-size:1.35cqw;line-height:1.3}
+.x-sec{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55cqw 2cqw}
+.x-sec li{display:grid;grid-template-columns:5.6cqw auto 1fr;align-items:center;gap:.8cqw;font-size:1.2cqw}
+.x-sec .tag{display:flex;align-items:center;gap:.4cqw;font-size:1cqw;color:var(--c-2)}
+.x-sec .tag svg{width:1.15cqw;height:1.15cqw}
+
+/* proof row: signed request + research agents */
+.proofs{grid-column:1/-1;grid-row:5;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:2.4cqw;border-top:1px solid var(--c-rule);padding-top:1.1cqw}
+.p-h{font-size:1.15cqw;font-weight:650;margin-bottom:.6cqw}
+.p-h span{font-weight:400;color:var(--c-2)}
+.tap-sum{list-style:none;margin:0;padding:0;display:grid;gap:.35cqw}
+.tap-sum li{display:flex;align-items:center;gap:.7cqw;font-size:1.2cqw;line-height:1.2}
+.tap-sum li svg{width:1.2cqw;height:1.2cqw}
+.tap-sum .ph{color:var(--c-2)}
+.tap-sum .keydir{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:.95cqw;color:var(--c-2);border:1px dashed var(--c-line);padding:.1cqw .5cqw;border-radius:.3cqw;margin-left:.4cqw}
+.tap-steps{list-style:none;margin:.6cqw 0 0;padding:0;display:grid;grid-template-columns:repeat(3,auto);justify-content:start;gap:.25cqw 1.6cqw}
+.tap-steps li{display:flex;align-items:center;gap:.4cqw;font-size:.98cqw;color:var(--c-2);white-space:nowrap}
+.tap-steps li svg{width:1cqw;height:1cqw}
+.tap-steps li.pass{color:var(--c-fg)}
+.runs{display:grid;gap:.4cqw}
+.run{display:grid;grid-template-columns:11cqw minmax(0,1fr) auto;align-items:center;gap:1cqw;font-size:1.1cqw}
+.run .track{font-family:var(--font-mono);font-variation-settings:"wdth" 75;font-size:1cqw;letter-spacing:.02em;color:var(--c-rule);white-space:nowrap;overflow:hidden}
+.run .track b{color:var(--c-fg);font-weight:400}
+.run .stat{font-family:var(--font-mono);font-variation-settings:"wdth" 87.5;font-size:.98cqw;color:var(--c-2);text-align:right;white-space:nowrap}
+.creao-log{font-size:1.1cqw;line-height:1.3;margin-top:.5cqw}
+.creao-log b{font-weight:650}
+
+/* Stacked console for narrow containers (phones): same parts, natural height. */
+@container (max-width: 860px){
+  .console{aspect-ratio:auto}
+  .c-grid{display:flex;flex-direction:column;padding:18px 16px}
+  .c-head{flex-wrap:wrap;gap:8px;padding-bottom:12px}
+  .c-head .wordmark{font-size:18px}.c-head .wordmark svg{width:24px;height:16px}
+  .c-head .title{font-size:14px}.c-head .plan{display:none}
+  .c-head .right{font-size:11px;gap:10px}.c-head .right .rails{display:none}.live i{width:8px;height:8px}
+  .status-line{padding:14px 0 12px}.status-line .big{font-size:30px}.status-line .small{font-size:14.5px;margin-top:6px}
+  .gate-title{padding:16px 0 4px;font-size:19px;order:3}
+  .lanes{grid-template-rows:none}
+  .lane{grid-template-columns:16px minmax(0,1fr) auto auto;grid-template-areas:"lamp who amt chip" ". rail rail rail";row-gap:10px;column-gap:10px;padding:12px 0}
+  .lane .lamp{grid-area:lamp;width:13px;height:13px;border-width:2px}
+  .lane .who{grid-area:who}.lane .name{font-size:21px}
+  .proof{font-size:12.5px;gap:6px;white-space:normal;flex-wrap:wrap}canvas.redact{height:12px}
+  .amt .cap{display:none}
+  .gate-title{align-self:flex-start}
+  .lane .rail{grid-area:rail}.lane .amt{grid-area:amt}.lane .chip{grid-area:chip}
+  .amt .v{font-size:16px}.amt .cap{font-size:11.5px}
+  .chip{font-size:11.5px;padding:5px 8px;border-radius:4px;border-width:1.5px}
+  .rail span{font-size:11.5px;gap:6px}.rail span::before{width:11px;height:11px;border-width:1.5px}
+  .rail::before,.rail .fill{top:5px;height:1.5px;left:4px}
+  .feed{display:none}
+  .gate{padding-left:0;order:4}
+  .meter{padding:8px 0 16px}.meter::before{display:none}
+  .m-lbl{font-size:14px}.m-big .n{font-size:44px}.m-big .of{font-size:18px}.m-sub{font-size:13px;margin-top:6px}
+  .m-cells{gap:4px;margin-top:10px;max-width:180px}.m-cells i{height:6px}
+  .counters{padding-top:14px;gap:12px}.cnt{gap:10px}.cnt .dn .cur{font-size:30px}.cnt canvas{height:28px}.cnt.small canvas{height:20px}.cnt p{font-size:13px}.cnt-pair{gap:12px}
+  .xray{display:grid;grid-template-columns:1fr;gap:12px;padding:18px 0;order:5}
+  .x-title{font-size:20px}.x-h{font-size:13px;margin-bottom:6px}.x-open{font-size:15px}
+  .x-sec{grid-template-columns:1fr;gap:8px}.x-sec li{grid-template-columns:64px auto 1fr;font-size:14px;gap:10px}.x-sec .tag{font-size:12.5px}.x-sec .tag svg{width:13px;height:13px}
+  .proofs{grid-template-columns:1fr;gap:18px;padding-top:16px;order:6}
+  .p-h{font-size:15px;margin-bottom:8px}
+  .tap-sum li{font-size:14.5px;gap:8px}.tap-sum li svg{width:14px;height:14px}.tap-sum .keydir{font-size:11.5px;padding:1px 6px}
+  .tap-steps{grid-template-columns:repeat(2,auto);gap:4px 16px;margin-top:8px}.tap-steps li{font-size:12.5px;gap:5px}.tap-steps li svg{width:12px;height:12px}
+  .run{grid-template-columns:118px minmax(0,1fr) auto;font-size:13.5px;gap:10px}.run .track{font-size:12px}.run .stat{font-size:11.5px}
+  .creao-log{font-size:14px;margin-top:8px}
+  .x-sec .tag svg,.tap-sum li svg{flex:none}
+}
+
+/* ---------- Phones ---------- */
+@media (max-width: 899px){
+  .hero-inner{padding:14px 16px 16px;grid-template-rows:auto auto auto auto}
+  .lede{grid-template-columns:1fr;padding:22px 0 18px}
+  .lede h1{font-size:clamp(42px,12.6vw,60px)}
+  .lede-side{display:none}
+  .ticket-hero{grid-template-columns:1fr;grid-template-rows:auto 20px auto}
+  .t-main{border-radius:14px 14px 0 0;padding:16px 16px 16px}
+  .t-top{flex-direction:column;gap:2px}
+  .t-top .eyebrow{font-size:14px}
+  .t-flag{font-size:11.5px}
+  .t-price{grid-template-columns:auto minmax(0,1fr);column-gap:6px;padding:4px 0 4px}
+  .t-price .cur{font-size:46px;margin-top:10px}
+  .t-price canvas.price{height:138px;width:100%}
+  .t-each{grid-column:1/-1;padding:0 0 12px;display:flex;align-items:baseline;gap:10px}
+  .t-each .each{font-size:26px}
+  .t-each .fits{font-size:14px;max-width:none}
+  .t-foot{grid-template-columns:1fr;row-gap:12px;padding-top:12px}
+  .seats{grid-template-columns:repeat(4,minmax(0,1fr));column-gap:8px}
+  .seat{grid-template-columns:12px auto;column-gap:6px}
+  .seat .lamp{width:11px;height:11px;border-width:2px}
+  .seat .nm{font-size:16px}.seat .st{font-size:10.5px}
+  .t-status{text-align:left;justify-self:start}
+  .t-status b{font-size:17px}.t-status span{font-size:13.5px}
+  .t-perf{background:radial-gradient(circle 3.4px at 50% 50%,var(--sodium) 96%,transparent) 6px 0/15px 100% repeat-x,linear-gradient(180deg,var(--ink) 50%,var(--paper) 50%)}
+  .t-perf::before,.t-perf::after{top:50%;left:auto;margin:-15px 0 0}
+  .t-perf::before{left:-15px}.t-perf::after{right:-15px;bottom:auto}
+  .t-perf .tear{left:0;right:0;top:50%;bottom:auto;width:auto;height:6px;margin:-3px 0 0;transform:scaleX(0);transform-origin:0 50%}
+  .ticket-hero[data-torn="true"] .t-perf .tear{transform:scaleX(1)}
+  .t-stub{border-radius:0 0 14px 14px;padding:16px 16px 16px}
+  .only-desk{display:none}
+  .only-phone{display:grid}
+  .btn{width:100%}
+  .hero footer{font-size:14px;padding-top:16px;flex-wrap:wrap}
+  .board{padding:64px 16px}
+  .board-head{margin-bottom:28px}
+  .screens{gap:36px}
+  .screen-wrap{width:100%;justify-items:stretch}
+  .screen{width:100%;max-width:390px;margin:0 auto}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition-duration:0s !important;animation:none !important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="wm" viewBox="0 0 24 16"><path fill="currentColor" fill-rule="evenodd" d="M2 1H22A2 2 0 0 1 24 3V5.4A2.6 2.6 0 0 0 24 10.6V13A2 2 0 0 1 22 15H2A2 2 0 0 1 0 13V10.6A2.6 2.6 0 0 0 0 5.4V3A2 2 0 0 1 2 1ZM17 3.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2ZM17 7a1 1 0 1 0 0 2a1 1 0 1 0 0-2ZM17 10.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2Z"/></symbol>
+</svg>
+
+<!-- ============================== LANDING ============================== -->
+<section class="hero" id="hero" aria-label="SquadTab">
+  <canvas class="rings" id="heroRings" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <header>
+      <a class="wordmark" href="#hero" aria-label="SquadTab home"><svg aria-hidden="true"><use href="#wm"/></svg>squadtab</a>
+      <a class="navlink" href="#console">Trust console</a>
+    </header>
+
+    <div class="lede">
+      <h1 data-avoid>Plan the night in one text.</h1>
+      <div class="lede-side" data-avoid>
+        <p class="tagline">The friend who knows everyone’s budget and tells no one.</p>
+        <p class="sub">SquadTab plans dinner and a show with your friends in iMessage, keeps every budget private, and charges nobody until everyone’s in.</p>
+      </div>
+    </div>
+
+    <article class="ticket-hero" id="ticket" aria-label="Example plan: Dinner and a show, 42 dollars each">
+      <div class="t-main">
+        <div class="t-top">
+          <p class="eyebrow"><b>Tonight</b> · Dinner + show · Santa Monica</p>
+          <p class="t-flag" id="tFlag">Admit 4 · nothing charged yet</p>
+        </div>
+        <div class="t-price">
+          <span class="cur" aria-hidden="true">$</span>
+          <canvas class="price" id="priceMark" aria-hidden="true"></canvas>
+          <p class="t-each"><span class="each">each</span><span class="fits">fits all 4 budgets. Nobody saw anyone’s number.</span></p>
+        </div>
+        <div class="t-foot">
+          <ul class="seats" id="seats" aria-hidden="true"></ul>
+          <p class="t-status" id="tStatus" aria-live="off"><b>4 of 4 voted.</b><span>Holding cards next. Nobody is charged until 4 of 4.</span></p>
+        </div>
+      </div>
+      <div class="t-perf" aria-hidden="true"><i class="tear"></i></div>
+      <div class="t-stub" id="stub">
+        <!-- desktop: scan first (ux-flow 4.2) -->
+        <div class="only-desk">
+          <p class="stub-kicker">Your seat</p>
+          <h2>Scan to start on your iPhone</h2>
+          <div class="scan">
+            <svg viewBox="-1 -1 31 31" role="img" aria-label="QR code that opens tab-web-ten.vercel.app on your phone"><path stroke="currentColor" d="M0 0.5h7m1 0h2m3 0h3m1 0h1m4 0h7M0 1.5h1m5 0h1m1 0h1m3 0h4m1 0h3m2 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h2m2 0h3m3 0h3m1 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m2 0h1m1 0h2m1 0h2m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m1 0h1m3 0h2m1 0h1m1 0h3m2 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m6 0h2m3 0h1m3 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 7.5h1m4 0h1M0 8.5h1m2 0h7m2 0h6m1 0h3m2 0h1m1 0h3M1 9.5h1m2 0h1m4 0h1m1 0h2m1 0h1m3 0h2m1 0h1m1 0h2m1 0h2M1 10.5h3m1 0h3m2 0h1m1 0h1m1 0h1m2 0h1m2 0h1m3 0h1m1 0h1M3 11.5h1m1 0h1m2 0h1m2 0h1m2 0h2m1 0h1m1 0h3m3 0h1m2 0h1M0 12.5h1m2 0h4m1 0h1m1 0h1m2 0h2m5 0h1m1 0h2m4 0h1M0 13.5h2m1 0h1m1 0h1m2 0h1m2 0h1m5 0h2m1 0h1m1 0h1m1 0h5M0 14.5h1m3 0h1m1 0h1m2 0h3m2 0h2m3 0h1m2 0h1m3 0h1m1 0h1M2 15.5h3m2 0h4m2 0h2m1 0h1m1 0h2m1 0h2m1 0h1m1 0h1m1 0h1M1 16.5h1m2 0h3m1 0h2m1 0h2m2 0h1m2 0h3m2 0h1m1 0h1M0 17.5h4m1 0h1m4 0h1m7 0h3m3 0h1m1 0h2M0 18.5h2m3 0h2m2 0h1m3 0h2m1 0h1m2 0h1m1 0h2m1 0h2m2 0h1M0 19.5h2m1 0h1m6 0h4m1 0h2m1 0h2m2 0h1m1 0h3M0 20.5h3m1 0h4m5 0h1m2 0h2m1 0h9M8 21.5h1m2 0h3m2 0h1m1 0h1m1 0h1m3 0h2M0 22.5h7m1 0h2m3 0h1m1 0h6m1 0h1m1 0h2M0 23.5h1m5 0h1m1 0h1m4 0h1m1 0h1m1 0h1m1 0h2m3 0h1m2 0h1M0 24.5h1m1 0h3m1 0h1m1 0h3m1 0h2m2 0h1m2 0h7M0 25.5h1m1 0h3m1 0h1m1 0h4m1 0h3m3 0h2m6 0h1M0 26.5h1m1 0h3m1 0h1m2 0h1m2 0h1m1 0h3m1 0h1m2 0h1m1 0h2m1 0h3M0 27.5h1m5 0h1m3 0h1m3 0h1m1 0h1m1 0h2m1 0h1m2 0h3m1 0h1M0 28.5h7m1 0h4m1 0h1m1 0h2m2 0h2m3 0h2"/></svg>
+            <p><b>Point your camera here.</b> Messages opens with your first text ready. Nothing to fill in.</p>
+          </div>
+          <details class="or-number" id="orNumber">
+            <summary>Or enter your number here</summary>
+            <form onsubmit="return false">
+              <label for="dphone">Your iPhone number</label>
+              <input class="field-input" id="dphone" type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="go" placeholder="(310) 555-0123">
+              <button class="btn" type="submit">Continue on your iPhone <span class="arrow" aria-hidden="true">→</span></button>
+            </form>
+          </details>
+        </div>
+        <!-- phone: the start is the first line of a conversation -->
+        <form class="only-phone chatstart" onsubmit="return false">
+          <label for="phone">Text SquadTab from</label>
+          <input class="field-input" id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="go" placeholder="(310) 555-0123">
+          <div class="firsttext"><span class="k">Your first text, typed for you</span><q>Hey SquadTab! Help me plan a night out.</q></div>
+          <button class="btn" type="submit">Start in iMessage <span class="arrow" aria-hidden="true">→</span></button>
+          <details class="legal"><summary>You send the first text. Details</summary><p>By continuing, you agree SquadTab can text you about your plans. Text “forget me” anytime.</p></details>
+        </form>
+      </div>
+    </article>
+
+    <footer data-avoid>
+      <span>Got an invite from a friend? <a href="#join">Just tap their link.</a></span>
+      <button class="motion-toggle" id="motionToggle" type="button" aria-pressed="false"><span class="glyph" aria-hidden="true"><i></i><i></i></span><span class="lbl">Pause motion</span></button>
+    </footer>
+  </div>
+  <p class="sr-only">Animation: a ticket priced at $42 each. Four friends place card holds one by one, and the plan is booked only when all four are in. If anyone drops, every hold is released and nobody pays.</p>
+</section>
+
+<!-- ============================== JOIN + ORGANIZER ============================== -->
+<section class="board join-board" id="join" aria-labelledby="joinTitle">
+  <div class="board-head">
+    <div><span class="route">/j/k7m2 · organizer plan-ready · you’re in</span><h2 id="joinTitle">No forms. One field, then Messages.</h2></div>
+    <p>The organizer is already in their own plan, so they never type a number twice. They send the invite with the share sheet, not a copied link. Friends see the real plan, type one number, and land in a chat that already says what to send. Budgets are only ever asked in private chat.</p>
+  </div>
+  <div class="screens">
+    <figure class="screen-wrap">
+      <div class="screen ready">
+        <div class="top"><span class="wordmark"><svg aria-hidden="true"><use href="#wm"/></svg>squadtab</span></div>
+        <div class="screen-body">
+          <h3>Your plan is ready, Alex.</h3>
+          <div class="ticket">
+            <p class="eyebrow">Sat, Oct 24 · 7:00 PM</p>
+            <h3>Dinner + show</h3>
+            <p class="meta">Santa Monica · 4 people · $42 each</p>
+            <div class="count-row"><span class="lamps" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></span><span class="count">1 of 4 in</span></div>
+          </div>
+          <p class="already"><svg class="di" data-icon="check" data-color="var(--ink)" aria-hidden="true"></svg>You’re already in. Nothing else to fill in.</p>
+          <p class="note">SquadTab asks each friend for their budget in private, by text. Nobody sees anyone else’s number, not even you.</p>
+          <div class="share-stack">
+            <button class="btn" type="button"><svg class="di" data-icon="share" data-color="var(--sodium)" aria-hidden="true"></svg>Send invite to your group</button>
+            <button class="textbtn" type="button">Copy link instead</button>
+            <p class="note" style="text-align:center">SquadTab texted you the link too.</p>
+          </div>
+        </div>
+      </div>
+      <figcaption>Organizer · after their first text (share sheet)</figcaption>
+    </figure>
+
+    <figure class="screen-wrap">
+      <div class="screen">
+        <div class="top"><span class="wordmark"><svg aria-hidden="true"><use href="#wm"/></svg>squadtab</span></div>
+        <div class="screen-body">
+          <div class="ticket">
+            <p class="eyebrow">Alex invited you</p>
+            <h3>Dinner + show</h3>
+            <p class="meta">Sat, Oct 24 · 7:00 PM · Santa Monica</p>
+            <div class="count-row"><span class="lamps" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="count">2 of 4 in</span></div>
+          </div>
+          <ul class="promises">
+            <li><svg class="di" data-icon="chat" aria-hidden="true"></svg>Tell SquadTab what you’re into, by text.</li>
+            <li><svg class="di" data-icon="lock" aria-hidden="true"></svg>Your budget stays between you and SquadTab.</li>
+            <li><svg class="di" data-icon="card" aria-hidden="true"></svg>Nobody fronts the bill. Cards are only held until everyone’s in.</li>
+          </ul>
+          <form class="join-form" onsubmit="return false">
+            <label for="jphone">Your iPhone number</label>
+            <input class="field-input" id="jphone" type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="go" placeholder="(310) 555-0123">
+            <button class="btn" type="submit">Join in iMessage <span class="arrow" aria-hidden="true">→</span></button>
+            <details class="legal"><summary>You send the first text. Details</summary><p>By joining, you agree SquadTab can text you about this plan. Text “forget me” anytime.</p></details>
+          </form>
+        </div>
+      </div>
+      <figcaption>Friend invite · before</figcaption>
+    </figure>
+
+    <figure class="screen-wrap">
+      <div class="screen in">
+        <div class="top"><span class="wordmark" style="color:var(--paper)"><svg aria-hidden="true"><use href="#wm"/></svg>squadtab</span></div>
+        <div class="in-body" aria-live="polite">
+          <h3>You’re in, Leo<span class="stop">.</span></h3>
+          <p>SquadTab is texting you now. Finish up in Messages, it takes about a minute.</p>
+          <div class="in-tally">
+            <div><div class="big">3 of 4</div><div class="lbl">in for Dinner + show</div></div>
+            <span class="lamps" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+          </div>
+          <ul class="checklist">
+            <li><svg class="di" data-icon="check" data-color="var(--sodium)" aria-hidden="true"></svg><span>Joined</span></li>
+            <li><svg class="di" data-icon="box" data-color="var(--night-2)" aria-hidden="true"></svg><span>Budget<small>Just between you and SquadTab</small></span></li>
+            <li><svg class="di" data-icon="box" data-color="var(--night-2)" aria-hidden="true"></svg><span>What you’re into</span></li>
+          </ul>
+          <a class="btn on-ink" href="#join" style="margin-top:28px">Open Messages <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </div>
+      <figcaption>Friend invite · after the first text lands</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================== CONSOLE ============================== -->
+<section class="board console-board" id="console" aria-labelledby="consoleTitle">
+  <div class="board-head">
+    <div><span class="route">/console · 16:9 · read from 5 m</span><h2 id="consoleTitle">Trust console</h2></div>
+    <p>Every lane feeds one gate. Money moves only when the gate is full. Amber means held, green means captured, and a dashed outline means released: no red, because a released hold is the promise working.</p>
+    <div class="theme-switch" role="group" aria-label="Console ground"><button type="button" data-theme="ink" aria-pressed="true">Ink</button><button type="button" data-theme="paper" aria-pressed="false">Paper (projector)</button></div>
+  </div>
+  <div class="console-wrap">
+    <div class="console" id="consoleFrame" data-theme="ink">
+      <canvas class="field" id="consoleField" aria-hidden="true"></canvas>
+      <div class="c-grid">
+        <div class="c-head">
+          <div class="left">
+            <span class="wordmark"><svg aria-hidden="true"><use href="#wm"/></svg>squadtab</span>
+            <span class="title">Trust console</span>
+            <span class="plan">Dinner + show · Sat 7:00 PM · Santa Monica · 4 people</span>
+          </div>
+          <div class="right"><span class="rails">Holds on Visa Cybersource</span><span class="live"><i aria-hidden="true"></i><span id="clock">Live 19:42:07</span></span></div>
+        </div>
+
+        <div class="status-line" aria-live="polite">
+          <p class="big" id="statusBig">4 of 4 voted.</p>
+          <p class="small" id="statusSmall">Rooftop dinner + Largo comedy, $42 each. Holding cards now.</p>
+        </div>
+        <p class="gate-title">Charged only at 4 of 4.</p>
+
+        <ul class="lanes" id="lanes"></ul>
+
+        <aside class="gate" aria-label="Money">
+          <div class="meter" id="meter" data-mode="holding" aria-live="polite">
+            <p class="m-lbl" id="mLbl">Held so far</p>
+            <p class="m-big"><span class="n" id="mBig">$0</span><span class="of" id="mOf">of $168</span></p>
+            <p class="m-sub" id="mSub">Charged <b>$0</b></p>
+            <div class="m-cells" id="mCells" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="counters">
+            <div class="cnt"><span class="dn"><span class="cur">$</span><canvas id="cFronted"></canvas></span><p>fronted by any one person, all night</p></div>
+            <div class="cnt-pair">
+              <div class="cnt small"><canvas id="cGroups"></canvas><p>groups booked</p></div>
+              <div class="cnt small"><canvas id="cReleased"></canvas><p>holds released</p></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="xray" aria-label="Privacy">
+          <p class="x-title">Budgets: hidden, and checked.</p>
+          <div><p class="x-h">What the group sees</p><p class="x-open">4 people · every budget fits · $42 each · Santa Monica · dinner + comedy</p></div>
+          <div><p class="x-h">What only SquadTab sees</p><ul class="x-sec" id="xsec"></ul></div>
+        </section>
+
+        <div class="proofs">
+          <div class="tap">
+            <p class="p-h">Signed agent request <span>· Visa Trusted Agent Protocol</span></p>
+            <ul class="tap-sum" id="tapSum"></ul>
+            <ol class="tap-steps" id="tapSteps"></ol>
+          </div>
+          <div class="creao">
+            <p class="p-h">CREAO research agents <span>· live runs</span></p>
+            <div class="runs">
+              <div class="run"><span>Scout · dinner</span><span class="track" data-fill="22"></span><span class="stat">done 0:41</span></div>
+              <div class="run"><span>Scout · comedy</span><span class="track" data-fill="22"></span><span class="stat">done 0:37</span></div>
+              <div class="run"><span>Concierge · booking</span><span class="track" id="cTrack" data-fill="0"></span><span class="stat" id="cStat">waits for 4 of 4</span></div>
+            </div>
+            <p class="creao-log" id="creaoLog"><b>Scout:</b> 23 places checked, 6 fit every budget.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+"use strict";
+const RM = matchMedia("(prefers-reduced-motion: reduce)");
+const QS = new URLSearchParams(location.search);
+const hash2 = (x, y) => { let a = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0; a = Math.imul(a ^ (a >>> 13), 1274126177); return ((a ^ (a >>> 16)) >>> 0) / 4294967296; };
+const hash3 = (x, y, z) => hash2(x * 31 + Math.imul(z | 0, 1013), y * 17 - Math.imul(z | 0, 7919));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* =====================================================================
+   GlyphField: in-house character-grid canvas engine (cells are W x 2W).
+   Glyphs are pre-drawn into a sprite sheet; only changed cells repaint; frame rate capped;
+   paused off-screen, in hidden tabs, under reduced motion and by the Pause control.
+   ===================================================================== */
+class GlyphField {
+  constructor(canvas, piece, { cellW = 8, fps = 20, fg, bg, font = "Martian Mono", weight = 700 }) {
+    Object.assign(this, { canvas, piece, cellW, fps, fgPal: fg, bgPal: bg, font, weight });
+    this.ctx = canvas.getContext("2d", { alpha: false });
+    this.t = 0; this.last = 0; this.visible = true; this.paused = false; this.frozenAt = null;
+    this.sheet = document.createElement("canvas"); this.sprites = new Map();
+    new ResizeObserver(() => this.resize()).observe(canvas);
+    new IntersectionObserver(([e]) => { this.visible = e.isIntersecting; this.kick(); }, { rootMargin: "120px" }).observe(canvas);
+    document.addEventListener("visibilitychange", () => this.kick());
+    RM.addEventListener?.("change", () => this.kick());
+    this.loop = this.loop.bind(this);
+    this.resize();
+  }
+  setPalette(fg, bg) { this.fgPal = fg; this.bgPal = bg; this.sprites.clear(); this.sctx?.clearRect(0, 0, this.sheet.width, this.sheet.height); this.paint(true); }
+  resize() {
+    const r = this.canvas.getBoundingClientRect(); if (!r.width || !r.height) return;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    if (typeof this.piece.cellFor === "function") this.cellW = this.piece.cellFor(r);
+    this.dpr = dpr; this.canvas.width = Math.round(r.width * dpr); this.canvas.height = Math.round(r.height * dpr);
+    this.cols = Math.ceil(r.width / this.cellW); this.rows = Math.ceil(r.height / (this.cellW * 2));
+    const n = this.cols * this.rows;
+    this.grid = { cols: this.cols, rows: this.rows, ch: new Uint16Array(n), fg: new Uint8Array(n), bg: new Uint8Array(n), cellW: this.cellW, rect: r };
+    this.prevCh = new Uint16Array(n).fill(65535); this.prevFg = new Uint8Array(n); this.prevBg = new Uint8Array(n).fill(255);
+    const c = this.ctx; c.font = `${this.weight} 100px "${this.font}"`; if ("fontStretch" in c) c.fontStretch = "condensed";
+    const adv = c.measureText("0").width / 100 || 0.62;
+    this.fontPx = Math.min((this.cellW / adv) * 1.04, this.cellW * 1.75) * dpr;
+    this.gw = Math.ceil(this.cellW * dpr) + 2; this.gh = Math.ceil(this.cellW * 2 * dpr) + 2;
+    this.sprites.clear(); this.sheet.width = this.gw * 32; this.sheet.height = this.gh * 8; this.sctx = this.sheet.getContext("2d");
+    this.piece.layout?.(this.grid, this);
+    this.paint(true); this.kick();
+  }
+  sprite(code, fg) {
+    const key = code * 64 + fg; let s = this.sprites.get(key); if (s) return s;
+    const i = this.sprites.size; const sx = (i % 32) * this.gw, sy = Math.floor(i / 32) * this.gh;
+    if (sy + this.gh > this.sheet.height) { const old = document.createElement("canvas"); old.width = this.sheet.width; old.height = this.sheet.height; old.getContext("2d").drawImage(this.sheet, 0, 0); this.sheet.height *= 2; this.sctx = this.sheet.getContext("2d"); this.sctx.drawImage(old, 0, 0); }
+    const g = this.sctx; g.font = `${this.weight} ${this.fontPx}px "${this.font}"`; if ("fontStretch" in g) g.fontStretch = "condensed"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = this.fgPal[fg];
+    g.fillText(String.fromCharCode(code), sx + this.gw / 2, sy + this.gh / 2 + this.fontPx * 0.04);
+    s = { sx, sy }; this.sprites.set(key, s); return s;
+  }
+  paint(force) {
+    if (!this.grid) return;
+    const { cols, rows, ch, fg, bg } = this.grid, c = this.ctx, d = this.dpr, cw = this.cellW;
+    this.piece.frame(this.frozenAt ?? this.t, this.grid, this);
+    for (let r = 0; r < rows; r++) {
+      const y0 = Math.round(r * cw * 2 * d), y1 = Math.round((r + 1) * cw * 2 * d);
+      for (let col = 0; col < cols; col++) {
+        const i = r * cols + col;
+        if (!force && ch[i] === this.prevCh[i] && fg[i] === this.prevFg[i] && bg[i] === this.prevBg[i]) continue;
+        this.prevCh[i] = ch[i]; this.prevFg[i] = fg[i]; this.prevBg[i] = bg[i];
+        const x0 = Math.round(col * cw * d), x1 = Math.round((col + 1) * cw * d);
+        c.fillStyle = this.bgPal[bg[i]]; c.fillRect(x0, y0, x1 - x0, y1 - y0);
+        if (ch[i] !== 32 && ch[i] !== 0) { const s = this.sprite(ch[i], fg[i]); c.drawImage(this.sheet, s.sx, s.sy, this.gw, this.gh, Math.round((x0 + x1 - this.gw) / 2), Math.round((y0 + y1 - this.gh) / 2), this.gw, this.gh); }
+      }
+    }
+  }
+  get running() { return this.visible && !document.hidden && !RM.matches && !this.paused && this.frozenAt === null; }
+  kick() { if (this.running && !this.raf) { this.last = performance.now(); this.raf = requestAnimationFrame(this.loop); } else if (!this.running) { if (RM.matches && this.piece.still != null && this.frozenAt === null) this.t = this.piece.still; this.paint(false); } }
+  loop(now) {
+    this.raf = 0; if (!this.running) return;
+    const dt = now - this.last;
+    if (dt >= 1000 / this.fps - 2) { this.t += Math.min(dt, 100) / 1000; this.last = now; this.paint(false); }
+    this.raf = requestAnimationFrame(this.loop);
+  }
+}
+
+/* Text-line boxes as a cell mask, so background dots never sit under copy. */
+function avoidMask(grid, rootRect, els, padC = 0) {
+  const m = new Uint8Array(grid.cols * grid.rows); const cw = grid.cellW, chh = cw * 2;
+  const mark = (r) => {
+    const c0 = Math.floor((r.left - rootRect.left) / cw) - padC, c1 = Math.ceil((r.right - rootRect.left) / cw) + padC;
+    const r0 = Math.floor((r.top - rootRect.top) / chh), r1 = Math.ceil((r.bottom - rootRect.top) / chh);
+    for (let y = Math.max(0, r0); y < Math.min(grid.rows, r1); y++) for (let x = Math.max(0, c0); x < Math.min(grid.cols, c1); x++) m[y * grid.cols + x] = 1;
+  };
+  for (const el of els) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) { if (!n.textContent.trim()) continue; const rg = document.createRange(); rg.selectNodeContents(n); for (const r of rg.getClientRects()) mark(r); }
+    el.querySelectorAll("canvas:not(.field),svg,.lamp,.chip,.rail,.feed,.m-cells").forEach((x) => mark(x.getBoundingClientRect()));
+  }
+  return m;
+}
+
+/* ---------- Dot icons: 7x7 patterns, the same medium as the signal numerals ---------- */
+const ICONS = {
+  chat: ["0111110", "1000001", "1000001", "1000001", "0111110", "0010000", "0100000"],
+  lock: ["0011100", "0100010", "0100010", "1111111", "1110111", "1110111", "1111111"],
+  card: ["0000000", "1111111", "1111111", "1000001", "1011001", "1111111", "0000000"],
+  check: ["0000000", "0000001", "0000010", "1000100", "0101000", "0010000", "0000000"],
+  box: ["1111111", "1000001", "1000001", "1000001", "1000001", "1000001", "1111111"],
+  share: ["0001000", "0011100", "0101010", "0001000", "1001001", "1000001", "1111111"],
+  wait: ["0000000", "0000000", "0000000", "0001000", "0000000", "0000000", "0000000"],
+};
+const LOCK_SVG = (color) => `<svg class="di" viewBox="0 0 21 21" aria-hidden="true"><path d="M6.5 9.5V7a4 4 0 0 1 8 0v2.5" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/><rect x="3.5" y="9.5" width="14" height="10" rx="2" fill="${color}"/></svg>`;
+const dotIcon = (name, color = "currentColor", r = 1.18) => name === "lock" ? LOCK_SVG(color) : `<svg class="di" viewBox="0 0 21 21" aria-hidden="true">${ICONS[name].flatMap((row, y) => [...row].map((v, x) => v === "1" ? `<circle cx="${x * 3 + 1.5}" cy="${y * 3 + 1.5}" r="${r}" fill="${color}"/>` : "")).join("")}</svg>`;
+document.querySelectorAll("svg.di[data-icon]").forEach((svg) => { svg.outerHTML = dotIcon(svg.dataset.icon, svg.dataset.color || "currentColor"); });
+
+/* =====================================================================
+   HERO: the price mark ("42" drawn in density-classed digits) and the ticket director.
+   ===================================================================== */
+const MARK_FG = ["#3A2A08", "#5A3E0A", "#7A560E", "#9C6D12", "#C98A16", "#E8A01C", "#FFB224", "#FFC65A", "#FFE2A0", "#FFF3D6", "#2E2616"];
+const MARK_BG = ["#100E0A"];
+const SEATS = ["Maya", "Leo", "Sam", "Priya"];
+// Two short cycles; each starts on an already-assembled frame. A: four holds -> captured. B: one drops -> every hold released.
+const HCY = [
+  { kind: "captured", len: 11, held: [0.9, 1.8, 2.7, 3.6], capture: 4.7, reset: 9.6 },
+  { kind: "released", len: 10, held: [0.9, 1.8, 2.7, Infinity], drop: 3.8, release: 4.7, reset: 8.6 },
+];
+const HTOTAL = HCY[0].len + HCY[1].len;
+const CALM_T = 4.2; // all four held, before capture: the calm frame for focus and reduced motion
+function heroAt(T) { let t = ((T % HTOTAL) + HTOTAL) % HTOTAL, ci = 0; if (t >= HCY[0].len) { ci = 1; t -= HCY[0].len; } return { ci, cy: HCY[ci], t }; }
+function seatState(cy, t, f) {
+  if (t >= cy.reset) return "VOTED";
+  if (cy.kind === "captured") return t >= cy.capture ? "CAPTURED" : t >= cy.held[f] ? "HELD" : "VOTED";
+  if (f === 3) return t >= cy.drop ? "DECLINED" : "VOTED";
+  return t >= cy.release + f * 0.14 ? "RELEASED" : t >= cy.held[f] ? "HELD" : "VOTED";
+}
+// Density classes: the outline is fixed by tone and class; digits only re-roll inside their class, so the number never wobbles.
+const CLASS_GLYPHS = [".", "274", "053", "896"];
+const TONES = { dim: [1, 2, 3, 3], held: [4, 5, 6, 6], lit: [7, 8, 9, 9] };
+
+function makePricePiece(text) {
+  const P = { still: CALM_T, calm: false };
+  let L = null;
+  P.cellFor = (r) => (r.height >= 200 ? 6 : 4);
+  P.layout = (grid) => {
+    const { cols, rows } = grid;
+    const sw = cols * 2, sh = rows * 4, oc = document.createElement("canvas"); oc.width = sw; oc.height = sh;
+    const g = oc.getContext("2d", { willReadFrequently: true });
+    const SX = 0.9; // slightly condensed: signage proportions
+    g.font = `800 100px "Funnel Display"`; if ("letterSpacing" in g) g.letterSpacing = "2px";
+    let m = g.measureText(text);
+    const w100 = (m.actualBoundingBoxRight + m.actualBoundingBoxLeft) * SX, h100 = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    const size = Math.min((sw * 0.98) / w100, (sh * 0.96) / h100) * 100;
+    g.font = `800 ${size}px "Funnel Display"`; if ("letterSpacing" in g) g.letterSpacing = `${size * 0.02}px`; m = g.measureText(text);
+    const tw = (m.actualBoundingBoxRight + m.actualBoundingBoxLeft) * SX, th = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    const ox = (sw - tw) / 2, oy = (sh - th) / 2;
+    g.setTransform(SX, 0, 0, 1, ox, 0); g.fillText(text, m.actualBoundingBoxLeft, oy + m.actualBoundingBoxAscent); g.setTransform(1, 0, 0, 1, 0, 0);
+    const data = g.getImageData(0, 0, sw, sh).data, n = cols * rows, cov = new Uint8Array(n);
+    let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      let k = 0; for (let yy = 0; yy < 4; yy++) for (let xx = 0; xx < 2; xx++) if (data[((r * 4 + yy) * sw + c * 2 + xx) * 4 + 3] > 110) k++;
+      cov[r * cols + c] = k; if (k) { minx = Math.min(minx, c); maxx = Math.max(maxx, c); miny = Math.min(miny, r); maxy = Math.max(maxy, r); }
+    }
+    const solid = (c, r) => c >= 0 && r >= 0 && c < cols && r < rows && cov[r * cols + c] >= 4;
+    // chamfer distance to the outside (x step 1, y step 2: cells are twice as tall as wide)
+    const INF = 1e6, dist = new Float32Array(n);
+    for (let i = 0; i < n; i++) dist[i] = cov[i] >= 4 ? INF : 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { const i = r * cols + c; if (!dist[i]) continue; let v = dist[i]; if (c > 0) v = Math.min(v, dist[i - 1] + 1); if (r > 0) v = Math.min(v, dist[i - cols] + 2); dist[i] = v; }
+    for (let r = rows - 1; r >= 0; r--) for (let c = cols - 1; c >= 0; c--) { const i = r * cols + c; if (!dist[i]) continue; let v = dist[i]; if (c < cols - 1) v = Math.min(v, dist[i + 1] + 1); if (r < rows - 1) v = Math.min(v, dist[i + cols] + 2); dist[i] = v; }
+    const cls = new Uint8Array(n), bevel = new Int8Array(n), region = new Uint8Array(n), u = new Float32Array(n), rad = new Float32Array(n);
+    const bx0 = minx, bw = maxx - minx + 1, cx = (minx + maxx + 1) / 2, cyy = (miny + maxy + 1); // y in half-cell units
+    let maxR = 1;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = r * cols + c; if (!cov[i]) continue;
+      if (cov[i] < 4) cls[i] = 0; else cls[i] = dist[i] <= 2 ? 1 : dist[i] <= 4 ? 2 : 3;
+      // bevel: light from the top left gives the number depth; the bottom-right edge falls into shadow
+      if (cov[i] >= 4) bevel[i] = (!solid(c, r - 1) || !solid(c - 1, r)) ? 1 : (!solid(c, r + 1) || !solid(c + 1, r)) ? -1 : 0;
+      u[i] = (c - bx0) / bw; region[i] = Math.min(3, Math.floor(u[i] * 4));
+      rad[i] = Math.hypot(c + 0.5 - cx, r * 2 + 1 - cyy); maxR = Math.max(maxR, rad[i]);
+    }
+    for (let i = 0; i < n; i++) rad[i] /= maxR;
+    L = { cov, cls, bevel, region, u, rad };
+  };
+  P.frame = (T, grid) => {
+    if (!L) return;
+    const { cols, rows, ch, fg, bg } = grid;
+    const TT = P.calm ? CALM_T : T;
+    const { cy, t } = heroAt(TT);
+    const scrTick = Math.floor(T * 2); // 2 Hz scramble clock, sparse (each cell re-rolls about every 5-9 ticks)
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = r * cols + c; bg[i] = 0;
+      if (!L.cov[i]) { ch[i] = 32; fg[i] = 0; continue; }
+      const f = L.region[i], k = L.cls[i], h = hash2(c, r);
+      // which look this cell has right now
+      let look = "dim";
+      const heldAt = cy.held[f] + (L.u[i] * 4 - f) * 0.3; // left-to-right wipe across that friend's quarter
+      if (t >= heldAt) look = "held";
+      if (cy.kind === "captured" && t >= cy.capture) {
+        const litAt = cy.capture + L.rad[i] * 0.6; // one smooth radial, inside the mark only
+        if (t >= litAt) look = "lit"; else if (t >= litAt - 0.1) look = "front";
+      }
+      if (cy.kind === "released") {
+        if (f === 3 && t >= cy.drop + h * 0.6) look = "ghost";
+        if (f < 3 && t >= cy.release + f * 0.14 + h * 0.6) look = "ghost";
+      }
+      if (t >= cy.reset + h * 0.9) look = "dim";
+      let code, tone;
+      if (look === "ghost") { code = 46; tone = 10; }
+      else {
+        const set = CLASS_GLYPHS[k];
+        let pick;
+        if (look === "dim") { const K = 5 + Math.floor(h * 5); pick = hash3(c, r, Math.floor((scrTick + h * 97) / K)); }
+        else pick = hash3(c, r, 3); // held and lit glyphs are frozen: secured
+        code = k === 0 ? (L.cov[i] <= 2 ? 46 : 58) : set.charCodeAt(Math.floor(pick * set.length));
+        const base = look === "front" ? TONES.lit[k] : TONES[look][k];
+        tone = clamp(base + (k ? L.bevel[i] : 0), 0, look === "dim" ? 4 : 9);
+      }
+      ch[i] = code; fg[i] = tone;
+    }
+    P.onFrame?.(TT);
+  };
+  return P;
+}
+
+/* Ticket director: seats, status, flag and tear follow the same clock as the mark. */
+const ticketEl = document.getElementById("ticket"), seatsEl = document.getElementById("seats");
+seatsEl.innerHTML = SEATS.map((n) => `<li class="seat" data-s="VOTED"><span class="lamp"></span><span class="nm">${n}</span><span class="st">Voted</span></li>`).join("");
+const seatEls = [...seatsEl.children];
+const SEAT_LABEL = { VOTED: "Voted", HELD: "Held $42", CAPTURED: "Paid $42", RELEASED: "Released", DECLINED: "Can’t make it" };
+function ticketStatus(cy, t, states) {
+  const held = states.filter((s) => s === "HELD").length;
+  if (t >= cy.reset || (held === 0 && states.every((s) => s === "VOTED"))) return ["4 of 4 voted.", "Holding cards next. Nobody is charged until 4 of 4.", "Admit 4 · nothing charged yet", "open"];
+  if (cy.kind === "captured") {
+    if (states[0] === "CAPTURED") return ["Everyone’s in. Booked.", "$168 charged, $42 each. Nobody fronted the bill.", "Booked · $168 charged", "booked"];
+    return held < 4 ? [`${held} of 4 held.`, "Nobody is charged until 4 of 4.", `Admit 4 · ${held} held · nothing charged`, "open"] : ["4 of 4 held.", "Booking now.", "Admit 4 · 4 held · nothing charged", "open"];
+  }
+  if (states.some((s) => s === "RELEASED")) return ["Every hold released.", "Nobody paid for a plan that didn’t happen.", "Not booked · $0 charged", "open"];
+  if (states[3] === "DECLINED") return ["Priya can’t make it.", "Releasing every hold now.", "Admit 4 · releasing", "open"];
+  return [`${held} of 4 held.`, "Nobody is charged until 4 of 4.", `Admit 4 · ${held} held · nothing charged`, "open"];
+}
+let lastTicketKey = "";
+const tStatusEl = document.getElementById("tStatus"), tFlagEl = document.getElementById("tFlag");
+
+/* Background rings on the sodium field: one per real event, emitted from that seat's lamp. Copy is masked out. */
+const ringCanvas = document.getElementById("heroRings"), rctx = ringCanvas.getContext("2d");
+let ringGeo = null;
+function ringLayout() {
+  const hr = document.getElementById("hero").getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+  ringCanvas.width = Math.round(hr.width * dpr); ringCanvas.height = Math.round(hr.height * dpr);
+  const rel = (b) => ({ x: (b.left + b.right) / 2 - hr.left, y: (b.top + b.bottom) / 2 - hr.top });
+  const lamps = seatEls.map((s) => rel(s.querySelector(".lamp").getBoundingClientRect()));
+  const avoid = [];
+  document.querySelectorAll("#hero [data-avoid]").forEach((el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) { if (!n.textContent.trim()) continue; const rg = document.createRange(); rg.selectNodeContents(n); for (const r of rg.getClientRects()) avoid.push([r.left - hr.left - 6, r.top - hr.top - 2, r.width + 12, r.height + 4]); } el.querySelectorAll("button,a").forEach((b) => { const r = b.getBoundingClientRect(); avoid.push([r.left - hr.left - 6, r.top - hr.top - 4, r.width + 12, r.height + 8]); }); });
+  const tr = ticketEl.getBoundingClientRect();
+  ringGeo = { dpr, lamps, avoid, center: rel(tr), maxR: Math.hypot(hr.width, hr.height) };
+}
+function drawRings(cy, t) {
+  if (!ringGeo) return;
+  const { dpr, lamps, avoid } = ringGeo, g = rctx;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, ringCanvas.width, ringCanvas.height); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const evs = [];
+  cy.held.forEach((h, f) => { if (isFinite(h)) evs.push([h, lamps[f], "hold"]); });
+  if (cy.kind === "captured") evs.push([cy.capture, ringGeo.center, "capture"]);
+  else { evs.push([cy.drop, lamps[3], "release"]); for (let f = 0; f < 3; f++) evs.push([cy.release + f * 0.14, lamps[f], "release"]); }
+  for (const [t0, o, kind] of evs) {
+    const age = t - t0, life = kind === "capture" ? 1.5 : 2.1; if (age < 0 || age > life) continue;
+    const k = 1 - age / life, speed = kind === "capture" ? 780 : 430;
+    const base = kind === "capture" ? 60 : 10, rr = base + age * speed;
+    g.setLineDash(kind === "release" ? [5, 9] : []);
+    g.strokeStyle = `rgba(16,14,10,${(kind === "capture" ? 0.3 : 0.2) * k * k})`;
+    g.lineWidth = kind === "capture" ? 3 : 2;
+    g.beginPath(); g.arc(o.x, o.y, rr, 0, Math.PI * 2); g.stroke();
+    if (kind === "hold" && rr > 26) { g.beginPath(); g.arc(o.x, o.y, rr - 16, 0, Math.PI * 2); g.globalAlpha = 0.5; g.stroke(); g.globalAlpha = 1; }
+  }
+  g.setLineDash([]); g.fillStyle = "#FFB224"; for (const [x, y, w, h] of avoid) g.fillRect(x, y, w, h);
+}
+
+const pricePiece = makePricePiece("42");
+pricePiece.onFrame = (T) => {
+  const { ci, cy, t } = heroAt(T);
+  const states = SEATS.map((_, f) => seatState(cy, t, f));
+  const [big, small, flag, mode] = ticketStatus(cy, t, states);
+  const torn = cy.kind === "captured" && t >= cy.capture + 0.35 && t < cy.reset;
+  const key = `${ci}|${states.join()}|${big}|${torn}`;
+  if (key !== lastTicketKey) {
+    lastTicketKey = key;
+    seatEls.forEach((el, f) => { if (el.dataset.s !== states[f]) { el.dataset.s = states[f]; el.querySelector(".st").textContent = SEAT_LABEL[states[f]]; } });
+    tStatusEl.innerHTML = `<b>${big}</b><span>${small}</span>`; tFlagEl.textContent = flag; tFlagEl.dataset.mode = mode;
+    ticketEl.dataset.torn = String(torn);
+  }
+  if (RM.matches || pricePiece.calm) { if (ringGeo) rctx.clearRect(0, 0, ringCanvas.width, ringCanvas.height); } else drawRings(cy, t); // rings are motion: none when reduced or calm
+};
+
+/* =====================================================================
+   DotNum: our own 5x7 dot-matrix numerals. Unlit dots are faint; "$" is set in type beside it.
+   ===================================================================== */
+const DOTFONT = {
+  "0": ["01110", "10001", "10001", "10001", "10001", "10001", "01110"], "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+  "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"], "3": ["11111", "00010", "00100", "00010", "00001", "10001", "01110"],
+  "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"], "5": ["11111", "10000", "11110", "00001", "00001", "10001", "01110"],
+  "6": ["00110", "01000", "10000", "11110", "10001", "10001", "01110"], "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"], "9": ["01110", "10001", "10001", "01111", "00001", "00010", "01100"],
+  " ": ["000", "000", "000", "000", "000", "000", "000"],
+};
+class DotNum {
+  constructor(canvas, { on, off, text = "" }) { Object.assign(this, { canvas, on, off, text }); new ResizeObserver(() => this.draw()).observe(canvas); }
+  cols(text) { let n = 0; for (const ch of text) n += (DOTFONT[ch] || DOTFONT[" "])[0].length + 1; return Math.max(n - 1, 1); }
+  set(text, animate = true) {
+    if (text === this.text) return; this.text = text;
+    if (!animate || RM.matches) { this.draw(); return; }
+    const t0 = performance.now(); const step = (now) => { const p = (now - t0) / 420; this.draw(p < 1 ? p : null); if (p < 1) requestAnimationFrame(step); }; requestAnimationFrame(step);
+  }
+  draw(progress = null) {
+    const h = this.canvas.getBoundingClientRect().height; if (!h) return;
+    const pitch = h / 7, cols = this.cols(this.text), w = cols * pitch, dpr = Math.min(devicePixelRatio || 1, 2);
+    this.canvas.style.width = `${w}px`; this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+    const g = this.canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    let x0 = 0, colIdx = 0; const rad = pitch * 0.4;
+    for (const chr of this.text) {
+      const rows = DOTFONT[chr] || DOTFONT[" "];
+      for (let cx = 0; cx < rows[0].length; cx++, colIdx++) {
+        const settle = progress === null || progress > 0.25 + (colIdx / cols) * 0.7;
+        for (let ry = 0; ry < 7; ry++) {
+          const lit = settle ? rows[ry][cx] === "1" : hash3(colIdx, ry, Math.floor((progress || 0) * 30)) > 0.55;
+          if (!lit && !this.off) continue;
+          g.fillStyle = lit ? this.on : this.off; g.beginPath(); g.arc((x0 + cx) * pitch + pitch / 2, ry * pitch + pitch / 2, lit ? rad : rad * 0.45, 0, Math.PI * 2); g.fill();
+        }
+      }
+      x0 += rows[0].length + 1; colIdx++;
+    }
+  }
+}
+
+/* =====================================================================
+   Redaction bars: one fixed width for everyone (length leaks nothing). Dots re-roll slowly: private, alive.
+   ===================================================================== */
+function drawRedact(cv, seed, idx) {
+  const r = cv.getBoundingClientRect(); if (!r.height) return;
+  const h = r.height, w = +cv.dataset.w * h, dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.style.width = `${w}px`; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cs = getComputedStyle(cv);
+  g.fillStyle = cs.getPropertyValue("--c-redact").trim() || "#2A2314"; g.beginPath(); g.roundRect(0, 0, w, h, h * 0.22); g.fill();
+  const pitch = h / 3, cols = Math.floor((w - pitch) / pitch);
+  g.fillStyle = cs.getPropertyValue("--c-redact-dot").trim() || "#C98A16";
+  for (let x = 0; x < cols; x++) for (let y = 0; y < 2; y++) if (hash3(x + idx * 40, y, seed) > 0.45) { g.beginPath(); g.arc(pitch + x * pitch, pitch * (y + 1), pitch * 0.3, 0, 7); g.fill(); }
+}
+
+/* ============================== CONSOLE ============================== */
+const STATIONS = ["Joined", "Voted", "Held", "Captured"];
+const lanesEl = document.getElementById("lanes");
+lanesEl.innerHTML = SEATS.map((n, i) => `<li class="lane" data-lane="${i}" data-stage="VOTED"><span class="lamp" aria-hidden="true"></span><span class="who"><span class="name">${n}</span><span class="proof"><canvas class="redact" data-w="4.4"></canvas><span>Budget hidden · <b>$42 fits</b></span></span></span><span class="rail" aria-hidden="true"><i class="fill"></i>${STATIONS.map((s) => `<span>${s}</span>`).join("")}</span><span class="amt"><span class="v">$42.00</span><span class="cap">share</span></span><span class="chip">VOTED</span><span class="feed" aria-hidden="true"><i class="line"></i><i class="seg"></i></span><span class="sr-only lane-sr"></span></li>`).join("");
+const laneEls = [...lanesEl.children];
+document.getElementById("xsec").innerHTML = SEATS.map((n) => `<li><span>${n}</span><canvas class="redact" data-w="5"></canvas><span class="tag">${dotIcon("lock")}Locked</span></li>`).join("");
+const TAP_STEPS = ["Agent known", "Details sealed", "Not expired", "Never reused", "Key on file", "Signature good"];
+const stepsEl = document.getElementById("tapSteps");
+const consoleEl = document.getElementById("consoleFrame");
+const goVar = () => getComputedStyle(consoleEl).getPropertyValue("--c-go-text").trim();
+function renderSteps() { stepsEl.innerHTML = TAP_STEPS.map((s, i) => `<li data-i="${i}">${dotIcon("wait")}${s}</li>`).join(""); }
+renderSteps();
+const stepEls = () => [...stepsEl.children];
+function tapSummary(mode) {
+  const ok = dotIcon("check", "var(--c-go-text)"), wait = dotIcon("wait");
+  const rows = mode === "idle"
+    ? [[wait, `<span class="ph">Signed by: waiting for checkout</span>`], [wait, `<span class="ph">Expires: not yet signed</span>`], [wait, `<span class="ph">Merchant check: not yet sent</span><span class="keydir">Key directory: mock</span>`]]
+    : mode === "signed"
+      ? [[ok, `Signed by squadtab-agent-01 · POST /checkout/ord_7f3a`], [ok, `Expires in 8 min · nonce never reused`], [wait, `<span class="ph">Merchant is checking the signature</span><span class="keydir">Key directory: mock</span>`]]
+      : [[ok, `Signed by squadtab-agent-01 · POST /checkout/ord_7f3a`], [ok, `Expires in 8 min · nonce never reused`], [ok, `<b>Verified by merchant</b><span class="keydir">Key directory: mock</span>`]];
+  document.getElementById("tapSum").innerHTML = rows.map(([ic, tx]) => `<li>${ic}${tx}</li>`).join("");
+}
+document.querySelectorAll(".track").forEach((t) => setTrack(t, +t.dataset.fill));
+function setTrack(el, k) { el.innerHTML = "<b>" + "▮".repeat(k) + "</b>" + "▯".repeat(22 - k); }
+
+const counters = { groups: 41, released: 118 };
+const cFronted = new DotNum(document.getElementById("cFronted"), { on: "var(--c-fg)", off: null });
+const cGroups = new DotNum(document.getElementById("cGroups"), { on: "var(--c-fg)", off: null });
+const cReleased = new DotNum(document.getElementById("cReleased"), { on: "var(--c-fg)", off: null });
+function dotColors() { const fgc = getComputedStyle(consoleEl).getPropertyValue("--c-fg").trim(); for (const d of [cFronted, cGroups, cReleased]) { d.on = fgc; d.draw(); } }
+
+const CON_PAL = {
+  ink: { fg: ["#221F19", "#5A4210", "#E8A01C", "#1F5C3D", "#3BE38B", "#3A372F", "#8C8576"], bg: ["#100E0A"] },
+  paper: { fg: ["#E2D9C4", "#E8B860", "#B07209", "#9FD9B8", "#0B6B3F", "#D3C9B3", "#8F877A"], bg: ["#F6F1E6"] },
+};
+function makeConsolePiece(frame) {
+  const P = { still: 0, rings: [], avoid: null };
+  P.layout = (grid) => { P.grid = grid; P.avoid = avoidMask(grid, grid.rect, frame.querySelectorAll(".c-grid"), 0); };
+  P.ring = (el, kind, t) => { if (!P.grid) return; const r = el.getBoundingClientRect(), root = frame.getBoundingClientRect(), cw = P.grid.cellW; P.rings.push({ x: ((r.left + r.right) / 2 - root.left) / cw, y: ((r.top + r.bottom) / 2 - root.top) / cw, t0: t, kind, speed: kind === "capture" ? 130 : 30, life: kind === "capture" ? 1.2 : 2.2, band: kind === "capture" ? 3.2 : 2.4 }); };
+  P.frame = (t, grid) => {
+    const { cols, rows, ch, fg, bg } = grid;
+    P.rings = P.rings.filter((r) => t - r.t0 < r.life && t >= r.t0);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = r * cols + c; bg[i] = 0; ch[i] = 32; fg[i] = 0;
+      if (c % 2 || r % 2 || P.avoid?.[i]) continue;
+      const x = c + 0.5, y = r * 2 + 1; let inten = 0, kind = null;
+      for (const g of P.rings) { const age = t - g.t0; const u = Math.hypot(x - g.x, y - g.y) - age * g.speed; const v = Math.max(0, 1 - Math.abs(u) / g.band) * (g.kind === "capture" ? 1 : Math.max(0, 1 - age / g.life)); if (v > inten) { inten = v; kind = g.kind; } }
+      const pal = kind === "held" ? [1, 2] : kind === "capture" ? [3, 4] : [5, 6];
+      if (inten > 0.45) { ch[i] = 183; fg[i] = pal[1]; }
+      else if (inten > 0.12) { ch[i] = 183; fg[i] = pal[0]; }
+      else if (c % 4 === 0 && hash2(c, r) < 0.8) { ch[i] = 183; fg[i] = 0; }
+    }
+  };
+  return P;
+}
+const conPiece = makeConsolePiece(consoleEl);
+const conField = new GlyphField(document.getElementById("consoleField"), conPiece, { cellW: 8, fps: 24, fg: CON_PAL.ink.fg, bg: CON_PAL.ink.bg });
+
+const AMT = { VOTED: ["$42.00", "share"], HELD: ["$42.00", "held, not charged"], CAPTURED: ["$42.00", "charged"], RELEASED: ["$0.00", "charged"], DECLINED: ["$0.00", "charged"] };
+function setLane(i, stage, t, ring = true) {
+  const el = laneEls[i]; el.dataset.stage = stage;
+  // stations: Joined 0, Voted 1, Held 2, end 3. RELEASED keeps its history (held, then released); DECLINED keeps Voted.
+  const reached = { VOTED: 1, HELD: 2, CAPTURED: 3, RELEASED: 2, DECLINED: 1 }[stage];
+  const ended = stage === "RELEASED" || stage === "DECLINED";
+  el.querySelectorAll(".rail > span").forEach((s, k) => {
+    s.classList.toggle("done", stage === "CAPTURED" ? k <= 3 : stage === "HELD" ? k < 2 : k <= reached);
+    s.classList.toggle("now", stage === "HELD" && k === 2);
+    s.classList.toggle("endmark", ended && k === 3);
+    s.textContent = k === 3 ? (stage === "RELEASED" ? "Released" : stage === "DECLINED" ? "Declined" : "Captured") : STATIONS[k];
+  });
+  el.querySelector(".fill").style.width = `${((ended ? 3 : reached) / 3) * 88}%`;
+  if (ended) el.querySelector(".fill").style.background = "repeating-linear-gradient(90deg,var(--c-fg) 0 .5cqw,transparent .5cqw .8cqw)"; else el.querySelector(".fill").style.background = "";
+  if (stage === "RELEASED") el.querySelector(".fill").style.background = `linear-gradient(90deg,var(--c-fg) 0 ${(2 / 3) * 100}%,transparent 0),repeating-linear-gradient(90deg,var(--c-fg) 0 .5cqw,transparent .5cqw .8cqw)`;
+  const [v, cap] = AMT[stage]; el.querySelector(".amt .v").textContent = v; el.querySelector(".amt .cap").textContent = cap;
+  el.querySelector(".chip").textContent = stage;
+  el.querySelector(".lane-sr").textContent = `${SEATS[i]}: ${stage}, ${v} ${cap}`;
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  if (ring && stage === "HELD") conPiece.ring(el.querySelector(".lamp"), "held", t);
+  if (ring && ended) conPiece.ring(el.querySelector(".lamp"), "release", t);
+}
+function status(big, small) { document.getElementById("statusBig").textContent = big; document.getElementById("statusSmall").textContent = small; }
+function meter(mode, held) {
+  const m = document.getElementById("meter"), cells = [...document.getElementById("mCells").children];
+  m.dataset.mode = mode === "holding" && held === 4 ? "full" : mode;
+  cells.forEach((c, k) => c.classList.toggle("on", k < held));
+  const set = (lbl, big, of, sub) => { document.getElementById("mLbl").textContent = lbl; document.getElementById("mBig").textContent = big; document.getElementById("mOf").textContent = of; document.getElementById("mSub").innerHTML = sub; };
+  if (mode === "holding") set("Held so far", `$${held * 42}`, "of $168", `Charged <b>$0</b> · ${held} of 4 holds`);
+  else if (mode === "captured") set("Captured, all or nothing", "$168", "", `Charged <b>$168</b> · 4 × $42`);
+  else set("Released", "$0", "charged", `<b>${held}</b> holds released · nobody paid`);
+}
+const SCRIPT = [
+  { len: 15, ev: [
+    [0, "reset"], [1.0, "held", 0], [2.0, "held", 1], [3.0, "held", 2], [4.0, "held", 3],
+    [4.6, "sign"], [4.9, "step", 0], [5.15, "step", 1], [5.4, "step", 2], [5.65, "step", 3], [5.9, "step", 4], [6.15, "step", 5], [6.5, "verified"],
+    [7.3, "capture"], [7.8, "book", 6], [8.4, "book", 13], [9.0, "book", 19], [9.6, "booked"],
+  ] },
+  { len: 12, ev: [
+    [0, "reset"], [1.0, "held", 0], [2.0, "held", 1], [3.0, "held", 2], [4.4, "decline", 3], [5.2, "release"],
+  ] },
+];
+const SCRIPT_LEN = SCRIPT[0].len + SCRIPT[1].len;
+let conState = { cyc: -1, idx: 0 };
+const heldCount = () => laneEls.filter((l) => l.dataset.stage === "HELD").length;
+function runEvent([, kind, arg], t) {
+  if (kind === "reset") {
+    laneEls.forEach((_, i) => setLane(i, "VOTED", t, false));
+    renderSteps(); tapSummary("idle"); meter("holding", 0);
+    status("4 of 4 voted.", "Rooftop dinner + Largo comedy, $42 each. Holding cards now.");
+    setTrack(document.getElementById("cTrack"), 0); document.getElementById("cStat").textContent = "waits for 4 of 4";
+    document.getElementById("creaoLog").innerHTML = "<b>Scout:</b> 23 places checked, 6 fit every budget.";
+    cFronted.set("0", false); cGroups.set(String(counters.groups), false); cReleased.set(String(counters.released), false);
+  } else if (kind === "held") { setLane(arg, "HELD", t); const h = heldCount(); meter("holding", h); status(`${h} of 4 held.`, h < 4 ? "Nobody is charged until 4 of 4." : "Everyone’s held. Booking now."); }
+  else if (kind === "sign") tapSummary("signed");
+  else if (kind === "step") { const li = stepEls()[arg]; li.classList.add("pass"); li.querySelector("svg").outerHTML = dotIcon("check", "var(--c-go-text)"); }
+  else if (kind === "verified") tapSummary("verified");
+  else if (kind === "capture") {
+    laneEls.forEach((el, i) => setTimeout(() => setLane(i, "CAPTURED", t, false), RM.matches || QS.has("ct") ? 0 : i * 90));
+    conPiece.ring(lanesEl, "capture", t); meter("captured", 4);
+    counters.groups += 1; cGroups.set(String(counters.groups));
+    status("Everyone’s in. Booked.", "$168.00 captured, 4 × $42.00. Nobody fronted a cent.");
+    document.getElementById("cStat").textContent = "booking 0:00"; document.getElementById("creaoLog").innerHTML = "<b>Concierge:</b> confirming a table for 4 at Rooftop Kitchen, 7:00 PM.";
+  } else if (kind === "book") { setTrack(document.getElementById("cTrack"), arg); document.getElementById("cStat").textContent = `booking 0:0${Math.round((arg / 22) * 9)}`; }
+  else if (kind === "booked") { setTrack(document.getElementById("cTrack"), 22); document.getElementById("cStat").textContent = "done 0:09"; document.getElementById("creaoLog").innerHTML = "<b>Concierge:</b> table for 4 at Rooftop Kitchen, 7:00 PM, and 4 seats at Largo, 9:30 PM. Confirmed."; }
+  else if (kind === "decline") { setLane(arg, "DECLINED", t); status("Priya can’t make it.", "Releasing every hold. Nobody pays for a plan that didn’t happen."); }
+  else if (kind === "release") {
+    const n = heldCount();
+    laneEls.forEach((el, i) => { if (el.dataset.stage === "HELD") { if (RM.matches || QS.has("ct")) setLane(i, "RELEASED", t); else setTimeout(() => setLane(i, "RELEASED", t), i * 140); } });
+    meter("released", n); counters.released += n; cReleased.set(String(counters.released));
+    status("Every hold released.", "Nobody paid. Holds drop off cards with no charge.");
+    document.getElementById("cStat").textContent = "stopped"; document.getElementById("creaoLog").innerHTML = "<b>Concierge stopped.</b> Nothing booked, nothing charged.";
+  }
+}
+const conFrame = conPiece.frame;
+conPiece.frame = (T, grid) => {
+  const tt = ((T % SCRIPT_LEN) + SCRIPT_LEN) % SCRIPT_LEN; const cyc = tt < SCRIPT[0].len ? 0 : 1; const t = cyc ? tt - SCRIPT[0].len : tt;
+  if (cyc !== conState.cyc) conState = { cyc, idx: 0 };
+  const evs = SCRIPT[cyc].ev; while (conState.idx < evs.length && evs[conState.idx][0] <= t) { const ev = evs[conState.idx++]; runEvent(ev, T - t + ev[0]); }
+  conFrame(T, grid);
+};
+
+// slow clock: redaction bars re-roll at 2 Hz, the wall clock ticks. Nothing here fakes progress.
+let slowTickN = 0;
+function slowTick() {
+  slowTickN++;
+  document.querySelectorAll("canvas.redact").forEach((cv, i) => drawRedact(cv, slowTickN, i));
+  document.getElementById("clock").textContent = "Live " + new Date().toTimeString().slice(0, 8);
+}
+
+/* ============================== WIRING ============================== */
+const toggle = document.getElementById("motionToggle");
+let priceField;
+function start() {
+  priceField = new GlyphField(document.getElementById("priceMark"), pricePiece, { cellW: 6, fps: 30, fg: MARK_FG, bg: MARK_BG, weight: 700 });
+  ringLayout();
+  if (QS.has("t")) { priceField.frozenAt = +QS.get("t"); priceField.paint(true); }
+  if (QS.has("ct")) { conField.frozenAt = +QS.get("ct"); conState = { cyc: -1, idx: 0 }; conField.paint(true); }
+  conField.resize(); dotColors(); slowTick();
+}
+toggle.addEventListener("click", () => { const p = toggle.getAttribute("aria-pressed") !== "true"; toggle.setAttribute("aria-pressed", String(p)); toggle.querySelector(".lbl").textContent = p ? "Play motion" : "Pause motion"; priceField.paused = p; conField.paused = p; priceField.kick(); conField.kick(); });
+// The ticket yields to the task: focusing a number field freezes it on the calm "all held" frame.
+const calm = (on) => { pricePiece.calm = on; priceField.paused = on || toggle.getAttribute("aria-pressed") === "true"; priceField.paint(false); priceField.kick(); };
+["phone", "dphone"].forEach((id) => { const el = document.getElementById(id); el.addEventListener("focus", () => calm(true)); el.addEventListener("blur", () => { if (!el.value) calm(false); }); });
+document.querySelectorAll(".theme-switch button").forEach((b) => b.addEventListener("click", () => {
+  const th = b.dataset.theme; consoleEl.dataset.theme = th;
+  document.querySelectorAll(".theme-switch button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  conField.setPalette(CON_PAL[th].fg, CON_PAL[th].bg); dotColors(); slowTick();
+}));
+if (QS.get("theme") === "paper") document.querySelector('.theme-switch [data-theme="paper"]').click();
+Promise.all([document.fonts.load('800 100px "Funnel Display"'), document.fonts.load('700 13px "Martian Mono"')]).catch(() => {}).then(() => document.fonts.ready).then(() => {
+  start();
+  if (!RM.matches && !QS.has("ct")) setInterval(() => { if (!document.hidden && toggle.getAttribute("aria-pressed") !== "true") slowTick(); }, 500);
+});
+addEventListener("resize", () => { if (priceField) ringLayout(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+/* SquadTab "Green Light" design tokens. Drop-in replacement for apps/web/app/globals.css.
+   Rationale, contrast proofs and the rejected candidates are in docs/design/type-color-system.md.
+   Regenerate the proofs with: node scratch/design/scripts/contrast.mjs --md
+
+   Fonts are loaded with next/font/google in app/layout.tsx (snippet in the doc), which sets
+   --font-funnel-display, --font-funnel-sans, --font-martian-mono and --font-doto on <html>. */
+@import "tailwindcss";
+
+/* next/font sets these variables on <html>, so map them inline (Next.js + Tailwind v4 guidance). */
+@theme inline {
+  --font-display: var(--font-funnel-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Signature dot-matrix digits. Display only, at 48px or larger; never body copy. */
+  --font-dot: var(--font-doto), var(--font-martian-mono), ui-monospace, monospace;
+
+  /* Legacy names still used in apps/web/components (kept so the swap compiles; migrate, then delete).
+     Inline so utilities read var(--color-ink) etc. directly and follow data-theme on any subtree.
+     accent -> held is correct for the console (in-progress, signed-awaiting, HELD lanes).
+     Primary buttons should move to bg-field text-field-ink. */
+  --color-fg: var(--color-ink);
+  --color-border: var(--color-line);
+  --color-accent: var(--color-held);
+  --color-ok: var(--color-captured);
+  --color-lock: var(--color-private);
+}
+
+/* static: emit every token even if no utility uses it, so the motion canvas can read colours via
+   getComputedStyle (e.g. --color-field-dot) and the booth overrides always have something to override. */
+@theme static {
+  /* Brand field: emerald. "Green light: everyone's in." Text on it is cream (5.32:1). */
+  --color-field: #00704a; /* oklch(48.2% 0.107 161.2) */
+  --color-field-ink: #f4eee2; /* oklch(95.1% 0.017 84.6) */
+  --color-field-deep: #005a3b; /* motion layers, pressed states; decorative */
+  --color-field-dot: color-mix(in oklab, #f4eee2 22%, transparent); /* dot grid; decorative */
+
+  /* Paper (light). Default everywhere, including the projector console. */
+  --color-bg: #f4eee2; /* oklch(95.1% 0.017 84.6) */
+  --color-surface: #fbf7ef; /* oklch(97.7% 0.011 84.6) */
+  --color-surface-2: #eae2d2; /* oklch(91.5% 0.023 84.6) */
+  --color-line: #d9cebb; /* decorative hairlines only */
+  --color-line-strong: #8c7f69; /* input/control boundaries, >= 3:1 on every surface */
+  --color-ink: #131a16; /* 13.7-16.6:1 */
+  --color-muted: #545a52; /* 5.5-6.8:1 */
+  --color-faint: #767a70; /* >= 3:1; large or console text only, never body */
+  --color-brand: #005c3d; /* brand hue as text: links, wordmark on paper */
+
+  /* States. Text tokens pass 4.5:1 on bg, surface and surface-2, and on their own 14% tint. */
+  --color-held: #7a5200; /* brass: money set aside, not moved */
+  --color-held-fill: #e8ae2e;
+  --color-on-held: #1e1400;
+  --color-captured: #066e43; /* emerald: the brand colour is earned when everyone's in */
+  --color-captured-fill: #00704a;
+  --color-on-captured: #f4eee2;
+  --color-released: #56606b; /* slate: hold dropped, nobody charged; draw it dashed/outlined */
+  --color-released-fill: #e4e0d8;
+  --color-on-released: #3f4650;
+  --color-danger: #7a0c2c; /* oxblood: declined / errors */
+  --color-warn: #7a5200; /* connection pending; same brass family as HELD on purpose */
+  --color-private: #131a16; /* redaction bars ("tells no one") */
+  --color-focus: #131a16;
+
+  /* Page scale (mobile landing / join). Funnel Sans has a 0.50 x-height (Inter is 0.546),
+     so body text is 17px to match Inter-16 legibility. Inputs stay >= 16px (no iOS zoom). */
+  --text-body: 1.0625rem;
+  --text-body--line-height: 1.5;
+  --text-title: 2rem;
+  --text-title--line-height: 1.05;
+  --text-title--letter-spacing: -0.025em;
+  --text-hero: clamp(2.75rem, 12.5vw, 5.25rem);
+  --text-hero--line-height: 0.95;
+  --text-hero--letter-spacing: -0.035em;
+  --text-eyebrow: 0.8125rem; /* Martian Mono, uppercase */
+  --text-eyebrow--letter-spacing: 0.14em;
+
+  /* Console scale for a 16:9 screen read from 5 m. min(vh, vw*9/16) keeps the ratio on any
+     window; the rem floor keeps a laptop preview readable. Targets (cap height, 100" screen at 5 m):
+     detail = not needed at 5 m; label >= 16'; body ~ 20'; state/key ~ 30'; hero readable on a 65" TV. */
+  --text-console-detail: clamp(0.875rem, min(1.8vh, 1.0125vw), 1.5rem);
+  --text-console-label: clamp(1rem, min(2.4vh, 1.35vw), 2rem);
+  --text-console-label--letter-spacing: 0.1em;
+  --text-console-body: clamp(1.25rem, min(3.4vh, 1.9125vw), 2.75rem);
+  --text-console-body--line-height: 1.2;
+  --text-console-state: clamp(1.25rem, min(4.4vh, 2.475vw), 3.5rem);
+  --text-console-state--letter-spacing: 0.06em;
+  --text-console-key: clamp(1.75rem, min(5vh, 2.8125vw), 4rem);
+  --text-console-key--line-height: 1;
+  --text-console-hero: clamp(3rem, min(10vh, 5.625vw), 8rem);
+  --text-console-hero--line-height: 0.9;
+}
+
+/* Booth (dark): dim rooms and TVs. The console opts in with data-theme="booth" (an operator
+   choice, not an OS one); other pages follow the OS unless they pin data-theme="paper". */
+@layer base {
+  [data-theme="booth"] {
+    --color-bg: #0e1411;
+    --color-surface: #151d19;
+    --color-surface-2: #1d2722;
+    --color-line: #2c3a33;
+    --color-line-strong: #6e8378;
+    --color-ink: #f1ede3;
+    --color-muted: #a9b3aa;
+    --color-faint: #87938b;
+    --color-brand: #5be0a0;
+    --color-held: #edb84a;
+    --color-held-fill: #edb84a;
+    --color-on-held: #1e1400;
+    --color-captured: #5be0a0;
+    --color-captured-fill: #00704a;
+    --color-on-captured: #f4eee2;
+    --color-released: #a9b1bb;
+    --color-released-fill: #2a332e;
+    --color-on-released: #d8dde3;
+    --color-danger: #f5607f;
+    --color-warn: #edb84a;
+    --color-private: #ece7dc;
+    --color-focus: #f1ede3;
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="paper"]):not([data-theme="booth"]) {
+      --color-bg: #0e1411;
+      --color-surface: #151d19;
+      --color-surface-2: #1d2722;
+      --color-line: #2c3a33;
+      --color-line-strong: #6e8378;
+      --color-ink: #f1ede3;
+      --color-muted: #a9b3aa;
+      --color-faint: #87938b;
+      --color-brand: #5be0a0;
+      --color-held: #edb84a;
+      --color-held-fill: #edb84a;
+      --color-on-held: #1e1400;
+      --color-captured: #5be0a0;
+      --color-captured-fill: #00704a;
+      --color-on-captured: #f4eee2;
+      --color-released: #a9b1bb;
+      --color-released-fill: #2a332e;
+      --color-on-released: #d8dde3;
+      --color-danger: #f5607f;
+      --color-warn: #edb84a;
+      --color-private: #ece7dc;
+      --color-focus: #f1ede3;
+      color-scheme: dark;
+    }
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.5;
+  }
+
+  /* Money and counters never jitter: Funnel and Martian Mono ship tabular digits by default,
+     this guards against fallback fonts during load. */
+  .font-mono,
+  .font-dot,
+  [data-num] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Doto's rounded-dot cut is the signature; the default square cut reads as a generic LED. */
+  .font-dot {
+    font-variation-settings: "ROND" 100;
+  }
+
+  :focus-visible {
+    outline-color: var(--color-focus);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
