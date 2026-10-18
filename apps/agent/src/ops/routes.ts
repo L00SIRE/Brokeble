@@ -1,4 +1,4 @@
-// POST /ops/{reset,replay,tap-test,live-scout,release-seats,release-untexted} (PLAN §18, A plan T14). Bearer OPERATOR_KEY compared in
+// POST /ops/{reset,replay,tap-test,live-scout,release-seats,release-untexted}, GET /ops/cybersource (PLAN §18, A plan T14). Bearer OPERATOR_KEY compared in
 // constant time (auth.ts hasKey). CORS (opsCors) is already applied to /ops/* by app.ts. Owner A.
 import type { Context, Hono } from "hono";
 import * as z from "zod";
@@ -10,12 +10,13 @@ import { releaseAllExceptTeam, releaseUntexted } from "../join/seats";
 import * as plans from "../repo/plans";
 import { errInfo, log } from "../log";
 import { VenueHttpError } from "../venueClient";
+import { fetchCybsLookup } from "../venueClient/cybsLookup";
 import { runTapTest } from "../venueClient/tapTest";
 import { replayDemo, ReplayError, resetDemo } from "./reset";
 
 export const TapTestBody = z.strictObject({ kind: z.enum(["tamper", "replay", "expired", "wrong_tag"]) });
 
-/** Mounts the six ops routes; each handler first calls requireOperator(c). */
+/** Mounts the seven ops routes; each handler first calls requireOperator(c). */
 export function mountOps(app: Hono): void {
   app.post("/ops/reset", handleReset);
   app.post("/ops/replay", handleReplay);
@@ -23,6 +24,7 @@ export function mountOps(app: Hono): void {
   app.post("/ops/live-scout", handleLiveScout);
   app.post("/ops/release-seats", handleReleaseSeats);
   app.post("/ops/release-untexted", handleReleaseUntexted);
+  app.get("/ops/cybersource", handleCybersource);
 }
 
 /** null when Authorization is Bearer OPERATOR_KEY; else the 401 (or 503 when OPERATOR_KEY is unset) response. */
@@ -114,4 +116,22 @@ export async function handleReleaseUntexted(c: Context): Promise<Response> {
   const denied = requireOperator(c);
   if (denied) return denied;
   return c.json({ ok: true, released: await releaseUntexted() });
+}
+
+/**
+ * GET /ops/cybersource: the latest order's Cybersource transactions, fetched live by the venue (its TSS lookup).
+ * 200 {ok:true, available:false, reason} when there is no order or the venue is simulated or unreachable (the panel
+ * says so); never a 500 for a venue failure.
+ */
+export async function handleCybersource(c: Context): Promise<Response> {
+  const denied = requireOperator(c);
+  if (denied) return denied;
+  if (env.VENUE_MODE !== "live") return c.json({ ok: true, available: false, reason: "venue_simulated" });
+  const orderId = (await plans.latestPlanWithOrder())?.venue_order_id;
+  if (!orderId) return c.json({ ok: true, available: false, reason: "no_order" });
+  try {
+    return c.json({ ok: true, available: true, ...(await fetchCybsLookup(orderId)) });
+  } catch {
+    return c.json({ ok: true, available: false, reason: "venue_unreachable" });
+  }
 }

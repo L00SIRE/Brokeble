@@ -19,4 +19,4 @@ export const publicCors = cors({
 });
 
 /** /ops/* (standard-names "Endpoints"): the console's ops bar sends Bearer OPERATOR_KEY, so it needs a preflight. */
-export const opsCors = cors({ origin: env.WEB_ORIGIN, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["POST"] });
+export const opsCors = cors({ origin: env.WEB_ORIGIN, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["GET", "POST"] });

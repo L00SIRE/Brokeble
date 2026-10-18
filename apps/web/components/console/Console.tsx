@@ -27,6 +27,7 @@ import {
 } from "@/lib/consoleView";
 import { readOperatorKey } from "@/lib/operatorKey";
 import { useConsoleStream } from "@/lib/useConsoleStream";
+import { CybsPanel } from "./CybsPanel";
 import { ConsoleField } from "./ConsoleField";
 import { ConsoleFooter } from "./ConsoleFooter";
 import { ConsoleHeader, ThemeSwitch } from "./ConsoleHeader";
@@ -102,6 +103,9 @@ export function Console({ consoleKey, children }: { consoleKey: string | null; c
           </div>
           {ops ? (
             <>
+              <div className="px-[2.1cqw] pb-[1.2cqw] @max-[860px]:px-4">
+                <CybsPanel />
+              </div>
               <ConsoleFooter deliveries={state.deliveries} system={state.system} invalid={invalidCount} />
               <div className="px-[2.1cqw] pb-4">{children}</div>
             </>

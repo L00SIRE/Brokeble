@@ -59,7 +59,7 @@ describe("CORS (PLAN §11, standard-names Endpoints)", () => {
     const res = await preflight(app, "/ops/reset");
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-origin")).toBe(env.WEB_ORIGIN);
-    expect(res.headers.get("access-control-allow-methods")).toBe("POST");
+    expect(res.headers.get("access-control-allow-methods")).toBe("GET,POST");
     expect(res.headers.get("access-control-allow-headers")).toBe("Authorization,Content-Type");
 
     const evil = await app.request("/ops/reset", {

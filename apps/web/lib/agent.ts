@@ -64,8 +64,46 @@ export const TapTestReply = z.object({
   captured: z.boolean().optional(),
 });
 export type TapTestReply = z.infer<typeof TapTestReply>;
+/** GET /ops/cybersource: the venue's allowlisted, live-fetched Cybersource transactions for the latest order. */
+const CybsTxn = z.object({
+  operation: z.string(),
+  status: z.string().nullable(),
+  message: z.string().nullable(),
+  reason_code: z.string().nullable(),
+  amount: z.string().nullable(),
+  currency: z.string().nullable(),
+  card_type: z.string().nullable(),
+  card_last4: z.string().nullable(),
+  submit_time: z.string().nullable(),
+  processor: z.string().nullable(),
+  merchant_id: z.string().nullable(),
+});
+export const CybsRow = z.object({
+  seq: z.number().int(),
+  op: z.enum(["auth", "capture", "reverse", "timeout_reverse"]),
+  attempt: z.number().int(),
+  recorded: z.string(),
+  cybs_id: z.string().nullable(),
+  lookup: z.enum(["live", "pending", "unavailable", "simulated", "none"]),
+  txn: CybsTxn.nullable(),
+});
+export const CybsResponse = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(false), reason: z.string() }),
+  z.object({
+    available: z.literal(true),
+    order_id: z.string().nullable(),
+    fetched_at: z.string(),
+    source: z.object({ id: z.string(), label: z.string() }),
+    environment: z.string().nullable(),
+    rows: z.array(CybsRow),
+  }),
+]);
+export type CybsRow = z.infer<typeof CybsRow>;
+export type CybsResponse = z.infer<typeof CybsResponse>;
 
 export const agent = {
+  cybersource: (operatorKey: string, signal?: AbortSignal) =>
+    request("/ops/cybersource", CybsResponse, { headers: { Authorization: `Bearer ${operatorKey}` }, signal, cache: "no-store" }),
   createPlan: (body: CreatePlanRequest) => request("/plans", CreatePlanResponse, post(CreatePlanRequest.parse(body))),
   join: (body: JoinRequest) => request("/join", JoinResponse, post(JoinRequest.parse(body))),
   snapshot: async (key: string) => request(`/events/snapshot?k=${encodeURIComponent(key)}`, await loadSnapshotSchema()),
