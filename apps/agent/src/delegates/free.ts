@@ -11,6 +11,7 @@ import { handleBudgetText } from "./budget";
 import { askDelegate, buildConverseInput, sendGuardedReply } from "./converse";
 import { asConverser, type ConverseInput } from "./converseSchema";
 import { buildDelegateInput, emitDelegateXray } from "./input";
+import { maybeUpdatePrefs } from "./latePrefs";
 
 const MONEY = /budget|afford|spend|\bmax\b/i;
 // Group words stand in for names ("what can everyone afford?"); a wrong hit only costs a privacy reminder.
@@ -68,6 +69,7 @@ export async function handleFreeText(user: UserRow, ctx: MemberContext | null, e
     await sendOnlyYours(user.id, planId, e);
     return;
   }
+  if (ctx && (await maybeUpdatePrefs(ctx, e))) return;
   if (await converseReply(user, ctx, e)) return;
   if (!asConverser(ports.llm)) {
     // Template-only path (LLM_MODE=mock): the ballot parser still recognizes questions about other people.
