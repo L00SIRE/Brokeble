@@ -1,45 +1,29 @@
-// Typed client for the agent API (PLAN §18). Request/response shapes for /join and /plans are not in @tab/shared (§8),
-// so they mirror apps/agent/src/join/schemas.ts: keep both in sync.
-import { SseEvent } from "@tab/shared";
+// Typed client for the agent API (PLAN §18). The flow request/response mirrors live in agentSchemas.ts and are
+// re-exported here; the console's snapshot and ops calls stay in this module. This module never imports @tab/shared
+// statically: pages that only need a flow schema (e.g. /j via joinForm.ts) would otherwise ship every shared schema
+// (itinerary, TAP, SSE), which the SseEvent union references.
+import type { SseEvent } from "@tab/shared";
 import { z } from "zod";
+import { CreatePlanRequest, CreatePlanResponse, JoinRequest, JoinResponse } from "./agentSchemas";
+
+export * from "./agentSchemas";
 
 const BASE = process.env.NEXT_PUBLIC_AGENT_URL ?? "";
 
-export const JoinRequest = z.strictObject({
-  code: z.string().regex(/^\d{4}$/),
-  phone_e164: z.e164(),
-  first_name: z.string().trim().min(1).max(40),
-  budget_usd: z.strictObject({ target: z.number().positive().max(1000), hard_max: z.number().positive().max(1000).optional() }).optional(),
-  consent: z.literal(true),
-});
-export type JoinRequest = z.infer<typeof JoinRequest>;
-export const JoinResponse = z.object({ assigned_number: z.string(), sms_href: z.string(), join_text: z.string() });
-export type JoinResponse = z.infer<typeof JoinResponse>;
+export type SnapshotResponse = { last_id: number; events: { id: number; data: SseEvent }[] };
 
-export const CreatePlanRequest = z.strictObject({
-  title: z.string(),
-  area: z.string(),
-  date: z.string(),
-  time_start: z.string(),
-  time_end: z.string(),
-  party_target: z.number().int(),
-  organizer: z.strictObject({ phone_e164: z.e164(), first_name: z.string() }),
-});
-export type CreatePlanRequest = z.infer<typeof CreatePlanRequest>;
-export const CreatePlanResponse = z.object({ code: z.string(), join_url: z.string(), qr_svg: z.string() });
-export type CreatePlanResponse = z.infer<typeof CreatePlanResponse>;
+/** Built on first use; the console already holds @tab/shared (useConsoleStream), so this resolves without a fetch. */
+let snapshotSchema: Promise<z.ZodType<SnapshotResponse>> | undefined;
+const loadSnapshotSchema = () =>
+  (snapshotSchema ??= import("@tab/shared").then(
+    ({ SseEvent }) => z.object({ last_id: z.number().int(), events: z.array(z.object({ id: z.number().int(), data: SseEvent })) }),
+    (err: unknown) => {
+      snapshotSchema = undefined; // a failed chunk load must not poison every later reconnect
+      throw err;
+    },
+  ));
 
-/** Error body of /join (404 not_found, 409 plan_closed, 422 invalid, 429 rate_limited, 503 capacity). */
-export const JoinError = z.object({
-  error: z.enum(["not_found", "plan_closed", "invalid", "rate_limited", "capacity"]),
-  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
-});
-export type JoinError = z.infer<typeof JoinError>;
-
-export const SnapshotResponse = z.object({ last_id: z.number().int(), events: z.array(z.object({ id: z.number().int(), data: SseEvent })) });
-export type SnapshotResponse = z.infer<typeof SnapshotResponse>;
-
-export type OpsAction = "reset" | "replay" | "tap-test" | "live-scout" | "release-seats";
+export type OpsAction = "reset" | "replay" | "tap-test" | "live-scout" | "release-seats" | "release-untexted";
 
 export class AgentError extends Error {
   readonly status: number;
@@ -65,10 +49,13 @@ const post = (body: unknown, headers?: HeadersInit): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+/** /ops/* reply. `released` is the seat count from release-seats and release-untexted. */
+const OpsResult = z.object({ ok: z.boolean(), released: z.number().int().nonnegative().optional() });
+
 export const agent = {
   createPlan: (body: CreatePlanRequest) => request("/plans", CreatePlanResponse, post(CreatePlanRequest.parse(body))),
   join: (body: JoinRequest) => request("/join", JoinResponse, post(JoinRequest.parse(body))),
-  snapshot: (key: string) => request(`/events/snapshot?k=${encodeURIComponent(key)}`, SnapshotResponse),
+  snapshot: async (key: string) => request(`/events/snapshot?k=${encodeURIComponent(key)}`, await loadSnapshotSchema()),
   ops: (action: OpsAction, operatorKey: string, body: { kind?: string } = {}) =>
-    request(`/ops/${action}`, z.object({ ok: z.boolean() }), post(body, { Authorization: `Bearer ${operatorKey}` })),
+    request(`/ops/${action}`, OpsResult, post(body, { Authorization: `Bearer ${operatorKey}` })),
 };
