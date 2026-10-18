@@ -102,7 +102,8 @@ export async function buildConverseInput(
   if (!ctx) {
     return {
       ...base, plan: null, is_organizer: false, my_preferences: null, my_budget_set: false, commands: BASE_COMMANDS,
-      where_things_stand: "They're not in an active plan right now. To start, they tap the join link a friend shares.",
+      // No plan yet: the only no-plan path is the start chat (plan/startByChat.ts), which needs these two answers.
+      where_things_stand: "They're starting a plan. SquadTab needs where (a neighborhood or city) and how many people, counting them.",
     };
   }
   const { plan, participant } = ctx;

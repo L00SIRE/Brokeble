@@ -288,7 +288,7 @@ warn/error logs: ${JSON.stringify(bad)}`;
     // ── 2. JOIN texts, budget DMs, prefs DMs ──
     for (const i of BUDGETS.keys()) {
       inboundIds.push(await dm(i, `JOIN ${code}`));
-      await until(`budget ask for lane ${i + 1}`, () => gotText(i, /most you'd spend/));
+      await until(`budget ask for lane ${i + 1}`, () => gotText(i, /most you'd want to spend/));
     }
     for (const [i, b] of BUDGETS.entries()) {
       inboundIds.push(await dm(i, b.say));
@@ -317,17 +317,17 @@ warn/error logs: ${JSON.stringify(bad)}`;
     // ── 5. ballots ("1 2" from everyone) → winner → order → pay links ──
     for (const i of BUDGETS.keys()) inboundIds.push(await dm(i, "1 2"));
     await until("plan APPROVING", async () => (await planState()) === "APPROVING", 30_000);
-    for (const i of BUDGETS.keys()) await until(`pay link for lane ${i + 1}`, () => gotText(i, /Your share for/));
+    for (const i of BUDGETS.keys()) await until(`pay link for lane ${i + 1}`, () => gotText(i, /your share for/i));
 
     // ── 6. holds through the mock venue's pay page, then commit ──
     const orderId = (await q<{ venue_order_id: string }[]>`select venue_order_id from app.plans where id = ${planId}`)[0]!.venue_order_id;
     for (const s of (await venue.getOrder(orderId)).shares) await dispatchVenueEvent(venue.authorize(s.share_id));
     await until("plan CONFIRMED", async () => (await planState()) === "CONFIRMED", 30_000);
-    for (const i of BUDGETS.keys()) await until(`captured notice for lane ${i + 1}`, () => gotText(i, /Held \$/), 20_000);
+    for (const i of BUDGETS.keys()) await until(`captured notice for lane ${i + 1}`, () => gotText(i, /Charged \$/), 20_000);
 
     // ── 7. Concierge → itinerary to everyone ──
     await until("Concierge started", () => plannerCalls.some((c) => c.method === "startConcierge"));
-    for (const i of BUDGETS.keys()) await until(`itinerary for lane ${i + 1}`, () => gotText(i, /Your night, planned/), 60_000, pullPollsForward);
+    for (const i of BUDGETS.keys()) await until(`itinerary for lane ${i + 1}`, () => gotText(i, /Your night, all planned/), 60_000, pullPollsForward);
     await sleep(500); // let trailing fire-and-forget emits land
 
     // ── collect what the database and the event log hold ──

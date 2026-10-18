@@ -4,12 +4,14 @@ import { errInfo, log } from "../log";
 import { findAssignmentByHandle, type Seat } from "../photon/messaging";
 import { problemAction, problemCode } from "../photon/errors";
 import { ports } from "../ports";
-import { getActiveAssignment, countReleasedAssignments, insertAssignment, listActiveAssignmentsExcept, markAssignmentReleased } from "../repo/assignments";
-import type { UserRow } from "../repo/types";
+import {
+  countReleasedAssignments, getActiveAssignment, insertAssignment, listActiveAssignmentsExcept, listUntextedAssignments, markAssignmentReleased,
+} from "../repo/assignments";
+import type { AssignmentRow, UserRow } from "../repo/types";
 
 export type { Seat };
 
-/** SHARED_LINE_CAP_EXCEEDED / SHARED_LINE_POOL_EXHAUSTED: /join answers 503 {error:"capacity"}. */
+/** SHARED_LINE_CAP_EXCEEDED / SHARED_LINE_POOL_EXHAUSTED: /join, /start and /plans answer 503 {error:"capacity"}. */
 export class CapacityError extends Error {
   constructor() {
     super("photon shared-line capacity");
@@ -17,20 +19,35 @@ export class CapacityError extends Error {
   }
 }
 
-/** `join:<planId>:<userId>`, plus `:<n>` once the user has n released seats (else Photon replays the released one). */
+/** Seat scope for POST /start and POST /plans (the organizer's seat exists before any plan does). */
+export const START_SEAT_SCOPE = "start";
+
+/** Seat scope for POST /join. Keys stay byte-identical to the pre-scope `join:<planId>:<userId>[:n]` format. */
+export const joinSeatScope = (planId: string): string => `join:${planId}`;
+
+/**
+ * `<scope>:<userId>`, plus `:<n>` once the user has n released seats in total. The count is across scopes, so any
+ * re-seat after any release gets a fresh key (else Photon replays the released assignment).
+ */
+export function seatIdempotencyKey(scope: string, userId: string, releasedCount: number): string {
+  return `${scope}:${userId}${releasedCount > 0 ? `:${releasedCount}` : ""}`;
+}
+
+/** `join:<planId>:<userId>[:n]` (pinned by test/skeleton.keys.test.ts). */
 export function joinIdempotencyKey(planId: string, userId: string, releasedCount: number): string {
-  return `join:${planId}:${userId}${releasedCount > 0 ? `:${releasedCount}` : ""}`;
+  return seatIdempotencyKey(joinSeatScope(planId), userId, releasedCount);
 }
 
 /**
- * Reuses the active app.assignments row, else messaging.assign(phone, first_name, joinIdempotencyKey) and records it.
- * ASSIGNMENT_EXISTS → findAssignmentByHandle and adopt. Capacity problems → throws CapacityError.
+ * Reuses the active app.assignments row (whatever scope created it), else messaging.assign(phone, first_name,
+ * seatIdempotencyKey(scope, …)) and records it. ASSIGNMENT_EXISTS → findAssignmentByHandle and adopt. Capacity
+ * problems → throws CapacityError.
  */
-export async function ensureSeat(user: UserRow, planId: string): Promise<Seat> {
+export async function ensureSeat(user: UserRow, scope: string): Promise<Seat> {
   const active = await getActiveAssignment(user.id);
   if (active) return { assignmentId: active.photon_assignment_id, assignedPhoneNumber: active.assigned_number };
 
-  const key = joinIdempotencyKey(planId, user.id, await countReleasedAssignments(user.id));
+  const key = seatIdempotencyKey(scope, user.id, await countReleasedAssignments(user.id));
   let seat: Seat;
   try {
     seat = await ports.messaging.assign(user.phone_e164, user.first_name, key);
@@ -55,9 +72,22 @@ export async function releaseSeat(userId: string): Promise<void> {
   await markAssignmentReleased(active.photon_assignment_id);
 }
 
+const teamPhones = (): string[] => env.DEMO_TEAM.map((m) => m.phone_e164);
+
 /** Releases every active seat whose user's phone is not in DEMO_TEAM. Returns how many were released. */
 export async function releaseAllExceptTeam(): Promise<number> {
-  const seats = await listActiveAssignmentsExcept(env.DEMO_TEAM.map((m) => m.phone_e164));
+  return releaseEach(await listActiveAssignmentsExcept(teamPhones()));
+}
+
+/**
+ * Releases seats older than `olderThanMin` minutes whose user never texted on them (a mistyped number, a judge who
+ * never hit send), keeping DEMO_TEAM. Safe mid-demo, unlike releaseAllExceptTeam: anyone who texted keeps their seat.
+ */
+export async function releaseUntexted(olderThanMin = 15): Promise<number> {
+  return releaseEach(await listUntextedAssignments(olderThanMin, teamPhones()));
+}
+
+async function releaseEach(seats: readonly AssignmentRow[]): Promise<number> {
   let released = 0;
   // Sequential: Photon rate-limits, and one failed release must not strand the rest.
   for (const s of seats) {

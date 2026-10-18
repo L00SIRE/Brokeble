@@ -13,6 +13,8 @@ import { markReadSafe, typingOn } from "../notify/presence";
 import { usd2 } from "../notify/render";
 import { handleDigitsBallot } from "../plan/ballots";
 import { stageAtLeast, TERMINAL_STAGES } from "../plan/machine";
+import { onJoinText, onNameText } from "../plan/membership";
+import { handleStartText } from "../plan/startByChat";
 import type { DmAddress } from "../ports";
 import { upsertDmRoute } from "../repo/dmRoutes";
 import * as holdGates from "../repo/holdGates";
@@ -21,7 +23,7 @@ import { currentPlanForUser } from "../repo/plans";
 import type { MemberContext, UserRow } from "../repo/types";
 import { findUserByPhone, findUserByPhotonId, setPhotonUserId } from "../repo/users";
 import { getPayLink } from "../repo/payLinks";
-import { parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
+import { isPrefillText, looksLikeName, parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
 import { handleCommand, reply } from "./handlers";
 import { containsCardNumber } from "./luhn";
 
@@ -30,8 +32,10 @@ import { containsCardNumber } from "./luhn";
  * 0 resolve user (photon_user_id, else phone → setPhotonUserId) and upsert dm_route;
  * 1 text null → markReadSafe, return; 2 containsCardNumber → T_CARD_INTERCEPT (replyTo), system event, return
  * (before ANY log/LLM/text write); 3 markReadSafe + typingOn; 4 no user → notifyRaw(T_NOT_IN_PLAN);
- * 5 parseCommand → handleCommand; 6 awaiting flags (holdgate/tiers/budget); 7 stage handlers
- * (JOINED → budget, BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or delegate ballot, else free).
+ * 5 INVITED and not a leave/other-plan command → onJoinText (any first text joins: ux-flow §8.1); else parseCommand →
+ * handleCommand; no active plan → start-by-chat (plan/startByChat.ts); a web pre-fill (isPrefillText) → status;
+ * 6 awaiting flags (holdgate/tiers/budget/name);
+ * 7 stage handlers (JOINED → budget, BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or delegate ballot, else free).
  */
 export async function route(e: InboundEvent): Promise<void> {
   const addr: DmAddress = { userId: e.from_user_id, spaceId: e.space_id, agentUserId: e.agent_user_id };
@@ -59,8 +63,15 @@ export async function route(e: InboundEvent): Promise<void> {
   }
 
   const cmd = parseCommand(text);
+  // Forgiving first message: an INVITED member's first text joins whatever it says ("I'm in for Dinner + show!",
+  // "hey"). Leaving, forget-me and a JOIN for another plan still run as commands.
+  const joinsCurrent = !cmd || cmd.kind === "help" || cmd.kind === "status" || (cmd.kind === "join" && cmd.code === ctx?.plan.code);
+  if (ctx?.participant.stage === "INVITED" && joinsCurrent) return onJoinText(user, ctx.plan.code, e);
   if (cmd) return handleCommand(user, ctx, cmd, e);
-  if (!ctx) return handleFreeText(user, null, e);
+  if (!ctx) return handleStartText(user, e);
+  // A member already past INVITED who taps Start or Open Messages again sends a pre-filled sentence. It is never a
+  // budget, preference or vote, so it gets the status. Awaiting flags stay set for the member's next real answer.
+  if (isPrefillText(text, ctx.plan.title)) return handleCommand(user, ctx, { kind: "status" }, e);
 
   const flag = await awaitingFlag(ctx);
   if (flag === "holdgate") {
@@ -73,6 +84,14 @@ export async function route(e: InboundEvent): Promise<void> {
     return tier ? applyTier(ctx, tier, e) : handleBudgetText(ctx, e);
   } else if (flag === "budget") {
     return handleBudgetText(ctx, e);
+  } else if (flag === "name") {
+    // Only right after T_JOIN_WELCOME_NAME, and only once: a non-name ("40 max") is the budget answer, and a blank name
+    // is never asked again. Never inferred from first_name === "" alone (a budget reply would become a name).
+    clearAwaiting(user.id);
+    if (ctx.participant.stage === "JOINED") {
+      const name = looksLikeName(text);
+      return name ? onNameText(ctx, name, e) : handleBudgetText(ctx, e);
+    }
   }
 
   const { stage } = ctx.participant;

@@ -1,4 +1,4 @@
-// POST /ops/{reset,replay,tap-test,live-scout,release-seats} (PLAN §18, A plan T14). Bearer OPERATOR_KEY compared in
+// POST /ops/{reset,replay,tap-test,live-scout,release-seats,release-untexted} (PLAN §18, A plan T14). Bearer OPERATOR_KEY compared in
 // constant time (auth.ts hasKey). CORS (opsCors) is already applied to /ops/* by app.ts. Owner A.
 import type { Context, Hono } from "hono";
 import * as z from "zod";
@@ -6,20 +6,21 @@ import { hasKey } from "../auth";
 import { startLiveScoutDemo } from "../creao/liveDemo";
 import { env } from "../env";
 import { ports } from "../ports";
-import { releaseAllExceptTeam } from "../join/seats";
+import { releaseAllExceptTeam, releaseUntexted } from "../join/seats";
 import * as plans from "../repo/plans";
 import { runTapTest } from "../venueClient/tapTest";
 import { replayDemo, ReplayError, resetDemo } from "./reset";
 
 export const TapTestBody = z.strictObject({ kind: z.enum(["tamper", "replay", "expired", "wrong_tag"]) });
 
-/** Mounts the five ops routes; each handler first calls requireOperator(c). */
+/** Mounts the six ops routes; each handler first calls requireOperator(c). */
 export function mountOps(app: Hono): void {
   app.post("/ops/reset", handleReset);
   app.post("/ops/replay", handleReplay);
   app.post("/ops/tap-test", handleTapTest);
   app.post("/ops/live-scout", handleLiveScout);
   app.post("/ops/release-seats", handleReleaseSeats);
+  app.post("/ops/release-untexted", handleReleaseUntexted);
 }
 
 /** null when Authorization is Bearer OPERATOR_KEY; else the 401 (or 503 when OPERATOR_KEY is unset) response. */
@@ -74,4 +75,15 @@ export async function handleReleaseSeats(c: Context): Promise<Response> {
   const denied = requireOperator(c);
   if (denied) return denied;
   return c.json({ ok: true, released: await releaseAllExceptTeam() });
+}
+
+/**
+ * releaseUntexted(15) → 200 {ok:true, released}. Frees seats older than 15 minutes whose user never texted on them
+ * (mistyped numbers, judges who never hit send), keeping DEMO_TEAM. Safe while judges are mid-plan, unlike
+ * /ops/release-seats: anyone who texted keeps their seat.
+ */
+export async function handleReleaseUntexted(c: Context): Promise<Response> {
+  const denied = requireOperator(c);
+  if (denied) return denied;
+  return c.json({ ok: true, released: await releaseUntexted() });
 }

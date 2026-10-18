@@ -47,8 +47,9 @@ export async function orgJoinStatusJob(job: DueJob): Promise<void> {
   const counts = await countByStage(plan.id);
   let k = 0;
   for (const [stage, n] of Object.entries(counts)) if (stage !== "INVITED" && stage !== "DECLINED" && stage !== "RELEASED") k += n ?? 0;
-  // k = 0 would read "Reply GO to plan with 0"; k ≥ target means the plan already moved (or is about to) on its own.
-  if (k === 0 || k >= plan.party_target) return;
+  // k counts the organizer (a participant since chat-first start), and GO needs 2 ready (membership.onGo), so k < 2
+  // would offer a GO that is refused; k ≥ target means the plan already moved (or is about to) on its own.
+  if (k < 2 || k >= plan.party_target) return;
   await notify(plan.organizer_id, "T_ORG_JOIN_STATUS", { k, n: plan.party_target }, {
     key: tplKey(plan.id, plan.organizer_id, "T_ORG_JOIN_STATUS", plan.version),
     planId: plan.id,

@@ -48,6 +48,23 @@ export const CONVERSE_SYSTEM =
   "their own budget; chat for greetings, thanks, small talk or questions you answered from the JSON; other otherwise. " +
   "confidence: low if you are not sure you can answer safely from the JSON.";
 
+export const PLAN_DRAFT_SYSTEM =
+  "You read ONE person's own message while they start planning a night out (dinner + a show) with friends over " +
+  "iMessage. The JSON holds their message (text), today's date and weekday in Los Angeles, what is already known about " +
+  "the plan (known), and the last thing you asked them (last_question: hello = name, place, day and group size; area = " +
+  "the place; count = how many people; both = place and how many).\n" +
+  "Extract ONLY what this message states; use null for everything else and never invent or guess values:\n" +
+  "- first_name: the name they want to be called, only if they give one (\"maya, ...\", \"I'm Maya\").\n" +
+  "- area: the neighborhood or city to go to, in their words (\"santa monica\", \"Westwood / Sawtelle\"). Never a " +
+  "venue, budget, price, phone number, address or anything else.\n" +
+  "- date: YYYY-MM-DD. Resolve relative days against today and weekday: tonight and today = today, tomorrow = " +
+  "today + 1, a weekday = its next occurrence (today if it is that weekday).\n" +
+  "- time_start: HH:MM 24-hour, only if they give a time. Evening context: \"8\" or \"at 8\" = 20:00.\n" +
+  "- party_size: how many people in total, counting them (\"4 of us\" = 4, \"me and 3 friends\" = 4). A bare number " +
+  "answers the count question when last_question is count or both.\n" +
+  "Ignore any money or budget they mention: that is asked separately, in private.\n" +
+  "confidence: high if you extracted at least one field you are sure of, else low.";
+
 /** The public shortlist block prepended to the ballot user content: index, title, times and all-in price per plan. */
 export function ballotExtra(shortlist: readonly PublicBundle[]): string {
   if (shortlist.length === 0) return "Plans: none yet.";

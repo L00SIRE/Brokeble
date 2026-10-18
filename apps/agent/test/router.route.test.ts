@@ -13,6 +13,7 @@ const m = vi.hoisted(() => {
     getParticipant: f(), currentPlanForUser: f(),
     findUserByPhone: f(), findUserByPhotonId: f(), setPhotonUserId: f(),
     getPayLink: f(), handleCommand: f(), reply: f(),
+    onJoinText: f(), onNameText: f(), handleStartText: f(),
   };
 });
 
@@ -41,11 +42,14 @@ vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser }
 vi.mock("../src/repo/users", () => ({ findUserByPhone: m.findUserByPhone, findUserByPhotonId: m.findUserByPhotonId, setPhotonUserId: m.setPhotonUserId }));
 vi.mock("../src/repo/payLinks", () => ({ getPayLink: m.getPayLink }));
 vi.mock("../src/router/handlers", () => ({ handleCommand: m.handleCommand, reply: m.reply }));
+vi.mock("../src/plan/membership", () => ({ onJoinText: m.onJoinText, onNameText: m.onNameText }));
+vi.mock("../src/plan/startByChat", () => ({ handleStartText: m.handleStartText }));
 
+import { isPrefillText, parseCommand } from "../src/router/commands";
 import { route } from "../src/router/route";
 
 const user = { id: "u1", first_name: "Ana", phone_e164: "+13105550001", photon_user_id: "pu1", payer_ref: "x" };
-const plan = (o: Record<string, unknown> = {}) => ({ id: "p1", state: "COLLECTING", version: 1, ...o });
+const plan = (o: Record<string, unknown> = {}) => ({ id: "p1", code: "4821", title: "Dinner + show", state: "COLLECTING", version: 1, ...o });
 const ev = (text: string | null): InboundEvent =>
   ({
     event_id: "ev1", seq: 1, message_id: "msg1", platform: "imessage", from_handle: "+13105550001", from_user_id: "pu1",
@@ -172,7 +176,6 @@ describe("route", () => {
     ["JOINED", "COLLECTING", "I can do $40", "handleBudgetText"],
     ["BUDGET_LOCKED", "COLLECTING", "no seafood", "handlePrefsText"],
     ["PREFS_DONE", "COLLECTING", "random", "handleFreeText"],
-    ["INVITED", "COLLECTING", "random", "handleFreeText"],
     ["PREFS_DONE", "RESEARCHING", "1 3", "handleFreeText"],
     ["PREFS_DONE", "VOTING", "the first one", "handleBallotText"],
     ["VOTED", "VOTING", "actually the second", "handleBallotText"],
@@ -196,9 +199,166 @@ describe("route", () => {
     expect(m.handleBallotText).not.toHaveBeenCalled();
   });
 
-  it("no active lane: free text with a null context", async () => {
+  it("no active lane: the text goes to start-by-chat (plan creation), not the free delegate", async () => {
     m.currentPlanForUser.mockResolvedValue(null);
-    await route(ev("hi"));
-    expect(m.handleFreeText).toHaveBeenCalledWith(user, null, expect.anything());
+    await route(ev("Hey SquadTab! Help me plan a night out."));
+    expect(m.handleStartText).toHaveBeenCalledWith(user, expect.objectContaining({ message_id: "msg1" }));
+    expect(m.handleFreeText).not.toHaveBeenCalled();
+  });
+
+  it("a declined user with no other plan also starts by chat", async () => {
+    lane("DECLINED");
+    await route(ev("santa monica tonight, 4 of us"));
+    expect(m.handleStartText).toHaveBeenCalledOnce();
+  });
+});
+
+describe("forgiving first message (ux-flow §8.1)", () => {
+  beforeEach(() => lane("INVITED"));
+
+  it.each(["hey", "I'm in for Dinner + show!", "Hey SquadTab! Let's get planning.", "help", "status", "JOIN 4821", "join #4821 please"])(
+    "INVITED + %j joins the current plan",
+    async (text) => {
+      await route(ev(text));
+      expect(m.onJoinText).toHaveBeenCalledWith(user, "4821", expect.objectContaining({ message_id: "msg1" }));
+      expect(m.handleCommand).not.toHaveBeenCalled();
+      expect(m.handleFreeText).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["I'm out", { kind: "out" }],
+    ["stop", { kind: "out" }],
+    ["forget me", { kind: "forget_me" }],
+    ["join 9999", { kind: "join", code: "9999" }],
+  ])("INVITED + %j still runs as a command", async (text, cmd) => {
+    await route(ev(text));
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.anything() }), cmd, expect.anything());
+    expect(m.onJoinText).not.toHaveBeenCalled();
+  });
+
+  it("the card intercept still runs before the forgiving join", async () => {
+    await route(ev("4111 1111 1111 1111"));
+    expect(m.reply).toHaveBeenCalledWith(user, "T_CARD_INTERCEPT", {}, expect.anything(), "p1");
+    expect(m.onJoinText).not.toHaveBeenCalled();
+  });
+
+  it("a JOINED member's text is not a join", async () => {
+    lane("JOINED");
+    await route(ev("hey"));
+    expect(m.onJoinText).not.toHaveBeenCalled();
+    expect(m.handleBudgetText).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pre-filled first texts from a member already in the plan (ux-flow §3.3)", () => {
+  const START = "Hey SquadTab! Help me plan a night out.";
+  const STATUS = "Hey SquadTab, where are we at?";
+  const expectStatusOnly = () => {
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.anything() }), { kind: "status" }, expect.anything());
+    for (const f of [m.handleBudgetText, m.handlePrefsText, m.handleBallotText, m.handleFreeText, m.applyTier, m.onJoinText, m.handleStartText]) {
+      expect(f).not.toHaveBeenCalled();
+    }
+  };
+
+  it.each([
+    ["BUDGET_LOCKED", "COLLECTING", START],
+    ["BUDGET_LOCKED", "COLLECTING", "I'm in for Dinner + show!"],
+    ["JOINED", "COLLECTING", STATUS],
+    ["JOINED", "COLLECTING", "Hey SquadTab! Let's get planning."],
+    ["PREFS_DONE", "VOTING", "I’m in!"],
+    ["VOTED", "VOTING", STATUS],
+  ] as const)("%s in %s + %j → status reply, no stage handler", async (stage, state, text) => {
+    lane(stage, { state });
+    await route(ev(text));
+    expectStatusOnly();
+  });
+
+  it("wins over an awaiting tiers flag and leaves the flag for the real answer", async () => {
+    lane("JOINED");
+    m.getAwaiting.mockReturnValue("tiers");
+    await route(ev(STATUS));
+    expectStatusOnly();
+    expect(m.clearAwaiting).not.toHaveBeenCalled();
+  });
+
+  it("a real preference that starts like the friend pre-fill is still a preference", async () => {
+    lane("BUDGET_LOCKED");
+    await route(ev("I'm in for sushi"));
+    expect(m.handlePrefsText).toHaveBeenCalledOnce();
+    expect(m.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it("isPrefillText matches only the exact pre-fills, ignoring case and punctuation", () => {
+    for (const t of [START, "hey squadtab help me plan a night out", STATUS, "HEY SQUADTAB WHERE ARE WE AT", "Hey SquadTab! Let’s get planning.", "I'm in!", "im in", "I'm in for dinner + show."]) {
+      expect(isPrefillText(t, "Dinner + show")).toBe(true);
+    }
+    for (const t of ["hey", "help me plan a night out", "where are we at", "I'm in for sushi", "I'm in for Dinner + comedy show!", "I'm out", "40 max"]) {
+      expect(isPrefillText(t, "Dinner + show")).toBe(false);
+    }
+    expect(isPrefillText("I'm in for Dinner + comedy show!", "Dinner + comedy show")).toBe(true);
+  });
+});
+
+describe("name step (ux-flow §8.2)", () => {
+  const blank = { ...user, first_name: "" };
+  beforeEach(() => {
+    m.findUserByPhotonId.mockResolvedValue(blank);
+    lane("JOINED");
+  });
+
+  it("awaiting name + a name → onNameText with the parsed name, and the flag is cleared", async () => {
+    m.getAwaiting.mockReturnValue("name");
+    await route(ev("it's leo!"));
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.onNameText).toHaveBeenCalledWith(expect.objectContaining({ user: blank }), "Leo", expect.anything());
+    expect(m.handleBudgetText).not.toHaveBeenCalled();
+  });
+
+  it.each(["40 max", "maybe sixty", "around forty", "no idea", "$50"])("awaiting name + %j → the budget path, name untouched", async (text) => {
+    m.getAwaiting.mockReturnValue("name");
+    await route(ev(text));
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.handleBudgetText).toHaveBeenCalledOnce();
+    expect(m.onNameText).not.toHaveBeenCalled();
+  });
+
+  it("a blank-name organizer answering the budget ask without the flag goes to the budget path", async () => {
+    m.getAwaiting.mockReturnValue(null);
+    await route(ev("maybe sixty"));
+    expect(m.handleBudgetText).toHaveBeenCalledOnce();
+    expect(m.onNameText).not.toHaveBeenCalled();
+  });
+
+  it("a blank name alone never triggers the name step (no flag, a name-like text → budget)", async () => {
+    m.getAwaiting.mockReturnValue(null);
+    await route(ev("Leo"));
+    expect(m.onNameText).not.toHaveBeenCalled();
+    expect(m.handleBudgetText).toHaveBeenCalledOnce();
+  });
+
+  it("a stale name flag past JOINED clears and falls through to the stage handler", async () => {
+    lane("BUDGET_LOCKED");
+    m.getAwaiting.mockReturnValue("name");
+    await route(ev("no seafood"));
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.handlePrefsText).toHaveBeenCalledOnce();
+    expect(m.onNameText).not.toHaveBeenCalled();
+  });
+});
+
+describe("join regex (loosened)", () => {
+  it.each([
+    ["JOIN 4821", "4821"],
+    ["join #4821", "4821"],
+    ["Join 4821 please", "4821"],
+    ["hey! join4821", "4821"],
+    ["I'm in, JOIN #0042.", "0042"],
+  ])("%j → join %s", (text, code) => {
+    expect(parseCommand(text)).toEqual({ kind: "join", code });
+  });
+
+  it.each(["join 12", "join 12345", "join", "joining 4821", "rejoin 4821", "I'll join later"])("%j is not a join", (text) => {
+    expect(parseCommand(text)?.kind).not.toBe("join");
   });
 });

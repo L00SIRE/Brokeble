@@ -21,11 +21,11 @@ describe("console event audit", () => {
     expect(offenders(/pg_notify/i, ["src/events.ts"])).toEqual([]);
   });
 
-  it("`lane` events come only from membership.setStage (stage changes) and /join (the INVITED row's creation)", () => {
-    expect(offenders(/type:\s*["']lane["']/, ["src/plan/membership.ts", "src/join/routes.ts"])).toEqual([]);
+  it("`lane` events come only from membership.setStage (stage changes), /join and createPlanRecord (a participant row's creation)", () => {
+    expect(offenders(/type:\s*["']lane["']/, ["src/plan/membership.ts", "src/join/routes.ts", "src/join/createPlanRecord.ts"])).toEqual([]);
   });
 
-  it("`plan.state` events come only from the state machine's transition()", () => {
-    expect(offenders(/type:\s*["']plan\.state["']/, ["src/plan/machine.ts"])).toEqual([]);
+  it("`plan.state` events come only from the state machine's transition() and the NEW→COLLECTING creation marker", () => {
+    expect(offenders(/type:\s*["']plan\.state["']/, ["src/plan/machine.ts", "src/join/createPlanRecord.ts", "src/ops/seed.ts"])).toEqual([]);
   });
 });

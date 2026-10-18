@@ -45,3 +45,19 @@ export async function listActiveAssignmentsExcept(keepPhones: readonly string[],
     where a.released_at is null and u.phone_e164 <> all(${tx.array([...keepPhones])}::text[])
     order by a.created_at, a.id`;
 }
+
+/**
+ * Active seats older than `olderThanMin` minutes whose user never texted on them: no dm_routes row, or one last
+ * updated before the seat was created. Excludes `keepPhones` (DEMO_TEAM). /ops/release-untexted.
+ */
+export async function listUntextedAssignments(olderThanMin: number, keepPhones: readonly string[], tx: Db = sql): Promise<AssignmentRow[]> {
+  return tx<AssignmentRow[]>`
+    select a.* from app.assignments a
+    join app.users u on u.id = a.user_id
+    left join app.dm_routes d on d.user_id = a.user_id
+    where a.released_at is null
+      and a.created_at < now() - make_interval(mins => ${olderThanMin}::int)
+      and (d.user_id is null or d.updated_at < a.created_at)
+      and u.phone_e164 <> all(${tx.array([...keepPhones])}::text[])
+    order by a.created_at, a.id`;
+}

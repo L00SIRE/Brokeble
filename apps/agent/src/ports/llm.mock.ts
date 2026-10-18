@@ -2,6 +2,7 @@
 // the input is one person's DelegateInput (P2) and the output is a schema value that code validates afterwards.
 import { createHash } from "node:crypto";
 import type { BallotConstraint, BallotParse, BudgetParse, DelegateInput, DietaryTag, Preferences, PublicBundle, RateCandidate, Ratings, Vibe } from "@tab/shared";
+import { parsePlanDraftText, type PlanDraftInput, type PlanDraftParse } from "../delegates/planDraft";
 import type { LLMPort } from "./types";
 
 const DIETARY: [RegExp, DietaryTag][] = [
@@ -81,5 +82,9 @@ export class MockLLM implements LLMPort {
     const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw)?.[1];
     const body = fenced ?? raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
     return JSON.parse(body);
+  }
+
+  async parsePlanDraft(i: PlanDraftInput): Promise<PlanDraftParse> {
+    return parsePlanDraftText(i);
   }
 }

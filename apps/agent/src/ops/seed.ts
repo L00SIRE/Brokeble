@@ -86,6 +86,9 @@ export async function seedDemo(): Promise<{ planId: string; planRef: string; cod
     if (e instanceof Error && "code" in e && e.code === "23505") throw new Error(`join code ${env.DEMO_CODE} is in use: run reset first`);
     throw e;
   }
+  // Same creation marker as createPlanRecord: the console resets plan-scoped panels on a new plan_id, so it must
+  // precede this plan's lanes (the COLLECTING→RESEARCHING transition below would otherwise wipe them).
+  await emit({ type: "plan.state", plan_id: plan.id, from: "NEW", to: plan.state, version: plan.version });
 
   for (const [i, user] of members.entries()) {
     const m = seed.members[i]!;
