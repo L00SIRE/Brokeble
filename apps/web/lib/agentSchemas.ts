@@ -85,9 +85,9 @@ export type CreatePlanRequest = z.infer<typeof CreatePlanRequest>;
 export const CreatePlanResponse = z.object({ ...Handoff, code: z.string(), join_url: z.string(), qr_svg: z.string().optional() });
 export type CreatePlanResponse = z.infer<typeof CreatePlanResponse>;
 
-/** Error body of /start, /join and /plans (404 not_found, 409 plan_closed | plan_full, 422 invalid, 429 rate_limited, 503 capacity). */
+/** Error body of /start, /join and /plans (404 not_found, 409 plan_closed | plan_full | in_other_plan, 422 invalid, 429 rate_limited, 503 capacity). */
 export const JoinError = z.object({
-  error: z.enum(["not_found", "plan_closed", "plan_full", "invalid", "rate_limited", "capacity"]),
+  error: z.enum(["not_found", "plan_closed", "plan_full", "in_other_plan", "invalid", "rate_limited", "capacity"]),
   issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 export type JoinError = z.infer<typeof JoinError>;

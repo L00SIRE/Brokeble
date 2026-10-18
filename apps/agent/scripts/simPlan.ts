@@ -491,9 +491,10 @@ async function happyPath(): Promise<void> {
   check(concierge?.length === 1, "Concierge run started after CONFIRMED (exactly one)");
   await waitFor(() => (trail(planId).includes("COMMITTING>CONFIRMED") ? true : undefined), 5_000);
   check(same(trail(planId), ["COLLECTING>RESEARCHING", "RESEARCHING>VOTING", "VOTING>ORDERING", "ORDERING>APPROVING", "APPROVING>COMMITTING", "COMMITTING>CONFIRMED"]), "plan.state events: the exact happy-path chain over SSE");
-  const base5 = ["INVITED", "JOINED", "BUDGET_LOCKED", "PREFS_DONE", "VOTED", "LINK_SENT", "HELD"];
+  // CAPTURED: the mock venue delivers share.captured per share through the venue-hook dispatch, like the live venue.
+  const base5 = ["INVITED", "JOINED", "BUDGET_LOCKED", "PREFS_DONE", "VOTED", "LINK_SENT", "HELD", "CAPTURED"];
   for (const m of [A, B, C]) check(same(laneTrail(planId, m.name), base5), `${m.name}: lane events ${base5.join(" → ")}`);
-  check(same(laneTrail(planId, D.name), ["INVITED", "JOINED", "BUDGET_LOCKED", "PREFS_DONE", "VOTED", "LINK_SENT", "GATED", "LINK_SENT", "HELD"]), `${D.name}: lane events include the hold-gate detour`);
+  check(same(laneTrail(planId, D.name), ["INVITED", "JOINED", "BUDGET_LOCKED", "PREFS_DONE", "VOTED", "LINK_SENT", "LINK_SENT", "LINK_SENT", "HELD", "CAPTURED"]), `${D.name}: lane events include the hold-gate detour (GATED is published as LINK_SENT, P8)`);
   check(planEvents(planId).some((e) => e.type === "lane" && e.stage === "HELD" && e.amount_cents === price), "HELD lane events carry the (public) share amount");
 
   // The Concierge (mock planner) finishes in ~20 s: its fallback itinerary must reach every member.

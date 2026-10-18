@@ -44,7 +44,8 @@ export function parseCommand(text: string): Command | null {
 
 // The fixed first-text bodies the web pre-fills (ux-flow §3.3, plus the CreatePlanForm fallback), reduced to letters,
 // digits and single spaces so punctuation, case and curly quotes do not matter.
-const PREFILL_SENTENCES = new Set(["hey squadtab help me plan a night out", "hey squadtab lets get planning", "hey squadtab where are we at"]);
+const START_PREFILL = "hey squadtab help me plan a night out";
+const PREFILL_SENTENCES = new Set([START_PREFILL, "hey squadtab lets get planning", "hey squadtab where are we at"]);
 const lettersOnly = (text: string): string => normalizeCommandText(text).replace(/[^a-z0-9 ]+/g, "").replace(/\s+/g, " ").trim();
 const noEndPunct = (text: string): string => normalizeCommandText(text).replace(/[.!?]+$/, "");
 
@@ -57,6 +58,11 @@ export function isPrefillText(text: string, planTitle: string): boolean {
   if (PREFILL_SENTENCES.has(lettersOnly(text))) return true;
   const imIn = /^i'?m in(?: for (.+))?$/.exec(noEndPunct(text));
   return imIn !== null && (imIn[1] === undefined || imIn[1] === noEndPunct(planTitle));
+}
+
+/** True for the /start pre-fill ("Hey SquadTab! Help me plan a night out."): its sender is starting a plan of their own. Pure. */
+export function isStartPrefill(text: string): boolean {
+  return lettersOnly(text) === START_PREFILL;
 }
 
 /** Digits ballot /^\s*[1-3](\s*[, ]\s*[1-3])*\s*$/ → deduped indices in first-seen order ("1 3" → [1,3]); else null. */

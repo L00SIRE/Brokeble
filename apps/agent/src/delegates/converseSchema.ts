@@ -1,4 +1,5 @@
 // Conversational private delegate: input/output contracts (pure; no repo or port imports so the adapter can use them).
+// ConverseInput is the structured context code builds and guards against; the model sees it only as ConverseWire.
 // The input holds ONLY the sender's own data plus public plan facts (P2). No other member's name, prefs or budget,
 // and never a budget value at all: the delegate only learns whether the person's own budget is set. Owner A.
 import { Preferences } from "@tab/shared";
@@ -17,8 +18,11 @@ export type ConverseResult = z.infer<typeof ConverseResult>;
 
 export const ConverseInput = z.strictObject({
   user_first_name: z.string(),
-  /** chat = any free-form message; prefs_ack = they just answered the preferences question. */
-  mode: z.enum(["chat", "prefs_ack"]),
+  /**
+   * chat = any free-form message; prefs_ack = they just answered the preferences question; budget_question = they
+   * answered the first budget ask with a question, and code re-asks for the budget right after this reply.
+   */
+  mode: z.enum(["chat", "prefs_ack", "budget_question"]),
   message_text: z.string().max(2000), // this person's own inbound text only
   plan: z.strictObject({ title: z.string(), date: z.string(), start_time: z.string(), area: z.string() }).nullable(),
   is_organizer: z.boolean(),
@@ -48,6 +52,12 @@ export const ConverseInput = z.strictObject({
     .nullable(),
 });
 export type ConverseInput = z.infer<typeof ConverseInput>;
+
+/**
+ * What the model actually reads: ConverseInput rendered as plain sentences (converse.ts converseWire). Field names and
+ * internal labels (mode, stage, chosen_plan, ...) never reach the model, so it has nothing machine-like to echo back.
+ */
+export type ConverseWire = { facts: string[]; message: string };
 
 /** Implemented by AnthropicLLM. The mock LLM does not implement it, so LLM_MODE=mock keeps the template fallbacks. */
 export interface DelegateConverser {

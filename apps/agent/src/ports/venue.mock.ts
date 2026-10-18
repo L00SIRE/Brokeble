@@ -3,6 +3,9 @@
 // TapVerifyReport labelled as mock (no signature exists in mock mode). `authorize()` simulates the pay page.
 // Like the live client (venueClient commitOnce), commit() puts the report on the console as `tap.verify`; it never emits
 // `tap.signed`, because nothing is signed here, and the console labels a report without one as the simulation.
+// Like the live venue (apps/venue checkout.ts / cancel.ts), a capture delivers one `share.captured` per share before
+// commit() returns and a cancel delivers `share.released` per reversed hold, through the agent's venue-hook dispatch
+// (deliverToVenueHook), so lanes, the ledger and counters move exactly as they do live.
 import { randomBytes } from "node:crypto";
 import {
   type CommitResult,
@@ -22,6 +25,7 @@ import {
   priceBundle,
 } from "@tab/shared";
 import { canonicalConsent } from "@tab/shared/tap";
+import { errInfo, log } from "../log";
 import type { TapTestKind, VenuePort } from "./types";
 
 type MockOrder = Omit<OrderStatus, "updated_at" | "shares"> & { deadline_at: string; shares: Share[]; updated_at: Date };
@@ -29,12 +33,32 @@ const id = (prefix: string) => prefix + randomBytes(8).toString("hex").slice(0, 
 const STEPS: TapStep["name"][] = ["tag", "params", "timestamps", "nonce", "key", "signature"];
 const FAIL_AT: Record<TapTestKind, number> = { wrong_tag: 1, expired: 3, replay: 4, tamper: 6 };
 
-export type MockVenueDeps = { emit?: (ev: SseEvent) => Promise<unknown> | void };
+export type MockVenueDeps = {
+  emit?: (ev: SseEvent) => Promise<unknown> | void;
+  /** Where venue → agent events go. Default deliverToVenueHook; null delivers nothing (pure in-memory unit tests). */
+  deliver?: ((ev: VenueEvent) => Promise<void>) | null;
+};
+
+/**
+ * The agent side of POST /venue/hook (plan/venueHook.ts handleVenueHook) minus HTTP and the HMAC check, which only
+ * authenticate a remote venue: dedupe on inbound_events('venue', event_id), dispatchVenueEvent, then markInboundSeen.
+ * Imported lazily because plan/venueHook → plan/commit → ports would otherwise be a load-time import cycle.
+ */
+export async function deliverToVenueHook(ev: VenueEvent): Promise<void> {
+  const [{ dispatchVenueEvent }, { markInboundSeen, seenInbound }] = await Promise.all([import("../plan/venueHook"), import("../repo/inboundEvents")]);
+  if (await seenInbound("venue", ev.event_id)) return;
+  await dispatchVenueEvent(ev);
+  await markInboundSeen("venue", ev.event_id);
+}
 
 export class MockVenue implements VenuePort {
   readonly orders = new Map<string, MockOrder>();
 
-  constructor(private readonly deps: MockVenueDeps = {}) {}
+  private readonly deliver: ((ev: VenueEvent) => Promise<void>) | null;
+
+  constructor(private readonly deps: MockVenueDeps = {}) {
+    this.deliver = deps.deliver === undefined ? deliverToVenueHook : deps.deliver;
+  }
 
   async checkAvailability(_bundleKey: string): Promise<{ available: boolean }> {
     return { available: true };
@@ -71,8 +95,17 @@ export class MockVenue implements VenuePort {
   }
 
   async commit(orderId: string, consent: ConsentSet, test?: TapTestKind): Promise<CommitResult> {
+    const wasOpen = this.orders.get(orderId)?.status === "OPEN";
     const result = this.commitResult(orderId, consent, test);
     await this.deps.emit?.({ type: "tap.verify", order_id: orderId, report: result.tap });
+    // Only the commit that captured emits; an idempotent re-commit of a CAPTURED order emits nothing, like the venue.
+    if (result.result === "captured" && wasOpen) {
+      const o = this.get(orderId);
+      for (const s of o.shares) {
+        const cap = result.captures.find((c) => c.share_id === s.share_id)?.cybs_capture_id ?? "";
+        await this.send(this.event(o, s, "share.captured", { amount_cents: s.amount_cents, cybs_capture_id_short: cap.slice(-8), cybs_source: "sim" }));
+      }
+    }
     return result;
   }
 
@@ -108,11 +141,16 @@ export class MockVenue implements VenuePort {
   async cancel(orderId: string, _reason: string): Promise<OrderStatus> {
     const o = this.get(orderId);
     if (o.status === "CAPTURED" || o.status === "COMMITTING") return this.view(o);
+    const released: Share[] = [];
     for (const s of o.shares) {
-      if (s.status === "AUTHORIZED") s.status = "RELEASED";
-      else if (s.status === "PENDING" || s.status === "DECLINED") s.status = "VOID";
+      if (s.status === "AUTHORIZED") {
+        s.status = "RELEASED";
+        released.push(s);
+      } else if (s.status === "PENDING" || s.status === "DECLINED") s.status = "VOID";
     }
     this.touch(o, "CANCELLED");
+    // retry:false = the order is gone, so no fresh pay link (the venue's cancel sends the same).
+    for (const s of released) await this.send(this.event(o, s, "share.released", { retry: false }));
     return this.view(o);
   }
 
@@ -133,6 +171,24 @@ export class MockVenue implements VenuePort {
     s.card_last4 = "1111";
     this.touch(o);
     return { ...base, type: "share.authorized", data: { amount_cents: s.amount_cents, card_brand: "VISA", card_last4: "1111", cybs_payment_id_short: s.cybs_payment_id.slice(-8) } };
+  }
+
+  private event(o: MockOrder, s: Share, type: "share.captured" | "share.released", data: VenueEvent["data"]): VenueEvent {
+    return { event_id: id("evt_"), at: new Date().toISOString(), order_id: o.order_id, plan_ref: o.plan_ref, type, share_id: s.share_id, payer_ref: s.payer_ref, data };
+  }
+
+  /**
+   * One event, in order. A failure is logged and never undoes the in-memory capture or release, matching the venue, where
+   * the money has moved whether or not its hook got through (its outbox redelivers; the router treats a lane still HELD
+   * in a CONFIRMED plan as booked, so a lost share.captured never strands anyone).
+   */
+  private async send(ev: VenueEvent): Promise<void> {
+    if (!this.deliver) return;
+    try {
+      await this.deliver(ev);
+    } catch (e) {
+      log.error({ ...errInfo(e), type: ev.type, event_id: ev.event_id, order_id: ev.order_id }, "mock venue: hook delivery failed");
+    }
   }
 
   private get(orderId: string): MockOrder {

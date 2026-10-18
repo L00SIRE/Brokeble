@@ -10,12 +10,12 @@ const m = vi.hoisted(() => {
     notifyRaw: f(), markReadSafe: f(), typingOn: f(),
     handleDigitsBallot: f(), upsertDmRoute: f(),
     findPendingHoldGate: f(), getHoldGate: f(),
-    getParticipant: f(), currentPlanForUser: f(),
+    getParticipant: f(), currentPlanForUser: f(), newestInvitedPlanForUser: f(),
     findUserByPhone: f(), findUserByPhotonId: f(), setPhotonUserId: f(),
     getPayLink: f(), handleCommand: f(), reply: f(),
-    mentionsOthersBudget: f(), otherFirstNames: f(), sendOnlyYours: f(), capturedPlanIdsForUser: f(), getPlan: f(),
+    mentionsOthersBudget: f(), otherFirstNames: f(), sendOnlyYours: f(), recentConfirmedPlan: f(),
     converseReply: f(),
-    onJoinText: f(), onNameText: f(), handleStartText: f(), joinWouldOverfill: f(),
+    onJoinText: f(), onNameText: f(), handleStartText: f(), hasStartDraft: f(), joinWouldOverfill: f(),
   };
 });
 
@@ -41,17 +41,19 @@ vi.mock("../src/plan/machine", () => {
 });
 vi.mock("../src/repo/dmRoutes", () => ({ upsertDmRoute: m.upsertDmRoute }));
 vi.mock("../src/repo/holdGates", () => ({ findPendingHoldGate: m.findPendingHoldGate, getHoldGate: m.getHoldGate }));
-vi.mock("../src/repo/participants", () => ({ getParticipant: m.getParticipant, capturedPlanIdsForUser: m.capturedPlanIdsForUser }));
-vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser, getPlan: m.getPlan }));
+vi.mock("../src/repo/participants", () => ({
+  getParticipant: m.getParticipant, newestInvitedPlanForUser: m.newestInvitedPlanForUser,
+}));
+vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser, recentConfirmedPlan: m.recentConfirmedPlan }));
 vi.mock("../src/repo/users", () => ({ findUserByPhone: m.findUserByPhone, findUserByPhotonId: m.findUserByPhotonId, setPhotonUserId: m.setPhotonUserId }));
 vi.mock("../src/repo/payLinks", () => ({ getPayLink: m.getPayLink }));
 vi.mock("../src/router/handlers", () => ({ handleCommand: m.handleCommand, reply: m.reply }));
 vi.mock("../src/plan/membership", () => ({ onJoinText: m.onJoinText, onNameText: m.onNameText }));
-vi.mock("../src/plan/startByChat", () => ({ handleStartText: m.handleStartText }));
+vi.mock("../src/plan/startByChat", () => ({ handleStartText: m.handleStartText, hasStartDraft: m.hasStartDraft }));
 vi.mock("../src/join/capacity", () => ({ joinWouldOverfill: m.joinWouldOverfill }));
 
-import { isPrefillText, parseCommand } from "../src/router/commands";
-import { isQuestion, laDate, route } from "../src/router/route";
+import { isPrefillText, isStartPrefill, parseCommand } from "../src/router/commands";
+import { isQuestion, route } from "../src/router/route";
 
 const user = { id: "u1", first_name: "Ana", phone_e164: "+13105550001", photon_user_id: "pu1", payer_ref: "x" };
 const plan = (o: Record<string, unknown> = {}) => ({ id: "p1", code: "4821", title: "Dinner + show", state: "COLLECTING", version: 1, ...o });
@@ -69,10 +71,12 @@ const lane = (stage: string, planOverrides: Record<string, unknown> = {}) => {
 beforeEach(() => {
   for (const fn of Object.values(m)) fn.mockReset();
   m.findUserByPhotonId.mockResolvedValue(user);
-  m.capturedPlanIdsForUser.mockResolvedValue([]);
+  m.recentConfirmedPlan.mockResolvedValue(null);
+  m.newestInvitedPlanForUser.mockResolvedValue(null);
   m.otherFirstNames.mockResolvedValue(["Sam"]);
   m.mentionsOthersBudget.mockReturnValue(false);
   m.joinWouldOverfill.mockResolvedValue(false);
+  m.hasStartDraft.mockReturnValue(false);
   lane("PREFS_DONE");
 });
 
@@ -257,8 +261,7 @@ describe("route", () => {
 
   it("after capture: no active plan falls back to today's CONFIRMED plan, so 'status' and questions keep their context", async () => {
     m.currentPlanForUser.mockResolvedValue(null);
-    m.capturedPlanIdsForUser.mockResolvedValue(["p9", "p8"]);
-    m.getPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: laDate(0) });
+    m.recentConfirmedPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: "2026-10-18" });
     m.getParticipant.mockResolvedValue({ stage: "CAPTURED", lane: 1 });
     m.getAwaiting.mockReturnValue("budget"); // a leftover flag must not reopen the budget step
     await route(ev("status"));
@@ -267,25 +270,23 @@ describe("route", () => {
     expect(m.handleFreeText).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p9" }) }), expect.anything());
     expect(m.handleBudgetText).not.toHaveBeenCalled();
     expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
-    expect(m.getPlan).toHaveBeenCalledWith("p9");
+    expect(m.recentConfirmedPlan).toHaveBeenCalledWith("u1");
   });
 
-  it.each([
-    ["an old CONFIRMED plan", { id: "p9", state: "CONFIRMED", event_date: "2020-01-01" }],
-    ["a CANCELLED plan", { id: "p9", state: "CANCELLED", event_date: laDate(0) }],
-  ])("no fallback context for %s", async (_name, p) => {
+  it("after a lost share.captured: a HELD lane in the CONFIRMED plan keeps the booked-plan context too", async () => {
     m.currentPlanForUser.mockResolvedValue(null);
-    m.capturedPlanIdsForUser.mockResolvedValue(["p9"]);
-    m.getPlan.mockResolvedValue(p);
+    m.recentConfirmedPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: "2026-10-18" });
+    m.getParticipant.mockResolvedValue({ stage: "HELD", lane: 1 });
+    await route(ev("what's the plan?"));
+    expect(m.handleFreeText).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p9" }) }), expect.anything());
+  });
+
+  it("no recent CONFIRMED plan (the repo applies the date window and plan state): the start chat", async () => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.recentConfirmedPlan.mockResolvedValue(null);
     await route(ev("hi"));
     expect(m.handleStartText).toHaveBeenCalledWith(user, expect.anything()); // no plan context: the start chat
     expect(m.handleFreeText).not.toHaveBeenCalled();
-  });
-
-  it("laDate: LA calendar date, shifted by days", () => {
-    expect(laDate(0, new Date("2026-10-18T06:30:00Z"))).toBe("2026-10-17"); // 11:30 PM Saturday in LA
-    expect(laDate(-1, new Date("2026-10-18T08:00:00Z"))).toBe("2026-10-17");
-    expect(laDate(-1, new Date("2026-03-01T20:00:00Z"))).toBe("2026-02-28");
   });
 
   it.each([
@@ -361,6 +362,172 @@ describe("forgiving first message (ux-flow §8.1)", () => {
     await route(ev("hey"));
     expect(m.onJoinText).not.toHaveBeenCalled();
     expect(m.handleBudgetText).toHaveBeenCalledOnce();
+  });
+});
+
+describe("first text after a web /join (INVITED lane, no live lane)", () => {
+  const START = "Hey SquadTab! Help me plan a night out.";
+  // The real currentPlanForUser never returns a plan where the lane is INVITED (repo/plans.ts), so the /join lane is
+  // found only by newestInvitedPlanForUser.
+  const invited = (o: Record<string, unknown> = {}) => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.newestInvitedPlanForUser.mockResolvedValue(plan(o));
+    m.getParticipant.mockResolvedValue({ stage: "INVITED", lane: 3 });
+  };
+  beforeEach(() => invited());
+
+  it.each(["hey", "I'm in for Dinner + show!", "Hey SquadTab! Let's get planning.", "status", "JOIN 4821"])(
+    "%j joins the invited plan instead of starting a new one",
+    async (text) => {
+      await route(ev(text));
+      expect(m.newestInvitedPlanForUser).toHaveBeenCalledWith("u1");
+      expect(m.joinWouldOverfill).toHaveBeenCalledWith(user, "4821");
+      expect(m.onJoinText).toHaveBeenCalledWith(user, "4821", expect.objectContaining({ message_id: "msg1" }));
+      for (const f of [m.handleStartText, m.handleCommand, m.handleFreeText, m.handleBudgetText]) expect(f).not.toHaveBeenCalled();
+    },
+  );
+
+  it("8 texted lanes already in → T_PLAN_FULL, the lane stays INVITED", async () => {
+    m.joinWouldOverfill.mockResolvedValue(true);
+    await route(ev("hey"));
+    expect(m.reply).toHaveBeenCalledWith(user, "T_PLAN_FULL", {}, expect.objectContaining({ message_id: "msg1" }));
+    expect(m.onJoinText).not.toHaveBeenCalled();
+    expect(m.handleStartText).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["I'm out", { kind: "out" }],
+    ["forget me", { kind: "forget_me" }],
+    ["join 9999", { kind: "join", code: "9999" }],
+  ])("%j still runs as a command, against the invited lane", async (text, cmd) => {
+    await route(ev(text));
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ code: "4821" }) }), cmd, expect.anything());
+    expect(m.onJoinText).not.toHaveBeenCalled();
+  });
+
+  it("the /start pre-fill starts the sender's own plan; an old invite is not looked up", async () => {
+    await route(ev(START));
+    expect(m.newestInvitedPlanForUser).not.toHaveBeenCalled();
+    expect(m.handleStartText).toHaveBeenCalledWith(user, expect.anything());
+    expect(m.onJoinText).not.toHaveBeenCalled();
+  });
+
+  it("a live lane in an active plan wins: the invite is never looked up", async () => {
+    lane("JOINED");
+    await route(ev("hey"));
+    expect(m.newestInvitedPlanForUser).not.toHaveBeenCalled();
+    expect(m.onJoinText).not.toHaveBeenCalled();
+    expect(m.handleBudgetText).toHaveBeenCalledOnce();
+  });
+
+  it("a member who declined their active plan can still join the plan they were invited to", async () => {
+    m.currentPlanForUser.mockResolvedValue(plan({ id: "p0", code: "1111" }));
+    m.getParticipant.mockImplementation(async (planId: string) => (planId === "p0" ? { stage: "DECLINED", lane: 1 } : { stage: "INVITED", lane: 3 }));
+    await route(ev("hey"));
+    expect(m.onJoinText).toHaveBeenCalledWith(user, "4821", expect.anything());
+  });
+
+  it("booked last night, planning again: the /start pre-fill and the start chat after it skip the CONFIRMED plan", async () => {
+    m.recentConfirmedPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: "2026-10-18" });
+    m.newestInvitedPlanForUser.mockResolvedValue(null);
+    await route(ev("Hey SquadTab! Help me plan a night out."));
+    expect(m.handleStartText).toHaveBeenCalledTimes(1);
+    expect(m.recentConfirmedPlan).not.toHaveBeenCalled();
+    m.hasStartDraft.mockReturnValue(true); // T_START_HELLO went out: the description continues the start chat
+    await route(ev("Ana here! Westwood tonight, 3 of us"));
+    expect(m.handleStartText).toHaveBeenCalledTimes(2);
+    expect(m.handleCommand).not.toHaveBeenCalled(); // not T_STATUS for last night's plan
+    expect(m.handleFreeText).not.toHaveBeenCalled();
+    expect(m.recentConfirmedPlan).not.toHaveBeenCalled();
+  });
+
+  it("a pending invite still wins over a start chat under way (an abandoned draft never blocks a friend's invite)", async () => {
+    m.hasStartDraft.mockReturnValue(true);
+    await route(ev("hey"));
+    expect(m.onJoinText).toHaveBeenCalledWith(user, "4821", expect.anything());
+    expect(m.handleStartText).not.toHaveBeenCalled();
+  });
+
+  it("a pending invite wins over yesterday's CONFIRMED plan", async () => {
+    m.recentConfirmedPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: "2026-10-18" });
+    await route(ev("I'm in for Dinner + show!"));
+    expect(m.onJoinText).toHaveBeenCalledWith(user, "4821", expect.anything());
+    expect(m.handleFreeText).not.toHaveBeenCalled();
+  });
+
+  it("no invite either: the start chat, as before", async () => {
+    m.newestInvitedPlanForUser.mockResolvedValue(null);
+    await route(ev("hey"));
+    expect(m.handleStartText).toHaveBeenCalledWith(user, expect.anything());
+    expect(m.onJoinText).not.toHaveBeenCalled();
+  });
+
+  it("isStartPrefill matches only the /start sentence", () => {
+    for (const t of [START, "hey squadtab help me plan a night out", "Hey SquadTab, help me plan a night out!"]) expect(isStartPrefill(t)).toBe(true);
+    for (const t of ["Hey SquadTab! Let's get planning.", "Hey SquadTab, where are we at?", "help me plan a night out", "hey"]) expect(isStartPrefill(t)).toBe(false);
+  });
+});
+
+describe("a question at the first budget ask (JOINED, no menu yet)", () => {
+  const Q = "wait, why do you need my budget?";
+  beforeEach(() => lane("JOINED"));
+  const unclearOf = () => m.handleBudgetText.mock.calls[0]![2] as (() => Promise<boolean>) | undefined;
+
+  it("goes to the budget parser first, with the delegate + budget re-ask as the fallback (not the tiers menu)", async () => {
+    m.converseReply.mockResolvedValue(true);
+    await route(ev(Q));
+    expect(m.handleBudgetText).toHaveBeenCalledWith(expect.objectContaining({ plan: expect.objectContaining({ id: "p1" }) }), expect.anything(), expect.any(Function));
+    expect(m.converseReply).not.toHaveBeenCalled(); // a budget-shaped answer still parses: the fallback runs only if it didn't
+    expect(await unclearOf()!()).toBe(true);
+    expect(m.converseReply).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p1" }) }), expect.objectContaining({ text: Q }), { mode: "budget_question" });
+    expect(m.reply).toHaveBeenCalledWith(user, "T_BUDGET_REASK", {}, expect.objectContaining({ message_id: "msg1" }), "p1", 2);
+    expect(m.reply.mock.invocationCallOrder[0]).toBeGreaterThan(m.converseReply.mock.invocationCallOrder[0]!);
+  });
+
+  it.each(["why do you need that", "what's this for?", "how does this work", "who sees it", "when do we go", "can I skip this", "do I have to", "is it private"])(
+    "%j counts as a question",
+    async (text) => {
+      await route(ev(text));
+      expect(unclearOf()).toEqual(expect.any(Function));
+    },
+  );
+
+  it.each(["I can do $40", "around forty", "40 max", "whatever's cheap"])("%j is a budget answer: no delegate fallback", async (text) => {
+    await route(ev(text));
+    expect(m.handleBudgetText).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+  });
+
+  it("no usable delegate answer (mock LLM, blocked reply) → false, so the tiers menu goes out; no re-ask", async () => {
+    m.converseReply.mockResolvedValue(false);
+    await route(ev(Q));
+    expect(await unclearOf()!()).toBe(false);
+    expect(m.reply).not.toHaveBeenCalled();
+  });
+
+  it("the delegate's dispatch already asked (change budget / menu set a flag) → no second ask", async () => {
+    m.converseReply.mockImplementation(async () => {
+      m.getAwaiting.mockReturnValue("budget");
+      return true;
+    });
+    await route(ev("can I change my budget later?"));
+    expect(await unclearOf()!()).toBe(true);
+    expect(m.reply).not.toHaveBeenCalled();
+  });
+
+  it("a question in place of the name gets the same fallback", async () => {
+    m.findUserByPhotonId.mockResolvedValue({ ...user, first_name: "" });
+    m.getAwaiting.mockReturnValueOnce("name").mockReturnValue(null);
+    await route(ev("who is this?"));
+    expect(m.onNameText).not.toHaveBeenCalled();
+    expect(unclearOf()).toEqual(expect.any(Function));
+  });
+
+  it("under the tiers menu nothing changes: the delegate answers and the menu stays open (no re-ask)", async () => {
+    m.getAwaiting.mockReturnValue("tiers");
+    m.converseReply.mockResolvedValue(true);
+    await route(ev(Q));
+    expect(await unclearOf()!()).toBe(true);
+    expect(m.reply).not.toHaveBeenCalled();
   });
 });
 

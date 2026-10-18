@@ -16,6 +16,12 @@ __pycache__/
 # misc
 .DS_Store
 p.html
+prized.html
 scratch/
+# local tooling artifacts (Playwright MCP snapshots/logs may capture pay-link tokens or ?k= console keys)
+.playwright-mcp/
+.claude/
+.cursor/
+Screenshot*.png
 # next typegen / dev output
 next-env.d.ts

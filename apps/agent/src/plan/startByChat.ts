@@ -39,6 +39,15 @@ function draftFor(userId: string, now: number): Draft {
   return d && now - d.touchedAt < DRAFT_TTL_MS ? d : freshDraft();
 }
 
+/**
+ * True while this user is mid start chat (a draft younger than DRAFT_TTL_MS). The router then keeps routing their texts
+ * here instead of to a recently booked plan, so someone who booked last night can plan again tonight.
+ */
+export function hasStartDraft(userId: string, now = Date.now()): boolean {
+  const d = drafts.get(userId);
+  return d !== undefined && now - d.touchedAt < DRAFT_TTL_MS;
+}
+
 /** Test hook: drops every in-memory draft. */
 export function resetStartDrafts(): void {
   drafts.clear();

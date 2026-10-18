@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { type CreateOrderRequest, type DelegateInput, type PublicBundle, priceBundle, ScoutSubmission } from "@tab/shared";
+import { type CreateOrderRequest, type DelegateInput, type PublicBundle, priceBundle, ScoutSubmission, VenueEvent } from "@tab/shared";
 import { consentFromOrder } from "@tab/shared/tap";
 import { loadCachedOptions } from "../src/ports/cachedOptions";
 import { MockLLM } from "../src/ports/llm.mock";
@@ -31,7 +31,7 @@ describe("MockVenue (M3/M4)", () => {
   });
 
   it("captures only after every share is authorized and the consent set matches", async () => {
-    const v = new MockVenue();
+    const v = new MockVenue({ deliver: null });
     const { order_id, shares } = await v.createOrder(orderReq());
     v.authorize(shares[0]!.share_id);
     const early = await v.getOrder(order_id);
@@ -51,7 +51,8 @@ describe("MockVenue (M3/M4)", () => {
   });
 
   it("TAP test variants are rejected at the matching step and capture nothing", async () => {
-    const v = new MockVenue();
+    const deliver = vi.fn(async () => {});
+    const v = new MockVenue({ deliver });
     const { order_id, shares } = await v.createOrder(orderReq());
     shares.forEach((s) => v.authorize(s.share_id));
     const consent = consentFromOrder(await v.getOrder(order_id));
@@ -61,11 +62,12 @@ describe("MockVenue (M3/M4)", () => {
     expect(await failedStep("replay")).toBe(4);
     expect(await failedStep("tamper")).toBe(6);
     expect((await v.getOrder(order_id)).status).toBe("OPEN");
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it("puts every commit's TAP report on the console as tap.verify, and never a tap.signed (nothing is signed in mock)", async () => {
     const emit = vi.fn();
-    const v = new MockVenue({ emit });
+    const v = new MockVenue({ emit, deliver: null });
     const { order_id, shares } = await v.createOrder(orderReq());
     shares.forEach((s) => v.authorize(s.share_id));
     const consent = consentFromOrder(await v.getOrder(order_id));
@@ -78,14 +80,49 @@ describe("MockVenue (M3/M4)", () => {
     ]);
   });
 
-  it("cancel releases holds and voids pending shares", async () => {
-    const v = new MockVenue();
+  it("cancel releases holds and voids pending shares, delivering share.released {retry:false} per released hold only", async () => {
+    const delivered: VenueEvent[] = [];
+    const v = new MockVenue({ deliver: async (ev) => void delivered.push(ev) });
     const { order_id, shares } = await v.createOrder(orderReq());
     const evt = v.authorize(shares[0]!.share_id);
     expect(evt.type).toBe("share.authorized");
     const after = await v.cancel(order_id, "member_out");
     expect(after.status).toBe("CANCELLED");
     expect(after.shares.map((s) => s.status)).toEqual(["RELEASED", "VOID"]);
+    expect(delivered).toHaveLength(1);
+    expect(VenueEvent.parse(delivered[0])).toMatchObject({
+      type: "share.released", order_id, plan_ref: PLAN_REF, share_id: shares[0]!.share_id, payer_ref: shares[0]!.payer_ref, data: { retry: false },
+    });
+    await v.cancel(order_id, "member_out"); // idempotent: nothing left to release
+    expect(delivered).toHaveLength(1);
+  });
+
+  it("a capture delivers one share.captured per share (labelled sim) before commit returns; a re-commit delivers nothing", async () => {
+    const delivered: { ev: VenueEvent; orderStatus: string }[] = [];
+    const v: MockVenue = new MockVenue({ deliver: async (ev) => void delivered.push({ ev, orderStatus: (await v.getOrder(ev.order_id)).status }) });
+    const { order_id, shares } = await v.createOrder(orderReq(3));
+    shares.forEach((s) => v.authorize(s.share_id));
+    const consent = consentFromOrder(await v.getOrder(order_id));
+    const res = await v.commit(order_id, consent);
+    expect(res.result).toBe("captured");
+    expect(delivered.map(({ ev }) => VenueEvent.parse(ev))).toEqual(shares.map((s) => expect.objectContaining({
+      type: "share.captured", order_id, plan_ref: PLAN_REF, share_id: s.share_id, payer_ref: s.payer_ref,
+      data: { amount_cents: s.amount_cents, cybs_capture_id_short: `mock_cap_${s.share_id}`.slice(-8), cybs_source: "sim" },
+    })));
+    expect(delivered.every((d) => d.orderStatus === "CAPTURED")).toBe(true); // the venue state is final before the hook
+    expect(new Set(delivered.map(({ ev }) => ev.event_id)).size).toBe(3);
+
+    expect((await v.commit(order_id, consent)).result).toBe("captured"); // idempotent, like the venue
+    expect(delivered).toHaveLength(3);
+  });
+
+  it("a failed delivery is logged and never undoes the capture", async () => {
+    const v = new MockVenue({ deliver: async () => { throw new Error("db down"); } });
+    const { order_id, shares } = await v.createOrder(orderReq());
+    shares.forEach((s) => v.authorize(s.share_id));
+    const res = await v.commit(order_id, consentFromOrder(await v.getOrder(order_id)));
+    expect(res.result).toBe("captured");
+    expect((await v.getOrder(order_id)).status).toBe("CAPTURED");
   });
 });
 

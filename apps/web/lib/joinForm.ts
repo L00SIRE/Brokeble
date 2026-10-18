@@ -16,7 +16,7 @@ export function validateJoinPhone(code: string, phone: string): { ok: true; body
   return { ok: true, body: { code, phone_e164: e164, consent: true } };
 }
 
-export type JoinFailure = "not_found" | "plan_closed" | "plan_full" | "capacity" | "rate_limited" | "network" | "invalid" | "unknown";
+export type JoinFailure = "not_found" | "plan_closed" | "plan_full" | "in_other_plan" | "capacity" | "rate_limited" | "network" | "invalid" | "unknown";
 
 /** What the error screen offers: `start` links to `/`, `retry` re-submits the same number, `fix` focuses the field. */
 export type FailureAction = "start" | "retry" | "fix";
@@ -37,6 +37,9 @@ export function joinFailureCopy(failure: JoinFailure, organizer: string | null):
       return { title: "This plan’s already moving", body: "It’s past the joining stage. Ask the organizer to start a new one, or start your own.", terminal: true, action: "start" };
     case "plan_full":
       return { title: "This plan’s full", body: "It already has 8 people, the most SquadTab plans for.", terminal: true, action: "start" };
+    case "in_other_plan":
+      // Not terminal: the form stays so they can retry after texting "I'm out". "Start your own" would be the wrong offer here.
+      return { title: "You’re already in another plan tonight", body: "Text SquadTab ‘status’ to see it, or ‘I’m out’ to switch. Then try this link again.", terminal: false, action: "retry" };
     case "capacity":
       return { title: "SquadTab is packed right now", body: "Every line is busy. Try again in a few minutes.", terminal: false, action: "retry" };
     case "rate_limited":
@@ -56,6 +59,7 @@ export function toJoinFailure(error: string): JoinFailure {
     case "not_found":
     case "plan_closed":
     case "plan_full":
+    case "in_other_plan":
     case "capacity":
     case "rate_limited":
     case "network":

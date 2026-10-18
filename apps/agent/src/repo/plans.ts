@@ -60,6 +60,22 @@ export async function currentPlanForUser(userId: string, tx: Db = sql): Promise<
   return row ?? null;
 }
 
+/**
+ * The user's newest CONFIRMED plan whose event date is today or yesterday in America/Los_Angeles, or null (router: with
+ * no active plan, right after a booking is exactly when people text "what time is dinner?" or "status").
+ * Membership is a HELD or CAPTURED lane, not CAPTURED alone: a CONFIRMED plan captured every share (the venue confirms
+ * only after the last capture), so a lane still HELD only means that person's share.captured hook was lost or is late.
+ * RELEASED/DECLINED lanes and plans the user never held a share in are never returned.
+ */
+export async function recentConfirmedPlan(userId: string, tx: Db = sql): Promise<PlanRow | null> {
+  const [row] = await tx<PlanRow[]>`
+    select ${planCols(tx)} from app.plans p join app.participants pt on pt.plan_id = p.id
+    where pt.user_id = ${userId} and pt.stage in ('HELD', 'CAPTURED') and p.state = 'CONFIRMED'
+      and p.event_date >= (now() at time zone 'America/Los_Angeles')::date - 1
+    order by p.created_at desc, p.id limit 1`;
+  return row ?? null;
+}
+
 /** Every plan in ACTIVE_STATES (ops reset). Never returns SHOWCASE. */
 export async function listActivePlans(tx: Db = sql): Promise<PlanRow[]> {
   return tx<PlanRow[]>`

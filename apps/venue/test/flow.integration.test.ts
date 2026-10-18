@@ -51,7 +51,7 @@ describe.skipIf(!DB)("venue money flow", () => {
       ...(await import("../src/orders/create")), ...(await import("../src/orders/authorize")), ...(await import("../src/orders/checkout")),
       ...(await import("../src/orders/cancel")), ...(await import("../src/orders/store")), ...(await import("../src/sweep")), ...(await import("../src/db")),
     } as never;
-  });
+  }, 60_000); // cold imports of the order modules (Cybersource SDK) can pass the 10 s default on a loaded machine
   afterAll(async () => {
     hook.close();
     await M.sql().end();

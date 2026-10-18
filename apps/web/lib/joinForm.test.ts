@@ -53,12 +53,13 @@ describe("validateJoinPhone", () => {
 });
 
 describe("joinFailureCopy", () => {
-  const all: JoinFailure[] = ["not_found", "plan_closed", "plan_full", "capacity", "rate_limited", "network", "invalid", "unknown"];
+  const all: JoinFailure[] = ["not_found", "plan_closed", "plan_full", "in_other_plan", "capacity", "rate_limited", "network", "invalid", "unknown"];
 
   it("uses the ux-flow §4.4 titles", () => {
     expect(joinFailureCopy("not_found", "Maya").title).toBe("We couldn’t find that plan");
     expect(joinFailureCopy("plan_closed", null).title).toBe("This plan’s already moving");
     expect(joinFailureCopy("plan_full", null).title).toBe("This plan’s full");
+    expect(joinFailureCopy("in_other_plan", null).title).toBe("You’re already in another plan tonight");
     expect(joinFailureCopy("capacity", null).title).toBe("SquadTab is packed right now");
     expect(joinFailureCopy("rate_limited", null).title).toBe("Too many tries");
     expect(joinFailureCopy("network", null)).toMatchObject({ title: "Couldn’t reach SquadTab", body: expect.stringContaining("Nothing was sent.") });
@@ -71,7 +72,7 @@ describe("joinFailureCopy", () => {
 
   it("makes link-level failures terminal with a start action, and transient ones retryable", () => {
     for (const f of ["not_found", "plan_closed", "plan_full"] as const) expect(joinFailureCopy(f, null)).toMatchObject({ terminal: true, action: "start" });
-    for (const f of ["capacity", "rate_limited", "network", "unknown"] as const) expect(joinFailureCopy(f, null)).toMatchObject({ terminal: false, action: "retry" });
+    for (const f of ["in_other_plan", "capacity", "rate_limited", "network", "unknown"] as const) expect(joinFailureCopy(f, null)).toMatchObject({ terminal: false, action: "retry" });
     expect(joinFailureCopy("invalid", null)).toMatchObject({ terminal: false, action: "fix" });
   });
 
@@ -86,6 +87,7 @@ describe("joinFailureCopy", () => {
 describe("toJoinFailure", () => {
   it("passes known codes and degrades unknown ones", () => {
     expect(toJoinFailure("plan_full")).toBe("plan_full");
+    expect(toJoinFailure("in_other_plan")).toBe("in_other_plan");
     expect(toJoinFailure("network")).toBe("network");
     expect(toJoinFailure("teapot")).toBe("unknown");
   });

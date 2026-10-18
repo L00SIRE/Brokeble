@@ -1,12 +1,15 @@
 // app.participants. Owner A. Stage writes here do not emit SSE; plan/membership.ts setStage() wraps them and emits `lane`.
 import type { LaneStage } from "@tab/shared";
 import { sql, type Db } from "../db";
+import { planCols } from "./plans";
 import { inTx } from "./sql";
-import type { MemberRow, ParticipantRow } from "./types";
+import type { MemberRow, ParticipantRow, PlanRow, PlanState } from "./types";
 
 /** stage ≥ PREFS_DONE and not DECLINED/RELEASED: the set that is rated, votes and gets shares. */
 const ACTIVE_STAGES: readonly LaneStage[] = ["PREFS_DONE", "VOTED", "GATED", "LINK_SENT", "HELD", "CAPTURED"];
 const NON_RECIPIENT_STAGES: readonly LaneStage[] = ["DECLINED", "INVITED"];
+/** Plan states a new member may still join (same set as membership.onJoinText and join/capacity). */
+const JOINABLE_STATES: readonly PlanState[] = ["COLLECTING", "RESEARCHING", "VOTING"];
 
 /** One participant row, or null. */
 export async function getParticipant(planId: string, userId: string, tx: Db = sql): Promise<ParticipantRow | null> {
@@ -79,4 +82,17 @@ export async function capturedPlanIdsForUser(userId: string, tx: Db = sql): Prom
     select p.id from app.participants pt join app.plans p on p.id = pt.plan_id
     where pt.user_id = ${userId} and pt.stage = 'CAPTURED' order by p.created_at desc, p.id`;
   return rows.map((r) => r.id);
+}
+
+/**
+ * The newest plan still open to joiners (COLLECTING|RESEARCHING|VOTING) where the user's lane is INVITED, or null.
+ * Router only, and only after currentPlanForUser (which skips INVITED rows) found no live lane: an inbound text from
+ * the phone itself proves possession of the number /join was given, so that text may confirm the lane.
+ */
+export async function newestInvitedPlanForUser(userId: string, tx: Db = sql): Promise<PlanRow | null> {
+  const [row] = await tx<PlanRow[]>`
+    select ${planCols(tx)} from app.plans p join app.participants pt on pt.plan_id = p.id
+    where pt.user_id = ${userId} and pt.stage = 'INVITED' and p.state = any(${tx.array([...JOINABLE_STATES])}::text[])
+    order by p.created_at desc, p.id limit 1`;
+  return row ?? null;
 }

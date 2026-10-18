@@ -15,16 +15,16 @@ import { usd2 } from "../notify/render";
 import { handleDigitsBallot } from "../plan/ballots";
 import { stageAtLeast, TERMINAL_STAGES } from "../plan/machine";
 import { onJoinText, onNameText } from "../plan/membership";
-import { handleStartText } from "../plan/startByChat";
+import { handleStartText, hasStartDraft } from "../plan/startByChat";
 import type { DmAddress } from "../ports";
 import { upsertDmRoute } from "../repo/dmRoutes";
 import * as holdGates from "../repo/holdGates";
-import { capturedPlanIdsForUser, getParticipant } from "../repo/participants";
-import { currentPlanForUser, getPlan } from "../repo/plans";
-import type { MemberContext, UserRow } from "../repo/types";
+import { getParticipant, newestInvitedPlanForUser } from "../repo/participants";
+import { currentPlanForUser, recentConfirmedPlan } from "../repo/plans";
+import type { MemberContext, PlanRow, UserRow } from "../repo/types";
 import { findUserByPhone, findUserByPhotonId, setPhotonUserId } from "../repo/users";
 import { getPayLink } from "../repo/payLinks";
-import { isPrefillText, looksLikeName, parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
+import { isPrefillText, isStartPrefill, looksLikeName, parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
 import { handleCommand, reply } from "./handlers";
 import { containsCardNumber } from "./luhn";
 
@@ -33,14 +33,16 @@ import { containsCardNumber } from "./luhn";
  * 0 resolve user (photon_user_id, else phone → setPhotonUserId) and upsert dm_route;
  * 1 text null → markReadSafe, return; 2 containsCardNumber → T_CARD_INTERCEPT (replyTo), system event, return
  * (before ANY log/LLM/text write); 3 markReadSafe; 4 no user → notifyRaw(T_NOT_IN_PLAN);
- * 5 INVITED and not a leave/other-plan command → onJoinText (any first text joins: ux-flow §8.1), or T_PLAN_FULL when
- * 8 texted lanes are already in (the same cap as a JOIN command); else parseCommand → handleCommand; a web pre-fill
+ * 5 INVITED (a /join lane, found by loadContext only when no live lane exists) and not a leave/other-plan command →
+ * onJoinText (any first text joins: ux-flow §8.1), or T_PLAN_FULL when 8 texted lanes are already in (the same cap as a
+ * JOIN command); else parseCommand → handleCommand; a web pre-fill
  * (isPrefillText) → status (all deterministic, so no typing bubble); then typingOn; no active plan → start-by-chat
  * (plan/startByChat.ts); a CONFIRMED plan → free text;
  * 6 another member's budget asked about during the budget/prefs steps → T_ONLY_YOURS (code check, no stage change);
  * 7 awaiting flags (holdgate/tiers/budget/name; under 'tiers' a yes/no drops the menu and a question that isn't a
- * budget goes to the free-text delegate); 8 stage handlers
- * (JOINED → budget, BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or delegate ballot, else free).
+ * budget goes to the free-text delegate); 8 stage handlers (JOINED → budget, where a question that isn't a budget gets
+ * the delegate's answer plus the budget question again; BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or
+ * delegate ballot, else free).
  */
 export async function route(e: InboundEvent): Promise<void> {
   const addr: DmAddress = { userId: e.from_user_id, spaceId: e.space_id, agentUserId: e.agent_user_id };
@@ -50,7 +52,7 @@ export async function route(e: InboundEvent): Promise<void> {
   const text = e.text;
   if (text === null) return markReadSafe(e);
 
-  const ctx = user ? await loadContext(user) : null;
+  const ctx = user ? await loadContext(user, isStartPrefill(text)) : null;
 
   if (containsCardNumber(text)) {
     if (user) await reply(user, "T_CARD_INTERCEPT", {}, e, ctx?.plan.id);
@@ -121,17 +123,34 @@ export async function route(e: InboundEvent): Promise<void> {
     clearAwaiting(user.id);
     if (ctx.participant.stage === "JOINED") {
       const name = looksLikeName(text);
-      return name ? onNameText(ctx, name, e) : handleBudgetText(ctx, e);
+      return name ? onNameText(ctx, name, e) : firstBudgetAnswer(ctx, e);
     }
   }
 
-  if (stage === "JOINED") return handleBudgetText(ctx, e);
+  if (stage === "JOINED") return firstBudgetAnswer(ctx, e);
   if (stage === "BUDGET_LOCKED") return handlePrefsText(ctx, e);
   if (ctx.plan.state === "VOTING" && stageAtLeast(stage, "PREFS_DONE")) {
     const digits = parseDigitsBallot(text);
     return digits ? handleDigitsBallot(ctx, digits, e) : handleBallotText(ctx, e);
   }
   return handleFreeText(user, ctx, e);
+}
+
+/**
+ * The answer to the first budget ask (T_BUDGET_ASK / _NAMED; no menu shown yet). A budget-shaped reply still parses
+ * first. A question that doesn't ("wait, why do you need my budget?") gets the delegate's answer and then the budget
+ * question again instead of the 1–4 menu; with no usable delegate answer (mock LLM, blocked reply) the menu goes out.
+ */
+function firstBudgetAnswer(ctx: MemberContext, e: InboundEvent): Promise<void> {
+  return handleBudgetText(ctx, e, isQuestion(e.text ?? "") ? () => answerThenReaskBudget(ctx, e) : undefined);
+}
+
+async function answerThenReaskBudget(ctx: MemberContext, e: InboundEvent): Promise<boolean> {
+  if (!(await converseReply(ctx.user, ctx, e, { mode: "budget_question" }))) return false;
+  // A set flag means the delegate's dispatch already asked for the budget itself ('change budget' → T_BUDGET_REASK, or
+  // the menu): asking again would double up. n=2: the delegate's own reply to this inbound is n=1.
+  if (!getAwaiting(ctx.user.id)) await reply(ctx.user, "T_BUDGET_REASK", {}, e, ctx.plan.id, 2);
+  return true;
 }
 
 /** Reads as a question: ends in "?" or opens with a question word ("wait what does that mean", "huh"). */
@@ -150,29 +169,29 @@ async function resolveUser(e: InboundEvent): Promise<UserRow | null> {
 }
 
 /**
- * The user's lane in their most recent active plan; null once they declined or were released. With no active plan,
- * the newest CONFIRMED plan they were charged for, while its date is today or yesterday (LA time): right after a
- * booking is exactly when people text "what time is dinner?" or "status".
+ * The first live (not declined or released) lane of, in order:
+ * 1. the user's most recent active plan where they are past INVITED (currentPlanForUser);
+ * 2. the newest still-joinable plan where /join gave this phone an INVITED lane. currentPlanForUser skips those rows
+ *    so a form with someone else's number can never take over a live member's texts, but with no live lane this text
+ *    from the phone itself proves possession, and route() turns it into the forgiving join;
+ * 3. the newest CONFIRMED plan they held or were charged a share in (repo recentConfirmedPlan: HELD counts too, so a
+ *    lost share.captured hook can't drop them), while its date is today or yesterday (LA time): right after a booking
+ *    is exactly when people text "what time is dinner?" or "status". A pending invite wins over it, or the first text
+ *    of someone who booked last night and joined a new plan today would never reach the new plan.
+ * The /start pre-fill ("help me plan a night out") skips 2 and 3, and a start chat already under way skips 3: that
+ * person is starting a plan of their own, not answering an old invite or asking about last night's booking.
  */
-async function loadContext(user: UserRow): Promise<MemberContext | null> {
-  const plan = (await currentPlanForUser(user.id)) ?? (await recentConfirmedPlan(user.id));
+async function loadContext(user: UserRow, startsOwnPlan: boolean): Promise<MemberContext | null> {
+  const live = await liveLane(user, await currentPlanForUser(user.id));
+  if (live || startsOwnPlan) return live;
+  const invited = await liveLane(user, await newestInvitedPlanForUser(user.id));
+  if (invited || hasStartDraft(user.id)) return invited;
+  return liveLane(user, await recentConfirmedPlan(user.id));
+}
+
+async function liveLane(user: UserRow, plan: PlanRow | null): Promise<MemberContext | null> {
   const participant = plan ? await getParticipant(plan.id, user.id) : null;
   return plan && participant && !TERMINAL_STAGES.includes(participant.stage) ? { user, plan, participant } : null;
-}
-
-/** Newest plan the user is CAPTURED in, if it is CONFIRMED and its event date is no older than yesterday (LA). */
-async function recentConfirmedPlan(userId: string) {
-  const [newest] = await capturedPlanIdsForUser(userId);
-  const plan = newest ? await getPlan(newest) : null;
-  return plan?.state === "CONFIRMED" && plan.event_date >= laDate(-1) ? plan : null;
-}
-
-/** YYYY-MM-DD in America/Los_Angeles, shifted by `days`. Exported for tests. */
-export function laDate(days = 0, now = new Date()): string {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  const d = new Date(`${today}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** The in-memory flag, or (after a restart) the pending hold_gates row, which is the source of truth for 'holdgate'. */

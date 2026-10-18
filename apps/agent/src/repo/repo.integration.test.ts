@@ -200,6 +200,43 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("repo (postgres)", () => {
     expect((await plans.currentPlanForUser(us[0]!.id))?.id).toBe(newer.id);
   });
 
+  it("recentConfirmedPlan: HELD or CAPTURED lane in a CONFIRMED plan dated today or yesterday (LA)", async () => {
+    const [held, captured, released] = await Promise.all([newUser(40), newUser(41), newUser(42)]);
+    const laDay = async (days: number) =>
+      (await sql<{ d: string }[]>`select to_char((now() at time zone 'America/Los_Angeles')::date + ${days}::int, 'YYYY-MM-DD') as d`)[0]!.d;
+    // Test-only state writes (production state changes go through plan/machine.ts transition()).
+    const setPlan = (id: string, state: string, date: string) => sql`update app.plans set state = ${state}, event_date = ${date}::date where id = ${id}`;
+    const p = await newPlan();
+    for (const u of [held, captured, released]) await participants.upsertParticipant(p.id, u.id);
+    await participants.updateStage(p.id, held.id, "HELD"); // share.captured hook lost
+    await participants.updateStage(p.id, captured.id, "CAPTURED");
+    await participants.updateStage(p.id, released.id, "RELEASED");
+
+    await setPlan(p.id, "COMMITTING", await laDay(0));
+    expect(await plans.recentConfirmedPlan(held.id)).toBeNull(); // not CONFIRMED yet
+
+    await setPlan(p.id, "CONFIRMED", await laDay(0));
+    expect((await plans.recentConfirmedPlan(held.id))?.id).toBe(p.id);
+    expect((await plans.recentConfirmedPlan(captured.id))?.id).toBe(p.id);
+    expect(await plans.recentConfirmedPlan(released.id)).toBeNull();
+
+    await setPlan(p.id, "CONFIRMED", await laDay(-1));
+    expect((await plans.recentConfirmedPlan(held.id))?.id).toBe(p.id); // yesterday still counts
+    await setPlan(p.id, "CONFIRMED", await laDay(-2));
+    expect(await plans.recentConfirmedPlan(held.id)).toBeNull(); // outside the window
+    expect(await plans.recentConfirmedPlan(captured.id)).toBeNull();
+
+    // The newest qualifying plan wins; an older confirmed one is the fallback when the newer is not CONFIRMED.
+    await setPlan(p.id, "CONFIRMED", await laDay(0));
+    const newer = await newPlan();
+    await participants.upsertParticipant(newer.id, captured.id);
+    await participants.updateStage(newer.id, captured.id, "CAPTURED");
+    await setPlan(newer.id, "CONFIRMED", await laDay(1));
+    expect((await plans.recentConfirmedPlan(captured.id))?.id).toBe(newer.id);
+    await setPlan(newer.id, "CANCELLED", await laDay(1));
+    expect((await plans.recentConfirmedPlan(captured.id))?.id).toBe(p.id);
+  });
+
   it("private constraints: validated upsert, ISO confirmed_at, filters", async () => {
     const p = await newPlan();
     const [a, b] = await Promise.all([newUser(7), newUser(8)]);

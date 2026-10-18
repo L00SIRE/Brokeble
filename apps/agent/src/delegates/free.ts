@@ -9,7 +9,7 @@ import type { MemberContext, UserRow } from "../repo/types";
 import { handleCommand } from "../router/handlers";
 import { handleBudgetText } from "./budget";
 import { askDelegate, buildConverseInput, sendGuardedReply } from "./converse";
-import { asConverser } from "./converseSchema";
+import { asConverser, type ConverseInput } from "./converseSchema";
 import { buildDelegateInput, emitDelegateXray } from "./input";
 
 const MONEY = /budget|afford|spend|\bmax\b/i;
@@ -86,10 +86,15 @@ export async function handleFreeText(user: UserRow, ctx: MemberContext | null, e
  * reply: no converser, a failed/unconfident call, or a generated text the guard blocked. `shortlist` = public picks
  * while voting is open.
  */
-export async function converseReply(user: UserRow, ctx: MemberContext | null, e: InboundEvent, o: { shortlist?: readonly PublicBundle[] } = {}): Promise<boolean> {
+export async function converseReply(
+  user: UserRow,
+  ctx: MemberContext | null,
+  e: InboundEvent,
+  o: { shortlist?: readonly PublicBundle[]; mode?: ConverseInput["mode"] } = {},
+): Promise<boolean> {
   if (!asConverser(ports.llm)) return false;
   const planId = ctx?.plan.id;
-  const input = await buildConverseInput(user, ctx, e.text ?? "", "chat", o);
+  const input = await buildConverseInput(user, ctx, e.text ?? "", o.mode ?? "chat", o);
   const r = await askDelegate(input, ctx?.participant.lane ?? null);
   if (!r) return false;
   const text = e.text ?? "";

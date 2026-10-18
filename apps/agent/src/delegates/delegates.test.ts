@@ -58,7 +58,7 @@ const { acceptBudget, acceptedBudget, applyTier, confirmFormBudget, handleBudget
 const { handlePrefsText } = await import("./prefs");
 const { handleBallotText } = await import("./ballot");
 const { handleFreeText, mentionsOthersBudget, OUT_HINT } = await import("./free");
-const { buildConverseInput, guardReply } = await import("./converse");
+const { buildConverseInput, converseFacts, guardReply } = await import("./converse");
 const { buildDelegateInput } = await import("./input");
 const { clearAwaiting, getAwaiting, setAwaiting } = await import("./awaiting");
 const { ballotExtra } = await import("./prompts");
@@ -266,9 +266,85 @@ describe("conversational delegate", () => {
       plan: { title: "Fri", date: "Sat, Oct 17", start_time: "6:00 PM", area: "Westwood" },
       where_things_stand: "Waiting on 1 more friend to finish up, then I'll start looking for dinner and a show.",
     });
-    // P2/P7: no other member's name, id or any budget value (own included) is in the delegate's context.
-    const json = JSON.stringify(input);
-    for (const leak of ["Alex", ALEX, "3117", "31.17", "4000", "4729", "5211", "47"]) expect(json).not.toContain(leak);
+    // P2/P7: no other member's name, id or any budget value (own included) is in the delegate's context, in either
+    // the structured input or the plain-sentence form the model reads.
+    const wire = JSON.stringify(input);
+    for (const json of [JSON.stringify({ ...input }), wire]) {
+      for (const leak of ["Alex", ALEX, "3117", "31.17", "4000", "4729", "5211", "47"]) expect(json).not.toContain(leak);
+    }
+    // The model reads facts as sentences plus their message: no field names or labels it could echo back.
+    const read = JSON.parse(wire) as { facts: string[]; message: string };
+    expect(Object.keys(read).sort()).toEqual(["facts", "message"]);
+    expect(read.message).toBe("ok what's next lol");
+    expect(read.facts).toEqual([
+      "You're texting Sam.",
+      "Their plan: Fri on Sat, Oct 17, starting around 6:00 PM, in Westwood.",
+      "A friend invited them; they're one of the group.",
+      "What's happening now: Waiting on 1 more friend to finish up, then I'll start looking for dinner and a show.",
+      "What they're in the mood for: they'd like sushi.",
+      "They've set their own private budget (you never see the amount).",
+      'Words they can text: "status", "I\'m out", "change budget", "receipts", "forget me", "help".',
+    ]);
+  });
+
+  // Every key and enum label of ConverseInput the model used to see as JSON ("Mode is chat, so...").
+  const INTERNAL_LABELS = /_|\b(?:mode|stage|chat|prefs_ack|picks|commands|booked|true|false|null)\b\s*[:=]|\bmode\b|\bJSON\b/;
+
+  it("the model's view states facts as plain sentences at every stage, including no plan yet", async () => {
+    const prefs = { cuisines_like: [], cuisines_avoid: ["seafood"], dietary: ["gluten_free"], vibe: ["late_night"], earliest_start: null, latest_end: "22:00", dealbreakers: [] } as Preferences;
+    m.getPrefs.mockResolvedValueOnce(prefs);
+    const ack = converseFacts(await buildConverseInput(ctx().user, ctx({ stage: "PREFS_DONE" }), "gf, no seafood, late night", "prefs_ack"));
+    expect(ack).toContain("What they're in the mood for: they'd rather skip seafood; they eat gluten free; they want a late night vibe; done by 10:00 PM.");
+    expect(ack).toContain("They just answered your question about what they're in the mood for tonight, and you saved it.");
+
+    const noPlan = await buildConverseInput({ ...ctx().user, first_name: "" }, null, "vegetarian!", "chat");
+    expect(converseFacts(noPlan)).toEqual([
+      "You're texting someone whose name you don't know yet.",
+      "They aren't in a plan yet and want to start one. To set it up you still need where they want to go (a neighborhood or city) and how many people are coming, counting them.",
+      'Words they can text: "help", "forget me".',
+    ]);
+
+    m.getBundle.mockResolvedValueOnce({
+      id: "bnd_1", all_in_pp_cents: 4599, dinner_time: "19:30", show_start: "21:00", show_end_est: "22:30",
+      dinner: { data: { name: "Sushi Go", address: "1100 Glendon Ave" } }, show: { data: { name: "Laugh Lab", address: "2200 Sawtelle Blvd" } },
+    });
+    const organizer = ctx({ stage: "HELD", state: "APPROVING", chosen: "bnd_1" });
+    organizer.plan.organizer_id = USER;
+    const held = converseFacts(await buildConverseInput(organizer.user, organizer, "where is dinner", "chat"));
+    expect(held).toContain("They organized it and invited their friends.");
+    expect(held).toContain("The group picked dinner at Sushi Go (1100 Glendon Ave) at 7:30 PM, then Laugh Lab (2200 Sawtelle Blvd) from 9:00 PM to about 10:30 PM. It isn't booked yet.");
+    expect(held.at(-1)).toBe('Words they can text: "status", "I\'m out", "change budget", "receipts", "forget me", "help", "go" (start with whoever\'s ready), "wait", "cancel plan".');
+
+    for (const facts of [ack, converseFacts(noPlan), held]) for (const f of facts) expect(f).not.toMatch(INTERNAL_LABELS);
+  });
+
+  it("a question at the first budget ask: the model is told the re-ask follows, and 'change budget' is not offered", async () => {
+    const facts = converseFacts(await buildConverseInput(ctx().user, ctx({ stage: "JOINED" }), "wait, why do you need my budget?", "budget_question"));
+    expect(facts).toContain(
+      "You just asked for their private budget and they answered with a question. Your next text asks for the budget again, so only answer the question: don't ask for the budget yourself, don't say there's no rush, and don't tell them to text anything to set it.",
+    );
+    expect(facts.at(-1)).toBe('Words they can text: "status", "I\'m out", "receipts", "forget me", "help".');
+    for (const f of facts) expect(f).not.toMatch(INTERNAL_LABELS);
+  });
+
+  it("guardReply blocks replies that echo internal field names or labels (the reply falls back to a template)", async () => {
+    const input = await buildConverseInput(ctx().user, ctx({ stage: "PREFS_DONE" }), "vegetarian! my handle is sam_k", "chat");
+    for (const leak of [
+      "Got it, vegetarian noted. Mode is chat, so I'll hold that for when we pick a spot.",
+      "You're at PREFS_DONE, so hang tight!",
+      "where_things_stand says we're waiting on 1 more friend.",
+      "Your stage is voting, so send your picks.",
+      "VOTING is open, reply with your picks.",
+      "Per the JSON you're all set.",
+      "my_budget_set is true, so you're good!",
+      "According to my notes you're all set.",
+    ]) expect([leak, guardReply(leak, input)]).toEqual([leak, "internal"]);
+    for (const fine of [
+      "Got it, vegetarian noted! I'll text you once there's something to vote on.",
+      "Voting is open, reply with the numbers you like.",
+      "The comedians are on the main stage tonight, should be fun.",
+      "Love it, sam_k it is.", // their own text, echoed back
+    ]) expect([fine, guardReply(fine, input)]).toEqual([fine, "ok"]);
   });
 
   it("ask_about_others → fixed T_ONLY_YOURS; the generated text is discarded", async () => {
@@ -303,6 +379,7 @@ describe("conversational delegate", () => {
     ["over the template cap", { reply: "x".repeat(601), intent: "chat", confidence: "high" }],
     ["a money amount", { reply: "Should be about $30 each!", intent: "chat", confidence: "high" }],
     ["a card-like number", { reply: "Is it 4111 1111 1111 1111?", intent: "chat", confidence: "high" }],
+    ["an echoed field name", { reply: "Hey! Mode is chat, so what's up?", intent: "chat", confidence: "high" }],
   ])("%s → T_HELP", async (_name, r) => {
     m.converse.mockResolvedValueOnce(r);
     await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("hey"));
@@ -353,6 +430,16 @@ describe("conversational delegate", () => {
     });
     expect(JSON.stringify(input)).not.toMatch(/45/);
     expect(sent()).toEqual([["T_DELEGATE_REPLY", { text: "Dinner's at Sushi Go at 7:30 PM, then Laugh Lab at 9." }, "reply:pho_msg_1:1"]]);
+  });
+
+  it("once booked, their earlier wishes are marked as not actionable (no 'I'll keep Italian in mind' after booking ramen)", async () => {
+    m.getBundle.mockResolvedValueOnce({
+      id: "bnd_1", all_in_pp_cents: 4599, dinner_time: "19:30", show_start: "21:00", show_end_est: "22:30",
+      dinner: { data: { name: "Sushi Go", address: "1100 Glendon Ave" } }, show: { data: { name: "Laugh Lab", address: "2200 Sawtelle Blvd" } },
+    });
+    m.getPrefs.mockResolvedValueOnce({ cuisines_like: ["italian"], cuisines_avoid: [], dietary: [], vibe: ["lively"], earliest_start: null, latest_end: null, dealbreakers: [] } as Preferences);
+    const facts = converseFacts(await buildConverseInput(ctx().user, ctx({ stage: "CAPTURED", state: "CONFIRMED", chosen: "bnd_1" }), "what's the plan?", "chat"));
+    expect(facts).toContain("What they're in the mood for: they'd like italian; they want a lively vibe. The night is already booked, so only bring that up if they ask.");
   });
 
   it("no chosen_plan before the vote is decided", async () => {
@@ -421,8 +508,9 @@ describe("conversational delegate", () => {
     await handleBallotText(ctx({ stage: "VOTED", state: "VOTING" }), ev("thanks!!"));
     expect(sent()).toEqual([["T_DELEGATE_REPLY", { text: "Anytime! Voting closes at 9:05 PM." }, "reply:pho_msg_1:1"]]);
     const input = m.converse.mock.calls[0]![0] as { picks: string[] };
-    expect(input.picks).toEqual(["1. Dinner at A → Show at B (dinner 18:30, show 20:00-22:15)"]);
-    expect(JSON.stringify(input)).not.toMatch(/45/);
+    expect(input.picks).toEqual(["1. Dinner at A → Show at B (dinner 6:30 PM, show 8:00 PM to 10:15 PM)"]);
+    expect(JSON.stringify(input)).toContain("The picks up for a vote: 1. Dinner at A → Show at B (dinner 6:30 PM, show 8:00 PM to 10:15 PM).");
+    for (const json of [JSON.stringify({ ...input }), JSON.stringify(input)]) expect(json).not.toMatch(/45/);
     m.llm.parseBallot.mockResolvedValueOnce({ approvals: [1], constraints: [], none_of_these: false, intent: "ballot", confidence: "high" });
     await handleBallotText(ctx({ stage: "PREFS_DONE", state: "VOTING" }), ev("the first one"));
     expect(m.recordBallot).toHaveBeenCalledOnce();

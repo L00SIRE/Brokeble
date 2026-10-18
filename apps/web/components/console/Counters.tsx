@@ -41,13 +41,14 @@ function DotNum({ value, className }: { value: string; className: string }) {
   );
 }
 
-function Count({ value, label }: { value: number; label: string }) {
+/** `label` is [singular, plural]: "1 group booked", "2 groups booked" (and "0 holds released"). */
+function Count({ value, label }: { value: number; label: readonly [string, string] }) {
   return (
     <div className="flex items-center gap-[.9cqw]">
       <DotNum value={String(value)} className="h-[2.2cqw] min-h-6" />
       <p className="text-[max(15px,1.2cqw)] leading-[1.2] text-(--c-2)">
         <span className="sr-only">{value} </span>
-        {label}
+        {value === 1 ? label[0] : label[1]}
       </p>
     </div>
   );
@@ -74,8 +75,8 @@ export function Counters({ counters }: { counters: ConsoleState["counters"] }) {
       </div>
       {counters ? (
         <div className="grid grid-cols-2 gap-[1cqw]">
-          <Count value={counters.groups_converted} label="groups booked" />
-          <Count value={counters.holds_released} label="holds released" />
+          <Count value={counters.groups_converted} label={["group booked", "groups booked"]} />
+          <Count value={counters.holds_released} label={["hold released", "holds released"]} />
         </div>
       ) : null}
     </div>

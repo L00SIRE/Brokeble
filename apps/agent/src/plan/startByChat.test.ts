@@ -62,7 +62,7 @@ import { addDays, parsePlanDraftText, todayLA, weekdayOf, type PlanDraftInput, t
 import { render } from "../notify/render";
 import { looksLikeName } from "../router/commands";
 import { onGo, onJoinText, onNameText } from "./membership";
-import { endTime, handleStartText, resetStartDrafts, sanitizeArea, validDraftFields } from "./startByChat";
+import { endTime, handleStartText, hasStartDraft, resetStartDrafts, sanitizeArea, validDraftFields } from "./startByChat";
 
 // Thursday, Oct 22 2026, noon in Los Angeles.
 const NOW = new Date("2026-10-22T19:00:00Z");
@@ -229,6 +229,16 @@ describe("handleStartText (plan creation by chat)", () => {
       "You're set, Maya: Dinner + show, Sat, Oct 24 from 5:30 PM in Santa Monica, 4 of you. Send this link to your group chat and I'll take it from there:\nhttps://tab-web-ten.vercel.app/j/4821",
     );
     expect(text.split("\n").at(-1)).toBe("https://tab-web-ten.vercel.app/j/4821");
+  });
+
+  it("hasStartDraft: true from the opener until the plan is created, false once the draft is older than 6 h", async () => {
+    expect(hasStartDraft("u1")).toBe(false);
+    await handleStartText(user(), ev("Hey SquadTab! Help me plan a night out."));
+    expect(hasStartDraft("u1")).toBe(true);
+    expect(hasStartDraft("u1", Date.now() + 6 * 60 * 60 * 1000 + 1)).toBe(false);
+    await handleStartText(user(), ev("maya, santa monica saturday, 4 of us"));
+    expect(m.createPlanRecord).toHaveBeenCalled();
+    expect(hasStartDraft("u1")).toBe(false);
   });
 
   it("a first message with everything creates the plan at once", async () => {

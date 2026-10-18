@@ -309,6 +309,9 @@ describe("venue hook → commit (exactly once) → confirm", () => {
     await commitJob(job("commit", { version: 4, share_id: shares[2]!.share_id }));
     expect(commitSpy).toHaveBeenCalledTimes(1);
     expect(plan().state).toBe("CONFIRMED");
+    // The mock venue delivered share.captured per share through the venue-hook dispatch, like the live venue.
+    expect(w.members.map((m) => m.stage)).toEqual(["CAPTURED", "CAPTURED", "CAPTURED"]);
+    expect(vi.mocked(emitLedger).mock.calls.map(([ev]) => ev.type)).toEqual(["share.captured", "share.captured", "share.captured"]);
     expect(fanned("T_CAPTURED")).toHaveLength(1);
     const [, , varsFor, o] = fanned("T_CAPTURED")[0]!;
     expect((varsFor as (r: MemberRow) => unknown)(w.members[0])).toEqual({ title: "Dinner at Bestia → Show at The Echo", amount: expect.stringMatching(/^\d+\.\d\d$/) });
