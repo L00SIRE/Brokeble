@@ -1,7 +1,7 @@
 // Plays the agent against a running venue using the REAL agent client + signer.
 //   VENUE_BASE_URL=http://localhost:3001 TAP_KEY_ID=… TAP_PRIVATE_KEY_PEM_B64=… \
 //   pnpm --filter @tab/venue exec tsx scripts/agent-sim.ts happy|cancel|tamper|replay|expired|wrong_tag [--auto]
-// --auto pays each share by calling the pay API with the mock outcome (CYBS_MODE=mock on the venue only).
+// --auto pays each share through the pay API with the sandbox test card (sandbox hosts only; in mock mode it simply holds).
 import { randomBytes } from "node:crypto";
 import { consentFromOrder } from "@tab/shared/tap";
 import { LiveVenue } from "../../agent/src/venueClient/index";
@@ -36,7 +36,7 @@ if (auto) {
     const token = s.pay_url.split("/pay/")[1]!;
     const r = await fetch(new URL(`/api/pay/${token}/authorize`, baseUrl), {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ save_card: false, bill_to: { first_name: "Sim", last_name: "Payer", postal_code: "90024" } }),
+      body: JSON.stringify({ save_card: false, sandbox_test_card: true, bill_to: { first_name: "Sim", last_name: "Payer", postal_code: "90024" } }),
     });
     console.log("  authorize →", (await r.json()).state);
   }
