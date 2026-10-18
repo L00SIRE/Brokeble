@@ -31,9 +31,37 @@ The only privacy claim we make: only your own agent hears your budget. CREAO, th
 - Concierge agent ID: `465a1d2e-a46f-496c-adea-fc471a396a6c`
 - Scout run share link: https://agent.creao.ai/share/12ea3fa0f9699dabe5175e2cb6eadc28
 
-**Visa, The Future of Shopping.** AI across the shopping journey: discovery (CREAO), decision (private ballot and fair shortlist), personalization (private caps), checkout and payments (split-tender holds plus a signed commit), and post-purchase (receipts, itinerary). A group purchase becomes an assurance contract at the merchant of record: N cardholder-initiated authorizations, and an identified agent that can commit only the exact consent set. We built our own Ed25519 RFC 9421 signer for the Visa Trusted Agent Protocol and a six-step verifier at the merchant (tag, fields, 8-minute window, single-use nonce, key, signature over a digest of the consent set rebuilt from the venue database). Honest notes: the merchant is our "SquadTab Partner Venue (sandbox merchant of record)" selling a prepaid, ticketed bundle; the TAP key directory is a labelled mock; we send no Agentic Payment Container. Payments are real Cybersource sandbox calls on Cybersource's published sample test merchant (testrest): shared, test cards only, no real money (our own sandbox merchant is blocked by a Cybersource-side processor setup error). A labelled simulation mode exists as a backup and is marked "Simulated" on the page and ledger. The console has live Tamper, replay, expired and wrong-tag buttons that are rejected with nothing captured.
+**Visa, The Future of Shopping.** Agent shopping today is one person, one card. Groups are the unsolved case: private budgets, and a purchase that only goes through if all N agree. We built that with Cybersource and the Trusted Agent Protocol, as an intuitive, personalized, frictionless commerce experience powered by generative AI, with secure and trusted payments.
+- **AI-powered and personalized:** each friend has a private Claude delegate over iMessage that sees only their own budget and preferences; budgets are never shared. Real option research runs on CREAO; plain code keeps only plans everyone can afford.
+- **Intuitive and frictionless:** it all happens in an iMessage DM, with no app to install. Each person pays only their own share, so nobody fronts the bill.
+- **Secure and trusted:** each friend places their own hold (authorization with `capture:false`) in Cybersource Microform hosted card fields, so card data never touches our servers. Capture happens only after every share is held; cancel, deadline, "I'm out" and timeouts release every hold. The agent signs its commit request with our own Ed25519 RFC 9421 signer for the Trusted Agent Protocol, and the merchant verifies it in six steps (tag, params, timestamps, nonce, key, signature). The agent can commit only the exact consent set (order, total and every authorization id), which the merchant rebuilds from its own database. The Trust Console has live Tamper, Replay, Expired and Wrong-tag buttons; each is rejected and nothing is captured.
+- **Commerce impact (design properties, not measured results):** groups convert all-or-nothing, nobody fronts money, and a plan is not left half paid. For a merchant, a booking arrives with every share authorized up front, which should mean fewer no-shows.
+- **Production path:** swap the mock key directory for Visa's real one and use Visa Intelligent Commerce agentic payment tokens.
+
+Nothing here is Visa-verified or Visa-approved. See "What is real" below.
 
 **Photon, iMessage.** Built on Photon 2.0 (`@photon-ai/api` 0.5.0 plus the Socket.IO event stream with a persisted replay cursor), live on iMessage DMs through Photon's shared lines. Judges and friends use their own phones; no app to install and no new group app. Typing indicators during long research runs, mark-as-read, idempotent sends, and handling for the shared-line rules (the user texts first, capacity limits). Vision: a private delegate per friend, a code mechanism between them, and humans keep the final yes.
+
+## What is real, mock, sandbox and not built
+
+**Real**
+- Private iMessage DMs on Photon, each with its own Claude delegate that sees only that person's data.
+- Cybersource API calls: authorization with `capture:false`, capture, reversal and timeout reversal. Capture only after every share is held.
+- Card entry in Cybersource's hosted Microform fields; card numbers never touch SquadTab servers.
+- Our own Ed25519 / RFC 9421 signer and a six-step verifier; the commit is bound to the exact consent set.
+- Real option research (Scout) and itinerary (Concierge) on CREAO.
+
+**Mock**
+- The Trusted Agent Protocol key directory (our own public key, labelled "mock directory"). Production would use Visa's.
+- The merchant: "SquadTab Partner Venue" is our demo merchant of record selling a prepaid, ticketed bundle, not a real business.
+- A labelled simulation mode exists only as a backup and is marked "Simulated" on the pay page and ledger.
+
+**Sandbox**
+- All payments run on the Cybersource sandbox's shared public test merchant (`testrest`), with test cards only (Visa test card ending 1111) and no real money. The full flow has run end to end, including a real phone test.
+- Our own sandbox merchant fails every authorization with a Cybersource-side processor configuration error (reason 150). Cybersource Level II support case SR#002689822 is open; their fix at 8:20 AM did not take and we replied with request ids.
+
+**Not built**
+- Visa Intelligent Commerce agentic payment tokens, Payment Passkey, 3-D Secure / payer authentication, Visa agent registration, an Agentic Payment Container (each human pays their own share instead), refunds after capture, and any real merchant integration or production credentials.
 
 ## How we built it
 
@@ -41,7 +69,7 @@ TypeScript throughout. A Hono backend on Fly.io holds the private delegates (Ant
 
 ## Challenges
 
-- Our own Cybersource sandbox merchant failed every authorization with a processor setup error (reason 150) on Cybersource's side; we moved to Cybersource's published sample merchant and kept a labelled simulation as a backup.
+- Our own Cybersource sandbox merchant failed every authorization with a processor setup error (reason 150) on Cybersource's side (support case open, their first fix did not take); we moved to Cybersource's published sample merchant and kept a labelled simulation as a backup.
 - Photon's free shared lines are DM-only, reject threaded replies, and require the user to text first, which shaped the whole private-DM design.
 - Cybersource has no idempotency header, so we designed unique attempt records, deterministic reference codes and a timeout reversal instead of ever blind-retrying an authorization.
 - CREAO webhooks are unsigned, so every webhook triggers a re-fetch of the run.

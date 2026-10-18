@@ -27,7 +27,7 @@ A group purchase is an assurance contract at the merchant of record. Every frien
 
 ## Say before a judge asks
 
-- "Payments run on Cybersource's **sandbox**, on its shared public test merchant, because our provisioned hackathon merchant fails every auth with reason 150 on its processor (support request sent by A)." Only say "sent" if it was.
+- "Payments run on Cybersource's **sandbox**, on its shared public test merchant, because our provisioned hackathon merchant fails every auth with reason 150 on its processor (Cybersource Level II support case SR#002689822 is open; their 8:20 AM fix did not take and we replied with request ids)."
 - "The key directory is a labelled mock; production is Visa agent registration (`/icc/v1/agents`)."
 - Never say "Visa-verified" or "$0 instantly".
 - Card data lives only in Microform iframes; our server sees a transient token. No retries on unknown auth outcomes: timeout reversal by transactionId.
