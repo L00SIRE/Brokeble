@@ -7,7 +7,7 @@ export function Shell({ eyebrow, title, lede, children }: { eyebrow?: string; ti
       <header className="flex flex-col gap-3">
         <p className="flex items-center gap-2 text-sm font-semibold tracking-wide text-muted">
           <span aria-hidden className="size-2.5 rounded-full bg-accent" />
-          Tab
+          SquadTab
           {eyebrow ? (
             <>
               <span aria-hidden>·</span>

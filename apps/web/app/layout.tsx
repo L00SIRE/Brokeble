@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tab",
+  title: "SquadTab",
   description: "Group plans that book themselves, without anyone fronting the bill.",
 };
 

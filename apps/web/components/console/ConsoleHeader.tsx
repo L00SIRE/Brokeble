@@ -26,7 +26,7 @@ export function ConsoleHeader({ plan, stream, invalid }: { plan: PlanView | null
   return (
     <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
       <div className="flex items-baseline gap-5">
-        <h1 className="text-(length:--text-console-key) font-semibold">Tab</h1>
+        <h1 className="text-(length:--text-console-key) font-semibold">SquadTab</h1>
         <p className="text-(length:--text-console-label) uppercase tracking-wide text-muted">Trust Console</p>
       </div>
       <nav aria-label="Plan progress" className="flex items-center gap-2">

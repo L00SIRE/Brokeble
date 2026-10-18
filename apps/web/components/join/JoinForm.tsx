@@ -97,7 +97,7 @@ export function JoinForm({ code }: { code: string }) {
       <fieldset disabled={submitting} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Your details</legend>
 
-        <Field label="Phone number" hint="The number you'll text Tab from." error={errors.phone}>
+        <Field label="Phone number" hint="The number you'll text SquadTab from." error={errors.phone}>
           {(c) => (
             <input
               {...c}
@@ -113,7 +113,7 @@ export function JoinForm({ code }: { code: string }) {
           )}
         </Field>
 
-        <Field label="First name" hint="What Tab should call you." error={errors.firstName}>
+        <Field label="First name" hint="What SquadTab should call you." error={errors.firstName}>
           {(c) => (
             <input
               {...c}
@@ -137,7 +137,7 @@ export function JoinForm({ code }: { code: string }) {
             </h2>
           </div>
           <p className="text-sm text-pretty text-muted">
-            Target is what you'd like to spend, all-in. Hard max is the most you'd ever pay. Skip it and Tab will ask you by text.
+            Target is what you'd like to spend, all-in. Hard max is the most you'd ever pay. Skip it and SquadTab will ask you by text.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Target" error={errors.budgetTarget}>
@@ -147,7 +147,7 @@ export function JoinForm({ code }: { code: string }) {
               {(c) => <MoneyInput {...c} name="budget_max" placeholder="80" />}
             </Field>
           </div>
-          <p className="text-sm font-medium">Only Tab's code checks prices against this. Nobody in the group sees it.</p>
+          <p className="text-sm font-medium">Only SquadTab's code checks prices against this. Nobody in the group sees it.</p>
         </div>
 
         <div>
@@ -160,7 +160,7 @@ export function JoinForm({ code }: { code: string }) {
               className="mt-0.5 size-6 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
             <span className="text-sm text-pretty">
-              I agree that Tab may text me about this plan. Tab keeps my number only for this plan, and I can text "forget me" to delete it.
+              I agree that SquadTab may text me about this plan. SquadTab keeps my number only for this plan, and I can text "forget me" to delete it.
             </span>
           </label>
           <p id="consent-msg" aria-live="polite" className="min-h-5 text-sm text-danger">
@@ -170,7 +170,7 @@ export function JoinForm({ code }: { code: string }) {
 
         <div aria-live="polite">
           {banner ? (
-            <Notice tone="error" title={banner.kind === "network" ? "Couldn't reach Tab" : JOIN_FAILURE_COPY[banner.failure].title}>
+            <Notice tone="error" title={banner.kind === "network" ? "Couldn't reach SquadTab" : JOIN_FAILURE_COPY[banner.failure].title}>
               <p className="text-sm text-muted">
                 {banner.kind === "network" ? "Check your connection. Your details weren't sent." : JOIN_FAILURE_COPY[banner.failure].body}
               </p>
@@ -198,7 +198,7 @@ export function JoinForm({ code }: { code: string }) {
   );
 }
 
-/** Success: a big "Text Tab" link to sms_href, plus the number and join_text in plain text with copy buttons, because
+/** Success: a big "Text SquadTab" link to sms_href, plus the number and join_text in plain text with copy buttons, because
  * iOS honouring the prefilled body is UNVERIFIED and sms: does nothing on desktop. */
 export function JoinSuccess({ result }: { result: JoinResponse }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -212,12 +212,12 @@ export function JoinSuccess({ result }: { result: JoinResponse }) {
         <h2 id="joined-heading" ref={heading} tabIndex={-1} className="text-xl font-semibold text-balance outline-none">
           You're in. One last step.
         </h2>
-        <p className="text-pretty text-muted">Send Tab your first message to finish joining. Tab can't text you first.</p>
+        <p className="text-pretty text-muted">Send SquadTab your first message to finish joining. SquadTab can't text you first.</p>
       </div>
 
       {canOpen ? (
         <a href={result.sms_href} className={`${buttonClass} h-14 text-lg`}>
-          Text Tab
+          Text SquadTab
         </a>
       ) : null}
 

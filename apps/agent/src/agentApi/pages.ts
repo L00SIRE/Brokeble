@@ -79,12 +79,12 @@ export function renderItineraryHtml(i: Itinerary): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="light dark">
-<title>${e(i.title)} · Tab</title>
+<title>${e(i.title)} · SquadTab</title>
 <style>${CSS}</style>
 </head>
 <body>
 <main>
-<div class="brand">Tab</div>
+<div class="brand">SquadTab</div>
 <h1>${e(i.title)}</h1>
 <p class="date">${e(longDate(i.date))}</p>
 <h2>Your night</h2>

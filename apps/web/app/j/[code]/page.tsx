@@ -8,7 +8,7 @@ const CODE = /^\d{4}$/;
 // Invite links are private: keep them out of search results and referrers.
 export async function generateMetadata({ params }: PageProps<"/j/[code]">): Promise<Metadata> {
   const { code } = await params;
-  return { title: CODE.test(code) ? `Join plan ${code} · Tab` : "Join a plan · Tab", robots: { index: false, follow: false }, referrer: "no-referrer" };
+  return { title: CODE.test(code) ? `Join plan ${code} · SquadTab` : "Join a plan · SquadTab", robots: { index: false, follow: false }, referrer: "no-referrer" };
 }
 
 export default async function JoinPage({ params }: PageProps<"/j/[code]">) {
@@ -23,7 +23,7 @@ export default async function JoinPage({ params }: PageProps<"/j/[code]">) {
     );
   }
   return (
-    <Shell eyebrow={code} title="You're invited to a plan" lede="Add your number, text Tab once, and Tab handles the rest. Your budget stays private.">
+    <Shell eyebrow={code} title="You're invited to a plan" lede="Add your number, text SquadTab once, and SquadTab handles the rest. Your budget stays private.">
       <JoinForm code={code} />
     </Shell>
   );

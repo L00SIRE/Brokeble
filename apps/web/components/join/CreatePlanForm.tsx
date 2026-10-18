@@ -24,7 +24,7 @@ const INPUT_NAME: Record<CreateField, string> = {
 };
 
 const BANNER_COPY: Record<Banner, { title: string; body: string }> = {
-  network: { title: "Couldn't reach Tab", body: "Check your connection. Nothing was created." },
+  network: { title: "Couldn't reach SquadTab", body: "Check your connection. Nothing was created." },
   rate_limited: { title: "Too many plans from this connection", body: "Wait a minute, then try again." },
   failed: { title: "Something went wrong on our side", body: "Nothing was created. Please try again." },
 };
@@ -157,7 +157,7 @@ export function PlanCreated({ result }: { result: CreatePlanResponse }) {
         <h2 id="created-heading" ref={heading} tabIndex={-1} className="text-xl font-semibold text-balance outline-none">
           Your plan is ready
         </h2>
-        <p className="text-pretty text-muted">Paste this link in your group chat. Tab never joins it.</p>
+        <p className="text-pretty text-muted">Paste this link in your group chat. SquadTab never joins it.</p>
       </div>
 
       {/* A data: URI is not optimizable by next/image; the SVG comes from our own agent and renders as an inert image. */}

@@ -62,8 +62,8 @@ export type JoinFailure = "not_found" | "plan_closed" | "rate_limited" | "capaci
 export const JOIN_FAILURE_COPY: Record<JoinFailure, { title: string; body: string; terminal: boolean }> = {
   not_found: { title: "That code doesn't match a plan", body: "Check the link your organizer sent you.", terminal: true },
   plan_closed: { title: "This plan isn't taking new people anymore", body: "Ask your organizer to start a new one.", terminal: true },
-  capacity: { title: "Tab is at capacity, try again in a minute", body: "Your details weren't saved. Nothing was sent.", terminal: false },
-  rate_limited: { title: "Tab is at capacity, try again in a minute", body: "Too many tries from this connection. Your details weren't saved.", terminal: false },
+  capacity: { title: "SquadTab is at capacity, try again in a minute", body: "Your details weren't saved. Nothing was sent.", terminal: false },
+  rate_limited: { title: "SquadTab is at capacity, try again in a minute", body: "Too many tries from this connection. Your details weren't saved.", terminal: false },
   invalid: { title: "Check the highlighted fields", body: "Something in the form wasn't accepted.", terminal: false },
   unknown: { title: "Something went wrong on our side", body: "Your details weren't saved. Please try again.", terminal: false },
 };
