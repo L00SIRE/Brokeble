@@ -2,7 +2,7 @@ import type { Bundle } from "@tab/shared";
 import { describe, expect, it } from "vitest";
 import type { RatingRow } from "../repo/types";
 import { compose } from "./compose";
-import { comfort, effectiveRating, nashWelfare, pickWinner, shortlist } from "./score";
+import { comfort, dropVetoed, effectiveRating, nashWelfare, pickWinner, shortlist } from "./score";
 import { ballot, budget, dinner, PLAN, show, uid } from "./testkit";
 
 const all = compose([dinner("D1", { usd: 10 }), dinner("D2", { usd: 12 }), dinner("D3", { usd: 14 }), show("S1"), show("S2"), show("S3")], PLAN);
@@ -103,5 +103,32 @@ describe("pickWinner", () => {
 
   it("throws on an empty shortlist", () => {
     expect(() => pickWinner([], [], [], cs)).toThrow();
+  });
+});
+
+describe("dropVetoed (avoid/dealbreaker veto)", () => {
+  const [u1, u2] = [uid(), uid()];
+  const steak = all[0]!;
+  const floorFor = (u: string, bad: readonly Bundle[]) => rate(u, all, (b) => (bad.includes(b) ? 0.05 : 0.8));
+
+  it("drops candidates a vetoing member rated at the floor", () => {
+    expect(dropVetoed(all, floorFor(u1, [steak]), new Set([u1]))).toEqual(all.slice(1));
+  });
+
+  it("ignores floor ratings from members with no avoids or dealbreakers", () => {
+    expect(dropVetoed(all, floorFor(u2, [steak]), new Set([u1]))).toEqual(all);
+    expect(dropVetoed(all, floorFor(u1, [steak]), new Set())).toEqual(all);
+  });
+
+  it("never empties the field: if every candidate is vetoed, all stay", () => {
+    expect(dropVetoed(all, floorFor(u1, all), new Set([u1]))).toEqual(all);
+  });
+
+  it("unrated candidates are not vetoed, and the shortlist then excludes the vetoed bundle", () => {
+    const partial = floorFor(u1, [steak]).filter((r) => r.bundle_id !== all[1]!.id);
+    expect(dropVetoed(all, partial, new Set([u1]))).toContain(all[1]);
+    const r = floorFor(u1, [steak]);
+    const top = shortlist(dropVetoed(all, r, new Set([u1])), r, [budget(u1, 100_000)]);
+    expect(top.map((b) => b.id)).not.toContain(steak.id);
   });
 });

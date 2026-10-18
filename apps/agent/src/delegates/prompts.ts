@@ -12,10 +12,16 @@ export const BUDGET_SYSTEM =
   "examples are confidence high. If it isn't clearly a budget, confidence=low.";
 
 export const PREFS_SYSTEM =
-  "You read ONE person's own message about tonight's dinner + show. Extract their preferences only: cuisines they like or " +
-  "want to avoid, dietary needs and vibe (use only the allowed enum values), the earliest start and latest end as HH:MM " +
-  "24-hour times or null (evening context: '10pm' or 'after 10' → 22:00), and up to 3 short dealbreakers. Use empty lists " +
-  "and nulls for anything not mentioned; never guess. Never include money, prices or budgets.";
+  "You read ONE person's own message about tonight's dinner + show. Extract their preferences only. cuisines_like: " +
+  "anything they say they want or crave to eat, as short food words, whether a cuisine or a dish ('salad' → [\"salad\"], " +
+  "'a burger with lots of cheese' → [\"burgers\"], 'chicken tenders' → [\"chicken tenders\"], 'thai or sushi' → " +
+  "[\"thai\",\"sushi\"]). A one-word or short answer naming food is a craving, so never leave it empty. cuisines_avoid: " +
+  "foods or cuisines they don't want ('no beef' → [\"beef\"], 'no pork' → [\"pork\"]). Dietary needs use only the allowed " +
+  "enum values ('vegetarian', 'gluten free'); a lone food avoidance like beef is cuisines_avoid, not dietary. Vibe uses " +
+  "only the allowed enum values. Earliest start and latest end are HH:MM 24-hour times or null ('10pm' or 'after 10' → " +
+  "22:00). dealbreakers: up to 3 short things they can't accept at all ('allergic to shellfish', 'nothing loud'); put an " +
+  "allergy or strict refusal here as well as in cuisines_avoid. Use empty lists and nulls for anything not mentioned; " +
+  "never guess. Never include money, prices or budgets.";
 
 export const BALLOT_SYSTEM =
   "The user is choosing among the numbered plans below (public info). Return the plan numbers they'd be happy with, " +

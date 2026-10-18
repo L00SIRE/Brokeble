@@ -10,6 +10,7 @@ import type { MemberContext } from "../repo/types";
 import { askDelegate, buildConverseInput, sendGuardedReply, whereThingsStand } from "./converse";
 import { converseReply, mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "./free";
 import { buildDelegateInput, emitDelegateXray } from "./input";
+import { isEmptyPrefs } from "./latePrefs";
 
 /**
  * BUDGET_LOCKED text: parsePreferences(buildDelegateInput(…,"prefs",text)) → upsertPreferences (EMPTY_PREFERENCES on a
@@ -51,7 +52,3 @@ async function acknowledgePrefs(ctx: MemberContext, e: InboundEvent): Promise<vo
   const next = whereThingsStand(plan, "PREFS_DONE", await countByStage(plan.id));
   await notify(ctx.user.id, "T_DELEGATE_REPLY", { text: `Got it, noted! ${next}` }, { key: replyKey(e.message_id, 1), planId: plan.id });
 }
-
-const isEmptyPrefs = (p: Preferences): boolean =>
-  p.cuisines_like.length + p.cuisines_avoid.length + p.dietary.length + p.vibe.length + p.dealbreakers.length === 0 &&
-  p.earliest_start === null && p.latest_end === null;

@@ -58,6 +58,7 @@ export const TemplateId = z.enum([
   "T_JOIN_WELCOME_NAME",
   "T_BUDGET_ASK_NAMED",
   "T_ALREADY_IN_PLAN", // the /start pre-fill from someone still in an open plan: offer 'new plan' or 'status'
+  "T_PREFS_UPDATED", // a food preference stated after the prefs answer was merged into the member's own prefs
 ]);
 export type TemplateId = z.infer<typeof TemplateId>;
 
@@ -124,6 +125,7 @@ export const COPY = {
     "Nice to meet you, {name}. Next: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it.",
   T_ALREADY_IN_PLAN:
     "You're still in {title} ({ready} of {total} ready). Text 'new plan' to start fresh, or 'status' to keep going.",
+  T_PREFS_UPDATED: "Got it, I'll factor that in.",
 } as const satisfies Record<TemplateId, string>;
 
 const s = z.string().min(1);
@@ -182,6 +184,7 @@ export const VARS = {
   T_JOIN_WELCOME_NAME: z.strictObject({ title: s, date: s }),
   T_BUDGET_ASK_NAMED: z.strictObject({ name: s }),
   T_ALREADY_IN_PLAN: z.strictObject({ title: s, ready: count, total: count }),
+  T_PREFS_UPDATED: none,
 } as const satisfies Record<TemplateId, z.ZodObject>;
 
 export type TemplateVars<T extends TemplateId> = z.infer<(typeof VARS)[T]>;

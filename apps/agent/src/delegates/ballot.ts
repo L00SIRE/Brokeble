@@ -4,6 +4,7 @@ import { notify, replyKey, tplKey } from "../notify/notify";
 import { publicShortlist, recordBallot } from "../plan/ballots";
 import { ports } from "../ports";
 import type { MemberContext } from "../repo/types";
+import { maybeUpdatePrefs } from "./latePrefs";
 import { converseReply, mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "./free";
 import { buildDelegateInput, emitDelegateXray } from "./input";
 
@@ -33,6 +34,8 @@ export async function handleBallotText(ctx: MemberContext, e: InboundEvent): Pro
     // A question about the picks that chooses none ("is 1 walkable from campus?") deserves an answer, not the
     // ballot menu, whichever label the parser gave it.
     const question = !decided && /\?\s*$/.test(text);
+    // Not a vote at all ("actually no beef"): a food preference is stored and the picks recomputed.
+    if (!decided && parse.intent === "other" && (await maybeUpdatePrefs(ctx, e))) return;
     if ((parse.intent === "other" || question) && (await converseReply(user, ctx, e, { shortlist }))) return;
     // The tplKey makes the clarification once-per-version: a second unclear reply comes back "duplicate" → T_HELP.
     const outcome = await notify(user.id, "T_BALLOT_CLARIFY", {}, { key: tplKey(plan.id, user.id, "T_BALLOT_CLARIFY", plan.version), planId: plan.id });

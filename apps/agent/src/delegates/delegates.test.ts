@@ -23,6 +23,7 @@ const m = vi.hoisted(() => ({
   getPlan: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
   handleCommand: vi.fn(async (..._a: unknown[]) => {}),
   converse: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
+  researchReady: vi.fn(async (..._a: unknown[]) => true),
   getBundle: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
   ports: { llm: {} as Record<string, unknown> },
   llm: {
@@ -53,6 +54,7 @@ vi.mock("../plan/ballots", () => ({ recordBallot: m.recordBallot, publicShortlis
 vi.mock("../events", () => ({ emit: m.emit }));
 // LLM_MODE=mock shape by default (no converse); converse tests swap in a converser.
 vi.mock("../ports", () => ({ ports: m.ports }));
+vi.mock("../creao/research", () => ({ researchReady: m.researchReady }));
 
 const { acceptBudget, acceptedBudget, applyTier, confirmFormBudget, handleBudgetText, TIER_MAP } = await import("./budget");
 const { handlePrefsText } = await import("./prefs");
@@ -63,6 +65,8 @@ const { buildDelegateInput } = await import("./input");
 const { clearAwaiting, getAwaiting, setAwaiting } = await import("./awaiting");
 const { ballotExtra } = await import("./prompts");
 
+const THAI: Preferences = { cuisines_like: ["thai"], cuisines_avoid: [], dietary: [], vibe: [], earliest_start: null, latest_end: null, dealbreakers: [] };
+const NO_PREFS: Preferences = { cuisines_like: [], cuisines_avoid: [], dietary: [], vibe: [], earliest_start: null, latest_end: null, dealbreakers: [] };
 const PLAN = "11111111-1111-4111-8111-111111111111";
 const USER = "22222222-2222-4222-8222-222222222222";
 const ev = (text: string): InboundEvent => ({
@@ -86,6 +90,7 @@ const sent = () => m.notify.mock.calls.map((c) => [c[1], c[2], (c[3] as { key: s
 beforeEach(() => {
   vi.clearAllMocks();
   m.ports.llm = m.llm;
+  m.llm.parsePreferences.mockResolvedValue(THAI);
   clearAwaiting(USER);
 });
 
@@ -249,6 +254,7 @@ describe("conversational delegate", () => {
   const pc = (user_id: string, target: number, max: number | null) => ({ plan_id: PLAN, user_id, target_pp_cents: target, hard_max_pp_cents: max, source: "dm", confidence: "high", confirmed_at: null });
   beforeEach(() => {
     m.ports.llm = { ...m.llm, converse: m.converse };
+    m.llm.parsePreferences.mockResolvedValue(NO_PREFS); // free text here states no preference (late-prefs tests: latePrefs.test.ts)
   });
 
   it("free text gets the delegate's own words as T_DELEGATE_REPLY, from own-data-only context", async () => {
@@ -520,6 +526,10 @@ describe("conversational delegate", () => {
 });
 
 describe("I only know yours", () => {
+  beforeEach(() => {
+    m.llm.parsePreferences.mockResolvedValue(NO_PREFS);
+  });
+
   it("mentionsOthersBudget: money word AND another member's name (word match) or a group word", () => {
     expect(mentionsOthersBudget("what's Alex's budget?", ["Alex"])).toBe(true);
     expect(mentionsOthersBudget("can ALEX afford it", ["alex"])).toBe(true);
@@ -557,6 +567,9 @@ describe("ballot delegate", () => {
     id: `bnd_${i}`, index: i, title: `T${i}`, dinner_name: "d", show_name: "s", dinner_time: "18:30", show_start: "20:00",
     show_end_est: "22:00", all_in_pp_cents: 4599, dietary_fit: [], pitch: "p",
   }));
+  beforeEach(() => {
+    m.llm.parsePreferences.mockResolvedValue(NO_PREFS);
+  });
 
   it("records a delegate ballot against the public shortlist", async () => {
     m.shortlist.mockResolvedValueOnce(sl);

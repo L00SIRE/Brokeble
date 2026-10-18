@@ -72,6 +72,18 @@ export function shortlist(bundles: readonly Bundle[], ratings: readonly RatingRo
   return picked;
 }
 
+/**
+ * A member who named avoids or dealbreakers vetoes any candidate they rated at the floor (the rate prompt scores a
+ * violation there). Vetoed candidates are dropped, but never all of them: a veto may narrow the field, not turn a fit
+ * into a no-fit. Code-only, ratings in / bundles out.
+ */
+export function dropVetoed(candidates: readonly Bundle[], ratings: readonly RatingRow[], vetoers: ReadonlySet<string>): Bundle[] {
+  if (vetoers.size === 0) return [...candidates];
+  const vetoed = new Set(ratings.filter((r) => vetoers.has(r.user_id) && r.score <= RATING_FLOOR).map((r) => r.bundle_id));
+  const kept = candidates.filter((b) => !vetoed.has(b.id));
+  return kept.length > 0 ? kept : [...candidates];
+}
+
 /** approvals desc → NW desc → all_in asc → id. Non-voters approve nothing. Returns the winning bundle id. */
 export function pickWinner(shortlist: readonly Bundle[], ballots: readonly Ballot[], ratings: readonly RatingRow[], constraints: readonly PrivateConstraints[]): string {
   if (shortlist.length === 0) throw new Error("pickWinner: empty shortlist");
@@ -130,7 +142,8 @@ export async function computeShortlist(planId: string): Promise<ShortlistResult>
     );
   }
 
-  return { from_count: composed.length, survived_count: survivors.length, survivors, top3: shortlist(candidates, ratings, constraints) };
+  const vetoers = new Set(members.filter((m) => m.prefs.cuisines_avoid.length + m.prefs.dealbreakers.length > 0).map((m) => m.user_id));
+  return { from_count: composed.length, survived_count: survivors.length, survivors, top3: shortlist(dropVetoed(candidates, ratings, vetoers), ratings, constraints) };
 }
 
 /** Loads the version's shortlist (app.bundles shortlist_rank), ballots, ratings and constraints → pickWinner. Active members only. */
