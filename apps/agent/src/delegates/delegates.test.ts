@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberContext, MemberRow, PlanState } from "../repo/types";
 
 const m = vi.hoisted(() => ({
+  sendOutTooLate: vi.fn(async (..._a: unknown[]) => {}),
   notify: vi.fn(async (..._a: unknown[]) => "sent" as string),
   setStage: vi.fn(async (..._a: unknown[]) => {}),
   onPrefsDone: vi.fn(async (..._a: unknown[]) => {}),
@@ -48,7 +49,11 @@ vi.mock("../repo/participants", () => ({ listMembers: m.members, countByStage: m
 vi.mock("../repo/plans", () => ({ getPlan: m.getPlan }));
 vi.mock("../repo/options", () => ({ optionsReady: m.optionsReady }));
 vi.mock("../repo/bundles", () => ({ getBundle: m.getBundle }));
-vi.mock("../router/handlers", () => ({ handleCommand: m.handleCommand }));
+vi.mock("../router/handlers", () => ({
+  handleCommand: m.handleCommand,
+  isBooked: ({ plan }: { plan: { state: string } }) => plan.state === "COMMITTING" || plan.state === "CONFIRMED",
+  sendOutTooLate: m.sendOutTooLate,
+}));
 vi.mock("../dueJobs", () => ({ enqueue: m.enqueue, jobKeys: { recomputeOptions: (p: string) => `recompute:${p}:options` } }));
 vi.mock("../jobs/kinds", () => ({ A_JOB_KINDS: { recompute: "recompute" }, aJobKeys: { recompute: (p: string, t: string) => `recompute:${p}:${t}` } }));
 vi.mock("../money/holdGate", () => ({ recheck: m.recheck }));
@@ -391,6 +396,14 @@ describe("conversational delegate", () => {
     await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("ugh i might bail"));
     expect(sent()).toEqual([["T_DELEGATE_REPLY", { text: OUT_HINT }, "reply:pho_msg_1:1"]]);
     expect(m.handleCommand).not.toHaveBeenCalled();
+  });
+
+  it.each(["COMMITTING", "CONFIRMED"] as const)("wants_out once booked (%s): the truthful T_OUT_TOO_LATE, never the 'text I'm out' hint", async (state) => {
+    said("No worries, just text I'm out", "wants_out");
+    const c = ctx({ stage: "CAPTURED", state });
+    await handleFreeText(c.user, c, ev("actually i cant go"));
+    expect(m.sendOutTooLate).toHaveBeenCalledWith(c, expect.objectContaining({ text: "actually i cant go" }));
+    expect(sent()).toEqual([]);
   });
 
   it.each([

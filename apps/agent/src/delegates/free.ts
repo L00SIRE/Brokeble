@@ -6,7 +6,7 @@ import { stageAtLeast } from "../plan/machine";
 import { ports } from "../ports";
 import { listMembers } from "../repo/participants";
 import type { MemberContext, UserRow } from "../repo/types";
-import { handleCommand } from "../router/handlers";
+import { handleCommand, isBooked, sendOutTooLate } from "../router/handlers";
 import { handleBudgetText } from "./budget";
 import { askDelegate, buildConverseInput, sendGuardedReply } from "./converse";
 import { asConverser, type ConverseInput } from "./converseSchema";
@@ -113,6 +113,11 @@ export async function converseReply(
       else await handleCommand(user, ctx, { kind: "change_budget" }, e);
       return true;
     case "wants_out":
+      // Booked: "text I'm out" would be a false promise, because nothing can be undone after everyone held.
+      if (ctx && isBooked(ctx)) {
+        await sendOutTooLate(ctx, e);
+        return true;
+      }
       await notify(user.id, "T_DELEGATE_REPLY", { text: OUT_HINT }, { key: replyKey(e.message_id, 1), ...(planId ? { planId } : {}) });
       return true;
     case "wants_status":

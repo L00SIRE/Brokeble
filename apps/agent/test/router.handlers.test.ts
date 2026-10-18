@@ -124,9 +124,17 @@ describe("handleCommand", () => {
     m.countByStage.mockResolvedValue({ CAPTURED: 3 });
     const c = ctx("CAPTURED", { state: "CONFIRMED", organizer_id: "u1" });
     for (const k of ["status", "out", "go", "wait", "cancel_plan", "change_budget"]) await cmd(k, c);
-    expect(sentIds()).toEqual(Array(6).fill("T_STATUS"));
+    // "I'm out" gets the truthful too-late reply (the delegate used to promise "text I'm out" here); the rest, the status.
+    expect(sentIds()).toEqual(["T_STATUS", "T_OUT_TOO_LATE", "T_STATUS", "T_STATUS", "T_STATUS", "T_STATUS"]);
     expect(m.notify.mock.calls[0]![2]).toEqual({ title: "Friday night", phase: "confirmed" });
+    expect(m.notify.mock.calls[1]![2]).toEqual({ title: "Friday night" });
     for (const f of [m.onOut, m.onGo, m.onWait, m.cancel, m.transition, m.setAwaiting]) expect(f).not.toHaveBeenCalled();
+  });
+
+  it("'I'm out' while COMMITTING: T_OUT_TOO_LATE, onOut is never called", async () => {
+    await cmd("out", ctx("HELD", { state: "COMMITTING" }));
+    expect(sentIds()).toEqual(["T_OUT_TOO_LATE"]);
+    expect(m.onOut).not.toHaveBeenCalled();
   });
 
   it("remove card is T_HELP (nothing can forget a payer at the venue)", async () => {

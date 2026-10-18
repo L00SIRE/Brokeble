@@ -56,6 +56,8 @@ export async function handleCommand(user: UserRow, ctx: MemberContext | null, cm
       return newPlan(user, ctx, e);
   }
   if (!ctx) return void (await reply(user, "T_NOT_IN_PLAN", {}, e));
+  // Once everyone held, the booking is final: leaving gets the truthful "too late", every other plan command the status.
+  if (cmd.kind === "out" && isBooked(ctx)) return sendOutTooLate(ctx, e);
   // After capture nothing can be undone or changed: every plan command answers with where things stand.
   if (ctx.plan.state === "CONFIRMED") return sendStatus(ctx, e);
   switch (cmd.kind) {
@@ -162,6 +164,14 @@ export function phaseText(state: PlanState, by: Partial<Record<LaneStage, number
     case "SHOWCASE":
       return "demo";
   }
+}
+
+/** COMMITTING or CONFIRMED: every share is held or charged, and nothing can be undone by text. */
+export const isBooked = ({ plan }: MemberContext): boolean => plan.state === "COMMITTING" || plan.state === "CONFIRMED";
+
+/** T_OUT_TOO_LATE {title}: 'I'm out' (or wanting out) after the booking went through. */
+export async function sendOutTooLate({ user, plan }: MemberContext, e: InboundEvent): Promise<void> {
+  await reply(user, "T_OUT_TOO_LATE", { title: plan.title }, e, plan.id);
 }
 
 /** T_STATUS {title, phase} from the fixed phase map plus counts. */

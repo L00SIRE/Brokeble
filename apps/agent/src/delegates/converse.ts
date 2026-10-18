@@ -25,6 +25,8 @@ const BASE_COMMANDS = ["status", "I'm out", "change budget", "receipts", "forget
 const ORGANIZER_COMMANDS = ["go (start with whoever's ready)", "wait", "cancel plan"];
 // No plan yet: the plan commands (status, I'm out, change budget, ...) have nothing to act on.
 const NO_PLAN_COMMANDS = ["help", "forget me"];
+// Booked (COMMITTING/CONFIRMED): leaving, budget and organizer commands can no longer change anything.
+const BOOKED_COMMANDS = ["status", "receipts", "forget me", "help"];
 
 const countFrom = (by: Partial<Record<LaneStage, number>>, from: LaneStage): number =>
   STAGE_ORDER.slice(STAGE_ORDER.indexOf(from)).reduce((n, s) => n + (by[s] ?? 0), 0);
@@ -75,9 +77,9 @@ export function whereThingsStand(plan: PlanRow, stage: LaneStage, by: Partial<Re
         : `Tap your secure pay link to place a hold. Nobody's charged unless everyone's in${when}.`;
     }
     case "COMMITTING":
-      return "Everyone's in, so I'm booking it now.";
+      return "Everyone's in, so I'm booking it now. The booking is final, so nobody can drop out at this point.";
     case "CONFIRMED":
-      return "You're booked! Your itinerary is on its way.";
+      return "You're booked and every share was charged. The booking is final, so nobody can drop out at this point. Your itinerary link comes by text.";
     case "CANCELLING":
     case "CANCELLED":
       return "This plan was called off. Nobody was charged.";
@@ -150,7 +152,7 @@ export async function buildConverseInput(
     where_things_stand: whereThingsStand(plan, participant.stage, by),
     my_preferences: prefs,
     my_budget_set: own !== null,
-    commands: isOrganizer ? [...BASE_COMMANDS, ...ORGANIZER_COMMANDS] : BASE_COMMANDS,
+    commands: plan.state === "COMMITTING" || plan.state === "CONFIRMED" ? BOOKED_COMMANDS : isOrganizer ? [...BASE_COMMANDS, ...ORGANIZER_COMMANDS] : BASE_COMMANDS,
   };
 }
 
