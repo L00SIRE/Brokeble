@@ -1,2 +1,1 @@
-// Owner: C (docs/plans/C-trust-commerce.md). Placeholder created by the foundation.
-export {};
+export { createSigner, signer, type Signer, type SignedHeaders } from "./signer";

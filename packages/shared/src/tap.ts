@@ -74,3 +74,37 @@ export function signatureBase(components: readonly TapComponent[], v: SignatureB
 
 export const signatureInputHeader = (params: string): string => `${LABEL}=${params}`;
 export const signatureHeader = (signature: Uint8Array): string => `${LABEL}=:${Buffer.from(signature).toString("base64")}:`;
+
+// ---------- header parsers (C) ----------
+export type ParsedSignatureInput = {
+  label: string;
+  /** Exact bytes after `label=`; this is the `@signature-params` value in the base. */
+  raw: string;
+  components: string[];
+  params: Record<string, string | number>;
+};
+
+const SIG_INPUT = /^([A-Za-z][A-Za-z0-9_-]*)=(\(((?:"[^"]*"(?: "[^"]*")*)?)\)((?:;[a-z][a-z0-9_-]*=(?:-?\d+|"[^"]*"))*))$/;
+
+/** Strict: exactly one `label=(components);k=int;k="string"` member, nothing else. Null on any deviation. */
+export function parseSignatureInput(h: string): ParsedSignatureInput | null {
+  const m = SIG_INPUT.exec(h.trim());
+  if (!m) return null;
+  const [, label, raw, inner, tail] = m;
+  const components = inner ? [...inner.matchAll(/"([^"]*)"/g)].map((x) => x[1]!) : [];
+  const params: Record<string, string | number> = {};
+  for (const p of (tail ?? "").matchAll(/;([a-z][a-z0-9_-]*)=(-?\d+|"[^"]*")/g)) {
+    const key = p[1]!;
+    if (key in params) return null; // duplicate parameter
+    const v = p[2]!;
+    params[key] = v.startsWith('"') ? v.slice(1, -1) : Number(v);
+  }
+  return { label: label!, raw: raw!, components, params };
+}
+
+/** `label=:<base64>:` → raw signature bytes, or null. */
+export function parseSignature(h: string, label: string): Buffer | null {
+  const m = /^([A-Za-z][A-Za-z0-9_-]*)=:([A-Za-z0-9+/]+={0,2}):$/.exec(h.trim());
+  if (!m || m[1] !== label) return null;
+  return Buffer.from(m[2]!, "base64");
+}
