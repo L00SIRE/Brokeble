@@ -48,6 +48,15 @@ export function hasStartDraft(userId: string, now = Date.now()): boolean {
   return d !== undefined && now - d.touchedAt < DRAFT_TTL_MS;
 }
 
+/**
+ * "new plan" after leaving (or with no plan): a fresh draft that has already said hello, and T_START_HELLO. The draft
+ * also makes the router send this user's next texts here (hasStartDraft) rather than to the plan they just left.
+ */
+export async function beginStartChat(userId: string, e: InboundEvent, n = 1): Promise<void> {
+  drafts.set(userId, { ...freshDraft(), last: "hello" });
+  await notify(userId, "T_START_HELLO", {}, { key: replyKey(e.message_id, n) });
+}
+
 /** Test hook: drops every in-memory draft. */
 export function resetStartDrafts(): void {
   drafts.clear();

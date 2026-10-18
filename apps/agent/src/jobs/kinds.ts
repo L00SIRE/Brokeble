@@ -9,7 +9,7 @@ import { voteDeadlineJob } from "../plan/ballots";
 import { createOrderJob } from "../plan/order";
 import { commitJob, postConfirmJob } from "../plan/commit";
 import { postCancelJob } from "../plan/cancel";
-import { approveDeadlineJob, approveRepingJob, bootstrapVenueSweep, orgJoinStatusJob, stillLookingJob, venueSweepJob } from "./ladder";
+import { approveDeadlineJob, approveRepingJob, bootstrapStaleSweep, bootstrapVenueSweep, orgJoinStatusJob, staleSweepJob, stillLookingJob, venueSweepJob } from "./ladder";
 
 export const A_JOB_KINDS = {
   stillLooking: "still_looking",
@@ -23,6 +23,7 @@ export const A_JOB_KINDS = {
   venueSweep: "venue_sweep",
   postConfirm: "post_confirm",
   postCancel: "post_cancel",
+  staleSweep: "stale_sweep",
 } as const;
 
 /**
@@ -46,6 +47,7 @@ export type APayloads = {
   venue_sweep: Record<string, never>;
   post_confirm: { version: number };
   post_cancel: { version: number };
+  stale_sweep: Record<string, never>;
 };
 
 /** Dedupe keys (A plan T10 table). recompute(planId, "options") === jobKeys.recomputeOptions(planId). */
@@ -64,9 +66,11 @@ export const aJobKeys = {
   venueSweep: (epochMs: number) => `sweep:${Math.floor(epochMs / 30_000)}`,
   postConfirm: (planId: string, version: number) => `postconfirm:${planId}:${version}`,
   postCancel: (planId: string, version: number) => `postcancel:${planId}:${version}`,
+  /** 5-minute bucket. */
+  staleSweep: (epochMs: number) => `stale:${Math.floor(epochMs / 300_000)}`,
 } as const;
 
-/** Registers every A kind once at boot; in VENUE_MODE=live also inserts the current venue_sweep bucket. */
+/** Registers every A kind once at boot and inserts the current stale_sweep bucket; in VENUE_MODE=live also venue_sweep. */
 export function registerAJobs(jobs: Jobs): void {
   jobs.register(A_JOB_KINDS.stillLooking, stillLookingJob);
   jobs.register(A_JOB_KINDS.orgJoinStatus, orgJoinStatusJob);
@@ -79,5 +83,7 @@ export function registerAJobs(jobs: Jobs): void {
   jobs.register(A_JOB_KINDS.venueSweep, venueSweepJob);
   jobs.register(A_JOB_KINDS.postConfirm, postConfirmJob);
   jobs.register(A_JOB_KINDS.postCancel, postCancelJob);
+  jobs.register(A_JOB_KINDS.staleSweep, staleSweepJob);
+  bootstrapStaleSweep(jobs).catch((e) => log.error(errInfo(e), "stale_sweep bootstrap"));
   if (env.VENUE_MODE === "live") bootstrapVenueSweep(jobs).catch((e) => log.error(errInfo(e), "venue_sweep bootstrap"));
 }

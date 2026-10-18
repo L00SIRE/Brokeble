@@ -19,9 +19,12 @@ const m = vi.hoisted(() => ({
   researchReady: vi.fn(async () => false),
   startResearch: vi.fn(async () => {}),
   listRunsForPlan: vi.fn(async () => [] as unknown[]),
+  listStaleCollectingPlanIds: vi.fn(async () => [] as string[]),
+  transition: vi.fn(async () => null as unknown),
 }));
 vi.mock("../src/env", () => ({ env: m.env }));
-vi.mock("../src/repo/plans", () => ({ getPlan: m.getPlan }));
+vi.mock("../src/repo/plans", () => ({ getPlan: m.getPlan, listStaleCollectingPlanIds: m.listStaleCollectingPlanIds }));
+vi.mock("../src/plan/machine", () => ({ transition: m.transition }));
 vi.mock("../src/repo/participants", () => ({ countByStage: m.countByStage, listMembers: m.listMembers }));
 vi.mock("../src/repo/payLinks", () => ({ getPayLink: m.getPayLink }));
 vi.mock("../src/repo/bundles", () => ({ getBundle: m.getBundle }));
@@ -36,7 +39,9 @@ vi.mock("../src/plan/commit", () => ({ commitJob: m.commitJob }));
 vi.mock("../src/creao/research", () => ({ researchReady: m.researchReady, startResearch: m.startResearch }));
 vi.mock("../src/repo/researchRuns", () => ({ listRunsForPlan: m.listRunsForPlan }));
 
-import { approveDeadlineJob, approveRepingJob, bootstrapVenueSweep, orgJoinStatusJob, stillLookingJob, venueSweepJob } from "../src/jobs/ladder";
+import {
+  approveDeadlineJob, approveRepingJob, bootstrapStaleSweep, bootstrapVenueSweep, orgJoinStatusJob, STALE_COLLECTING_MS, staleSweepJob, stillLookingJob, venueSweepJob,
+} from "../src/jobs/ladder";
 
 const plan = (o: Partial<PlanRow> = {}): PlanRow =>
   ({ id: "p1", state: "APPROVING", version: 2, title: "Sat", organizer_id: "org", party_target: 4, chosen_bundle_id: "bnd_1",
@@ -246,5 +251,40 @@ describe("venue sweep", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("staleSweepJob", () => {
+  it("is 3 hours outside demo timers", () => expect(STALE_COLLECTING_MS).toBe(3 * 60 * 60 * 1000));
+
+  it("quietly cancels each stale COLLECTING plan (COLLECTING→CANCELLED guard), no DM, then enqueues the next 5-min bucket", async () => {
+    const now = Date.now();
+    m.listStaleCollectingPlanIds.mockResolvedValue(["p1", "p2"]);
+    m.transition.mockResolvedValueOnce({ id: "p1", version: 3, from_state: "COLLECTING" }).mockResolvedValueOnce(null); // p2 moved on
+    await staleSweepJob(job());
+    const [cutoff] = m.listStaleCollectingPlanIds.mock.calls[0] as unknown as [Date];
+    expect(Math.abs(now - STALE_COLLECTING_MS - cutoff.getTime())).toBeLessThan(5_000);
+    expect(m.transition).toHaveBeenCalledWith("p1", "COLLECTING", "CANCELLED");
+    expect(m.transition).toHaveBeenCalledWith("p2", "COLLECTING", "CANCELLED");
+    expect(m.fanout).not.toHaveBeenCalled();
+    expect(m.notify).not.toHaveBeenCalled();
+    expect(m.cancel).not.toHaveBeenCalled(); // never the venue/hold path: nothing is held in COLLECTING
+    const [kind, key, at] = m.enqueue.mock.calls[0] as unknown as [string, string, Date];
+    expect(kind).toBe("stale_sweep");
+    expect(at.getTime() % 300_000).toBe(0);
+    expect(at.getTime()).toBeGreaterThan(now - 1);
+    expect(key).toBe(`stale:${Math.floor(at.getTime() / 300_000)}`);
+  });
+
+  it("a failed query is logged, not thrown, and the chain continues", async () => {
+    m.listStaleCollectingPlanIds.mockRejectedValue(new Error("db down"));
+    await expect(staleSweepJob(job())).resolves.toBeUndefined();
+    expect(m.enqueue).toHaveBeenCalledWith("stale_sweep", expect.stringMatching(/^stale:\d+$/), expect.any(Date));
+  });
+
+  it("bootstrap enqueues the current bucket", async () => {
+    const enqueue = vi.fn(async () => true);
+    await bootstrapStaleSweep({ register: vi.fn(), enqueue });
+    expect(enqueue).toHaveBeenCalledWith("stale_sweep", expect.stringMatching(/^stale:\d+$/), expect.any(Date));
   });
 });

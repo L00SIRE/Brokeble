@@ -12,7 +12,7 @@ const m = vi.hoisted(() => {
     findPendingHoldGate: f(), getHoldGate: f(),
     getParticipant: f(), currentPlanForUser: f(), newestInvitedPlanForUser: f(),
     findUserByPhone: f(), findUserByPhotonId: f(), setPhotonUserId: f(),
-    getPayLink: f(), handleCommand: f(), reply: f(),
+    getPayLink: f(), handleCommand: f(), reply: f(), sendAlreadyInPlan: f(),
     mentionsOthersBudget: f(), otherFirstNames: f(), sendOnlyYours: f(), recentConfirmedPlan: f(),
     converseReply: f(),
     onJoinText: f(), onNameText: f(), handleStartText: f(), hasStartDraft: f(), joinWouldOverfill: f(),
@@ -47,7 +47,7 @@ vi.mock("../src/repo/participants", () => ({
 vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser, recentConfirmedPlan: m.recentConfirmedPlan }));
 vi.mock("../src/repo/users", () => ({ findUserByPhone: m.findUserByPhone, findUserByPhotonId: m.findUserByPhotonId, setPhotonUserId: m.setPhotonUserId }));
 vi.mock("../src/repo/payLinks", () => ({ getPayLink: m.getPayLink }));
-vi.mock("../src/router/handlers", () => ({ handleCommand: m.handleCommand, reply: m.reply }));
+vi.mock("../src/router/handlers", () => ({ handleCommand: m.handleCommand, reply: m.reply, sendAlreadyInPlan: m.sendAlreadyInPlan }));
 vi.mock("../src/plan/membership", () => ({ onJoinText: m.onJoinText, onNameText: m.onNameText }));
 vi.mock("../src/plan/startByChat", () => ({ handleStartText: m.handleStartText, hasStartDraft: m.hasStartDraft }));
 vi.mock("../src/join/capacity", () => ({ joinWouldOverfill: m.joinWouldOverfill }));
@@ -542,7 +542,6 @@ describe("pre-filled first texts from a member already in the plan (ux-flow §3.
   };
 
   it.each([
-    ["BUDGET_LOCKED", "COLLECTING", START],
     ["BUDGET_LOCKED", "COLLECTING", "I'm in for Dinner + show!"],
     ["JOINED", "COLLECTING", STATUS],
     ["JOINED", "COLLECTING", "Hey SquadTab! Let's get planning."],
@@ -552,6 +551,61 @@ describe("pre-filled first texts from a member already in the plan (ux-flow §3.
     lane(stage, { state });
     await route(ev(text));
     expectStatusOnly();
+  });
+
+  it.each([
+    ["BUDGET_LOCKED", { state: "COLLECTING" }],
+    ["PREFS_DONE", { state: "COLLECTING", title: "Brunch with coffee" }],
+    ["VOTED", { state: "VOTING" }],
+    ["PREFS_DONE", { state: "RESEARCHING" }],
+    ["LINK_SENT", { state: "APPROVING" }],
+    ["GATED", { state: "APPROVING" }],
+  ] as const)("the /start pre-fill from a %s member of a pre-commit plan (%j) → T_ALREADY_IN_PLAN, not the old plan's flow", async (stage, o) => {
+    lane(stage, o);
+    m.getAwaiting.mockReturnValue("budget");
+    await route(ev(START));
+    expect(m.sendAlreadyInPlan).toHaveBeenCalledWith(expect.objectContaining({ user, plan: expect.objectContaining({ id: "p1", ...o }) }), expect.objectContaining({ message_id: "msg1" }));
+    for (const f of [m.handleCommand, m.handleBudgetText, m.handlePrefsText, m.handleBallotText, m.handleFreeText, m.handleStartText, m.onJoinText]) {
+      expect(f).not.toHaveBeenCalled();
+    }
+    expect(m.typingOn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["HELD", "APPROVING"],
+    ["CAPTURED", "APPROVING"],
+    ["HELD", "COMMITTING"],
+    ["VOTED", "ORDERING"],
+  ] as const)("the /start pre-fill with a hold or past the point of no return (%s in %s) keeps the status reply", async (stage, state) => {
+    lane(stage, { state });
+    await route(ev(START));
+    expectStatusOnly();
+    expect(m.sendAlreadyInPlan).not.toHaveBeenCalled();
+  });
+
+  it("the /start pre-fill after yesterday's CONFIRMED plan still starts a new plan (no status, no T_ALREADY_IN_PLAN)", async () => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.recentConfirmedPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: "2026-10-18" });
+    await route(ev(START));
+    expect(m.handleStartText).toHaveBeenCalledOnce();
+    expect(m.sendAlreadyInPlan).not.toHaveBeenCalled();
+  });
+
+  it.each(["new plan", "Start over", "start fresh!"])("%j is the new_plan command, even mid budget step", async (text) => {
+    lane("JOINED");
+    m.getAwaiting.mockReturnValue("budget");
+    await route(ev(text));
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.anything() }), { kind: "new_plan" }, expect.anything());
+    expect(m.handleBudgetText).not.toHaveBeenCalled();
+  });
+
+  it("an INVITED-only member's 'new plan' is a command, not the forgiving join", async () => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.newestInvitedPlanForUser.mockResolvedValue(plan());
+    m.getParticipant.mockResolvedValue({ stage: "INVITED", lane: 3 });
+    await route(ev("new plan"));
+    expect(m.onJoinText).not.toHaveBeenCalled();
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.anything(), { kind: "new_plan" }, expect.anything());
   });
 
   it("wins over an awaiting tiers flag and leaves the flag for the real answer", async () => {

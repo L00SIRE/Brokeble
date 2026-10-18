@@ -13,13 +13,14 @@ import { fmtDate, usd2 } from "../notify/render";
 import { cancel } from "../plan/cancel";
 import { STAGE_ORDER, stageAtLeast, transition } from "../plan/machine";
 import { onGo, onJoinText, onOut, onWait } from "../plan/membership";
+import { beginStartChat } from "../plan/startByChat";
 import { ports } from "../ports";
 import * as ballots from "../repo/ballots";
 import * as dmRoutes from "../repo/dmRoutes";
 import * as holdGates from "../repo/holdGates";
 import * as participants from "../repo/participants";
 import * as payLinks from "../repo/payLinks";
-import { getPlan } from "../repo/plans";
+import { ACTIVE_STATES, getPlan } from "../repo/plans";
 import * as preferences from "../repo/preferences";
 import * as privateConstraints from "../repo/privateConstraints";
 import * as ratings from "../repo/ratings";
@@ -51,6 +52,8 @@ export async function handleCommand(user: UserRow, ctx: MemberContext | null, cm
       return sendReceipts(user, e);
     case "forget_me":
       return forgetMe(user, ctx, e);
+    case "new_plan":
+      return newPlan(user, ctx, e);
   }
   if (!ctx) return void (await reply(user, "T_NOT_IN_PLAN", {}, e));
   // After capture nothing can be undone or changed: every plan command answers with where things stand.
@@ -71,25 +74,56 @@ export async function handleCommand(user: UserRow, ctx: MemberContext | null, cm
   }
 }
 
+/**
+ * COLLECTING|RESEARCHING|VOTING → CANCELLED + T_PLAN_OFF fan-out (names nobody). Nothing to reverse: no pay link, order
+ * or hold exists before ORDERING. False when the plan already moved on (the caller falls back to the money-safe path).
+ */
+async function cancelPreOrder(planId: string): Promise<boolean> {
+  const t = await transition(planId, PRE_ORDER, "CANCELLED");
+  if (!t) return false;
+  stopPlanTyping(planId);
+  await cancelResearch(planId);
+  // No pay link exists before ORDERING, so there is no authorization to talk about.
+  await fanout(planId, "T_PLAN_OFF", () => ({}), { version: t.version });
+  return true;
+}
+
 /** Organizer only. Pre-order plans have nothing to reverse, so they are cancelled here; once an order may exist, cancel() reverses it. */
 async function cancelPlan(ctx: MemberContext, e: InboundEvent): Promise<void> {
   const { user, plan } = ctx;
   if (plan.organizer_id !== user.id) return void (await reply(user, "T_ORGANIZER_ONLY", {}, e, plan.id));
-  if (PRE_ORDER.includes(plan.state)) {
-    const t = await transition(plan.id, PRE_ORDER, "CANCELLED");
-    if (t) {
-      stopPlanTyping(plan.id);
-      await cancelResearch(plan.id);
-      // No pay link exists before ORDERING, so there is no authorization to talk about.
-      await fanout(plan.id, "T_PLAN_OFF", () => ({}), { version: t.version });
-      return;
-    }
-  }
+  if (PRE_ORDER.includes(plan.state) && (await cancelPreOrder(plan.id))) return;
   const won = await cancel(plan.id, "organizer"); // also the path when the plan moved to ORDERING between the read and the transition
   // A finished cancel fans out T_CANCELLED. Otherwise (venue unreachable → still CANCELLING until the hook or expiry
   // sweep, or nothing to cancel any more) the organizer would hear nothing, so tell them where it stands.
   const now = await getPlan(plan.id);
   if (now && (!won || now.state === "CANCELLING")) await sendStatus({ ...ctx, plan: now }, e);
+}
+
+/**
+ * "new plan" / "start over" / "start fresh": leave the current plan, then the chat-first start (T_START_HELLO).
+ * - no plan, or a CONFIRMED one (nothing left to leave) → start right away;
+ * - the organizer of a COLLECTING|RESEARCHING|VOTING plan → that plan is called off (T_PLAN_OFF, nobody named): no hold
+ *   can exist yet, and a plan without its organizer would otherwise sit open with nobody able to GO;
+ * - anyone else, or a plan past VOTING → onOut, exactly like "I'm out" (APPROVING/ORDERING go through cancel(), which
+ *   releases every hold; COMMITTING answers with the status because it is too late).
+ * The start chat begins only once the old plan no longer counts this person (lane terminal, or plan no longer active):
+ * otherwise their next text would still land in the old plan, and the status/ack already told them where it stands.
+ */
+async function newPlan(user: UserRow, ctx: MemberContext | null, e: InboundEvent): Promise<void> {
+  clearAwaiting(user.id);
+  if (!ctx || ctx.plan.state === "CONFIRMED") return beginStartChat(user.id, e);
+  const organizerCancelled = ctx.plan.organizer_id === user.id && PRE_ORDER.includes(ctx.plan.state) && (await cancelPreOrder(ctx.plan.id));
+  if (!organizerCancelled) await onOut(ctx, e, "member_out");
+  const [plan, lane] = await Promise.all([getPlan(ctx.plan.id), participants.getParticipant(ctx.plan.id, user.id)]);
+  const stillIn = plan && ACTIVE_STATES.includes(plan.state) && lane && lane.stage !== "DECLINED" && lane.stage !== "RELEASED";
+  if (!stillIn) await beginStartChat(user.id, e, 2);
+}
+
+/** T_ALREADY_IN_PLAN {title, ready, total}: the /start pre-fill from someone still in an open plan. */
+export async function sendAlreadyInPlan({ user, plan }: MemberContext, e: InboundEvent): Promise<void> {
+  const by = await participants.countByStage(plan.id);
+  await reply(user, "T_ALREADY_IN_PLAN", { title: plan.title, ready: countFrom(by, "PREFS_DONE"), total: plan.party_target }, e, plan.id);
 }
 
 /** Keeps the stage (dropping it would shrink member counts and trigger a recompute); allowed until the member is HELD. */

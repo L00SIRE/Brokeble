@@ -63,6 +63,11 @@ describe("commands", () => {
     },
   );
 
+  it("parses new plan / start over / start fresh", () => {
+    for (const t of ["new plan", "New plan!", "start over", "Start Fresh.", "  start   over "]) expect(parseCommand(t)).toEqual({ kind: "new_plan" });
+    for (const t of ["new plan for saturday", "start", "fresh start", "plan"]) expect(parseCommand(t)?.kind).not.toBe("new_plan");
+  });
+
   it("parses digit ballots", () => {
     expect(parseDigitsBallot("1 3")).toEqual([1, 3]);
     expect(parseDigitsBallot(" 2 ")).toEqual([2]);

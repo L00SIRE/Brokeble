@@ -12,11 +12,12 @@ import { fmtDeadline } from "../notify/render";
 import { bundleTitle } from "../plan/decision";
 import { cancel } from "../plan/cancel";
 import { commitJob } from "../plan/commit";
+import { transition } from "../plan/machine";
 import { ports } from "../ports";
 import { getBundle } from "../repo/bundles";
 import { listMembers, countByStage } from "../repo/participants";
 import { getPayLink } from "../repo/payLinks";
-import { getPlan } from "../repo/plans";
+import { getPlan, listStaleCollectingPlanIds } from "../repo/plans";
 import { listRunsForPlan } from "../repo/researchRuns";
 import { TERMINAL_RUN_STATUSES, type PlanRow } from "../repo/types";
 import { A_JOB_KINDS, aJobKeys } from "./kinds";
@@ -172,4 +173,39 @@ export async function venueSweepJob(_job: DueJob, sweep: () => Promise<unknown> 
 export async function bootstrapVenueSweep(jobs: Jobs): Promise<void> {
   const now = Date.now();
   await jobs.enqueue(A_JOB_KINDS.venueSweep, aJobKeys.venueSweep(now), new Date(now));
+}
+
+const STALE_SWEEP_BUCKET_MS = 300_000;
+/** A plan still COLLECTING this long after it was created is abandoned (3 h; DEMO_TIMERS 45 min). */
+export const STALE_COLLECTING_MS = (env.DEMO_TIMERS ? 45 : 180) * 60_000;
+
+const nextStaleSweep = (now: number) => {
+  const at = (Math.floor(now / STALE_SWEEP_BUCKET_MS) + 1) * STALE_SWEEP_BUCKET_MS;
+  return { key: aJobKeys.staleSweep(at), at: new Date(at) };
+};
+
+/**
+ * `stale_sweep` (stale:<5 min bucket>): quietly calls off plans stuck in COLLECTING longer than STALE_COLLECTING_MS
+ * with no HELD/CAPTURED lane, so a member's /start pre-fill or next text never lands in an abandoned plan.
+ * transition(COLLECTING→CANCELLED) is the guard: a plan that moved on in the meantime is skipped. No DM (like the ops
+ * reset): hours later a "plan's off" out of nowhere would confuse, and nothing was ever held. In `finally` enqueue the
+ * next bucket; a failed sweep is logged, and the next bucket is the retry.
+ */
+export async function staleSweepJob(_job: DueJob): Promise<void> {
+  try {
+    for (const planId of await listStaleCollectingPlanIds(new Date(Date.now() - STALE_COLLECTING_MS))) {
+      if (await transition(planId, "COLLECTING", "CANCELLED")) log.info({ plan_id: planId }, "stale_sweep: cancelled a stale COLLECTING plan");
+    }
+  } catch (e) {
+    log.warn(errInfo(e), "stale_sweep failed");
+  } finally {
+    const next = nextStaleSweep(Date.now());
+    await enqueue(A_JOB_KINDS.staleSweep, next.key, next.at);
+  }
+}
+
+/** Boot: enqueue the current stale_sweep bucket so its self-rescheduling chain starts (insert-or-ignore on the bucket key). */
+export async function bootstrapStaleSweep(jobs: Jobs): Promise<void> {
+  const now = Date.now();
+  await jobs.enqueue(A_JOB_KINDS.staleSweep, aJobKeys.staleSweep(now), new Date(now));
 }

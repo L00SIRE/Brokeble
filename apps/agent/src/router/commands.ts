@@ -11,7 +11,8 @@ export type Command =
   | { kind: "cancel_plan" } // ^cancel plan$
   | { kind: "go" } // ^go$
   | { kind: "wait" } // ^wait$
-  | { kind: "change_budget" }; // ^change budget$
+  | { kind: "change_budget" } // ^change budget$
+  | { kind: "new_plan" }; // ^(new plan|start over|start fresh)$
 
 /** trim, lowercase, curly apostrophe ’ → ', collapse inner whitespace. */
 export function normalizeCommandText(text: string): string {
@@ -32,6 +33,7 @@ const SIMPLE: readonly [RegExp, Exclude<Command, { kind: "join" }>][] = [
   [/^go$/, { kind: "go" }],
   [/^wait$/, { kind: "wait" }],
   [/^change budget$/, { kind: "change_budget" }],
+  [/^(?:new plan|start over|start fresh)$/, { kind: "new_plan" }],
 ];
 
 /** The command `text` matches after normalizeCommandText, or null. */

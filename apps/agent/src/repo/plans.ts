@@ -76,6 +76,19 @@ export async function recentConfirmedPlan(userId: string, tx: Db = sql): Promise
   return row ?? null;
 }
 
+/**
+ * Ids of plans still COLLECTING that were created before `cutoff` and where nobody holds money (no HELD/CAPTURED lane:
+ * impossible before ORDERING, checked anyway as a guard). Oldest first, at most `limit` (stale-plan sweep).
+ */
+export async function listStaleCollectingPlanIds(cutoff: Date, limit = 50, tx: Db = sql): Promise<string[]> {
+  const rows = await tx<{ id: string }[]>`
+    select p.id from app.plans p
+    where p.state = 'COLLECTING' and p.created_at < ${cutoff}
+      and not exists (select 1 from app.participants pt where pt.plan_id = p.id and pt.stage in ('HELD', 'CAPTURED'))
+    order by p.created_at, p.id limit ${limit}`;
+  return rows.map((r) => r.id);
+}
+
 /** Every plan in ACTIVE_STATES (ops reset). Never returns SHOWCASE. */
 export async function listActivePlans(tx: Db = sql): Promise<PlanRow[]> {
   return tx<PlanRow[]>`

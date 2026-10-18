@@ -11,7 +11,7 @@ const m = vi.hoisted(() => {
     releaseSeat: rec("releaseSeat"), fanout: rec("fanout"), stopPlanTyping: rec("stopPlanTyping"),
     cancel: rec("cancel"), transition: vi.fn(), onGo: rec("onGo"), onJoinText: rec("onJoinText"), onOut: rec("onOut"), onWait: rec("onWait"),
     getOrder: vi.fn(), getPlan: vi.fn(),
-    countByStage: vi.fn(), capturedPlanIdsForUser: vi.fn(), joinWouldOverfill: vi.fn(async () => false),
+    countByStage: vi.fn(), capturedPlanIdsForUser: vi.fn(), getParticipant: vi.fn(), beginStartChat: rec("beginStartChat"), joinWouldOverfill: vi.fn(async () => false),
     begin: vi.fn(),
     del: {
       privateConstraints: rec("pc"), prefs: rec("prefs"), ratings: rec("ratings"), ballots: rec("ballots"),
@@ -43,15 +43,19 @@ vi.mock("../src/ports", () => ({ ports: { venue: { getOrder: m.getOrder } } }));
 vi.mock("../src/repo/ballots", () => ({ deleteBallotsForUser: m.del.ballots }));
 vi.mock("../src/repo/dmRoutes", () => ({ deleteDmRoute: m.del.dmRoute }));
 vi.mock("../src/repo/holdGates", () => ({ deleteHoldGatesForUser: m.del.holdGates }));
-vi.mock("../src/repo/participants", () => ({ countByStage: m.countByStage, capturedPlanIdsForUser: m.capturedPlanIdsForUser }));
+vi.mock("../src/repo/participants", () => ({ countByStage: m.countByStage, capturedPlanIdsForUser: m.capturedPlanIdsForUser, getParticipant: m.getParticipant }));
+vi.mock("../src/plan/startByChat", () => ({ beginStartChat: m.beginStartChat }));
 vi.mock("../src/repo/payLinks", () => ({ deletePayLinksForUser: m.del.payLinks }));
-vi.mock("../src/repo/plans", () => ({ getPlan: m.getPlan }));
+vi.mock("../src/repo/plans", () => ({
+  getPlan: m.getPlan,
+  ACTIVE_STATES: ["COLLECTING", "RESEARCHING", "VOTING", "ORDERING", "APPROVING", "COMMITTING", "CANCELLING"],
+}));
 vi.mock("../src/repo/preferences", () => ({ deletePreferencesForUser: m.del.prefs }));
 vi.mock("../src/repo/privateConstraints", () => ({ deleteForUser: m.del.privateConstraints }));
 vi.mock("../src/repo/ratings", () => ({ deleteRatingsForUser: m.del.ratings }));
 vi.mock("../src/repo/users", () => ({ scrubUser: m.del.scrub }));
 
-import { forgetMe, handleCommand, phaseText, sendReceipts, sendStatus } from "../src/router/handlers";
+import { forgetMe, handleCommand, phaseText, sendAlreadyInPlan, sendReceipts, sendStatus } from "../src/router/handlers";
 
 const user = { id: "u1", payer_ref: "ref1", first_name: "Ana" } as never;
 const ev = { message_id: "msg1" } as InboundEvent;
@@ -241,5 +245,82 @@ describe("forgetMe", () => {
     m.releaseSeat.mockRejectedValueOnce(new Error("photon down"));
     await expect(forgetMe(user, null, ev)).resolves.toBeUndefined();
     expect(m.del.scrub).toHaveBeenCalled();
+  });
+});
+
+describe("new plan / start over", () => {
+  const newPlan = (c: unknown) => handleCommand(user, c as never, { kind: "new_plan" } as never, ev);
+  const afterLeave = (state: string, stage: string) => {
+    m.getPlan.mockResolvedValue({ id: "p1", state });
+    m.getParticipant.mockResolvedValue({ stage });
+  };
+
+  it("with no plan: straight to the start chat (T_START_HELLO), nothing left", async () => {
+    await newPlan(null);
+    expect(m.beginStartChat).toHaveBeenCalledWith("u1", ev);
+    expect(m.onOut).not.toHaveBeenCalled();
+    expect(m.transition).not.toHaveBeenCalled();
+  });
+
+  it("after a CONFIRMED plan: the start chat, the booking is untouched", async () => {
+    await newPlan(ctx("CAPTURED", { state: "CONFIRMED" }));
+    expect(m.beginStartChat).toHaveBeenCalledWith("u1", ev);
+    expect(m.onOut).not.toHaveBeenCalled();
+    expect(m.cancel).not.toHaveBeenCalled();
+  });
+
+  it("a member of a COLLECTING plan leaves through onOut (the 'I'm out' path), then the start chat", async () => {
+    afterLeave("COLLECTING", "DECLINED");
+    await newPlan(ctx("PREFS_DONE"));
+    expect(m.onOut).toHaveBeenCalledWith(expect.objectContaining({ plan: expect.objectContaining({ id: "p1" }) }), ev, "member_out");
+    expect(m.transition).not.toHaveBeenCalled();
+    expect(m.order.indexOf("onOut")).toBeLessThan(m.order.indexOf("beginStartChat"));
+    expect(m.beginStartChat).toHaveBeenCalledWith("u1", ev, 2);
+    expect(m.clearAwaiting).toHaveBeenCalled();
+  });
+
+  it.each(["COLLECTING", "RESEARCHING", "VOTING"])("the organizer of a %s plan calls it off (T_PLAN_OFF, nobody named), then the start chat", async (state) => {
+    m.transition.mockResolvedValue({ id: "p1", version: 3, from_state: state });
+    afterLeave("CANCELLED", "PREFS_DONE");
+    await newPlan(ctx("PREFS_DONE", { state, organizer_id: "u1" }));
+    expect(m.transition).toHaveBeenCalledWith("p1", ["COLLECTING", "RESEARCHING", "VOTING"], "CANCELLED");
+    expect(m.fanout).toHaveBeenCalledWith("p1", "T_PLAN_OFF", expect.any(Function), { version: 3 });
+    expect(m.onOut).not.toHaveBeenCalled();
+    expect(m.cancel).not.toHaveBeenCalled();
+    expect(m.beginStartChat).toHaveBeenCalledWith("u1", ev, 2);
+  });
+
+  it("organizer whose plan moved past VOTING meanwhile: falls back to onOut (money-safe cancel path)", async () => {
+    m.transition.mockResolvedValue(null);
+    afterLeave("CANCELLED", "HELD");
+    await newPlan(ctx("PREFS_DONE", { state: "VOTING", organizer_id: "u1" }));
+    expect(m.onOut).toHaveBeenCalledWith(expect.anything(), ev, "member_out");
+    expect(m.fanout).not.toHaveBeenCalled();
+  });
+
+  it("a HELD member in APPROVING goes through onOut (cancel releases every hold); start chat once the plan is CANCELLED", async () => {
+    afterLeave("CANCELLED", "HELD");
+    await newPlan(ctx("HELD", { state: "APPROVING", organizer_id: "u1" }));
+    expect(m.transition).not.toHaveBeenCalled(); // never the pre-order shortcut once holds may exist
+    expect(m.onOut).toHaveBeenCalledWith(expect.anything(), ev, "member_out");
+    expect(m.beginStartChat).toHaveBeenCalledWith("u1", ev, 2);
+  });
+
+  it.each([
+    ["COMMITTING", "HELD"],
+    ["CANCELLING", "HELD"],
+  ])("still counted by the old plan afterwards (%s, %s): no start chat (onOut already answered)", async (state, stage) => {
+    afterLeave(state, stage);
+    await newPlan(ctx(stage, { state }));
+    expect(m.onOut).toHaveBeenCalledOnce();
+    expect(m.beginStartChat).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendAlreadyInPlan", () => {
+  it("T_ALREADY_IN_PLAN with the plan title and counts only, threaded under the inbound", async () => {
+    m.countByStage.mockResolvedValue({ JOINED: 1, PREFS_DONE: 2, VOTED: 1 });
+    await sendAlreadyInPlan(ctx("PREFS_DONE", { title: "Brunch with coffee" }), ev);
+    expect(m.notify).toHaveBeenCalledWith("u1", "T_ALREADY_IN_PLAN", { title: "Brunch with coffee", ready: 3, total: 4 }, { key: "reply:msg1:1", replyTo: "msg1", planId: "p1" });
   });
 });

@@ -25,7 +25,7 @@ import type { MemberContext, PlanRow, UserRow } from "../repo/types";
 import { findUserByPhone, findUserByPhotonId, setPhotonUserId } from "../repo/users";
 import { getPayLink } from "../repo/payLinks";
 import { isPrefillText, isStartPrefill, looksLikeName, parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
-import { handleCommand, reply } from "./handlers";
+import { handleCommand, reply, sendAlreadyInPlan } from "./handlers";
 import { containsCardNumber } from "./luhn";
 
 /**
@@ -36,7 +36,7 @@ import { containsCardNumber } from "./luhn";
  * 5 INVITED (a /join lane, found by loadContext only when no live lane exists) and not a leave/other-plan command →
  * onJoinText (any first text joins: ux-flow §8.1), or T_PLAN_FULL when 8 texted lanes are already in (the same cap as a
  * JOIN command); else parseCommand → handleCommand; a web pre-fill
- * (isPrefillText) → status (all deterministic, so no typing bubble); then typingOn; no active plan → start-by-chat
+ * (isPrefillText) → status, except the /start pre-fill in a pre-commit plan → T_ALREADY_IN_PLAN (all deterministic, so no typing bubble); then typingOn; no active plan → start-by-chat
  * (plan/startByChat.ts); a CONFIRMED plan → free text;
  * 6 another member's budget asked about during the budget/prefs steps → T_ONLY_YOURS (code check, no stage change);
  * 7 awaiting flags (holdgate/tiers/budget/name; under 'tiers' a yes/no drops the menu and a question that isn't a
@@ -78,6 +78,10 @@ export async function route(e: InboundEvent): Promise<void> {
     return onJoinText(user, ctx.plan.code, e);
   }
   if (cmd) return handleCommand(user, ctx, cmd, e);
+  // The /start pre-fill from someone still in an open plan (no hold of theirs yet) is a wish to plan something new, not
+  // a message for that plan: say which plan they're in and offer 'new plan' or 'status'. With a hold, or once the plan
+  // is committing or booked, it falls through to the status below.
+  if (ctx && isStartPrefill(text) && isPreCommit(ctx)) return sendAlreadyInPlan(ctx, e);
   // A member already past INVITED who taps Start or Open Messages again sends a pre-filled sentence. It is never a
   // budget, preference or vote, so it gets the status. Awaiting flags stay set for the member's next real answer.
   if (ctx && isPrefillText(text, ctx.plan.title)) return handleCommand(user, ctx, { kind: "status" }, e);
@@ -192,6 +196,12 @@ async function loadContext(user: UserRow, startsOwnPlan: boolean): Promise<Membe
 async function liveLane(user: UserRow, plan: PlanRow | null): Promise<MemberContext | null> {
   const participant = plan ? await getParticipant(plan.id, user.id) : null;
   return plan && participant && !TERMINAL_STAGES.includes(participant.stage) ? { user, plan, participant } : null;
+}
+
+/** Pre-commit: COLLECTING|RESEARCHING|VOTING, or APPROVING before this person holds: leaving costs nobody anything. */
+function isPreCommit({ plan, participant }: MemberContext): boolean {
+  if (plan.state === "COLLECTING" || plan.state === "RESEARCHING" || plan.state === "VOTING") return true;
+  return plan.state === "APPROVING" && !stageAtLeast(participant.stage, "HELD");
 }
 
 /** The in-memory flag, or (after a restart) the pending hold_gates row, which is the source of truth for 'holdgate'. */
