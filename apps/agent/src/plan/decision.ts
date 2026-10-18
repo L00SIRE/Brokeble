@@ -62,6 +62,7 @@ export async function recompute(planId: string): Promise<void> {
     // Only the budget blocked it: ask the members who are over, instead of ending the plan on them. Counts only in logs (P1/P7).
     if (typeof cheapest === "number" && over.size > 0) {
       log.info({ plan_id: planId, state: plan.state, from_count: result.from_count, over_budget: over.size }, "plan.budget_blocked");
+      stopPlanTyping(planId); // research is done; the plan now waits on a member, so no "typing…" bubble meanwhile
       await fanout(planId, "T_BUDGET_TOO_LOW", () => ({ price: usd2(cheapest) }), {
         version: plan.version,
         suffix: cheapest,
