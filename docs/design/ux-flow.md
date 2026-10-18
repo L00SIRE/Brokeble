@@ -75,7 +75,7 @@ Messages opens: "Hey SquadTab! Help me plan a night out."  → user presses send
       ▼
 Agent: hello, asks name, where, when, how many  (text only, no link)
 User:  "maya! santa monica saturday, 4 of us"
-Agent: "You're set, Maya: Dinner + show, Sat, Oct 24 from 7:00 PM in Santa Monica, 4 of you.
+Agent: "You're set, Maya: Dinner + show, Sat, Oct 24 from 5:30 PM in Santa Monica, 4 of you.
         Send this link to your group chat and I'll take it from there: https://…/j/4821"
 Agent: budget question (private)          ← organizer is already a participant
       │ web flips to "Plan ready": plan card, [Send invite to your group] (share sheet), "1 of 4 in"
@@ -89,7 +89,7 @@ Organizer forwards the link in Messages (or taps Share on the web) → group cha
 Group chat: rich preview "Maya's planning Dinner + show · Sat 7 PM · Santa Monica"
       │ tap
       ▼
-/j/4821  Maya invited you · Dinner + show · Sat, Oct 24 · 7:00 PM · Santa Monica · 2 of 4 in
+/j/4821  Maya invited you · Dinner + show · Sat, Oct 24 · 5:30 PM · Santa Monica · 2 of 4 in
          [ (310) 555-0123 ]  [Join in iMessage]
       │ POST /join → seat, INVITED, status_token
       ▼
@@ -296,8 +296,8 @@ The phone version of 4.2 and 4.3: the **Text SquadTab** button, built from `GET 
 | 0 s | Maya | Hey SquadTab! Help me plan a night out. | pre-filled; first inbound creates the `dm_route` |
 | ~1 s | — | read receipt, typing | `markReadSafe`, `typingOn` (`route.ts:53-54`) |
 | ~2 s | SquadTab | Hey! I'm SquadTab. I'll plan dinner and a show with your friends, keep everyone's budget private, and nobody fronts the bill. What should I call you, and where and when are we going? Like: "Maya, Santa Monica tonight, 4 of us" | **T_START_HELLO** (new) |
-| ~15 s | Maya | maya! santa monica saturday, prob 4 of us | `parsePlanDraft` → name Maya, area Santa Monica, date 2026-10-24, party 4, no time given (default 19:00) |
-| ~17 s | SquadTab | You're set, Maya: Dinner + show, Sat, Oct 24 from 7:00 PM in Santa Monica, 4 of you. Send this link to your group chat and I'll take it from there:⏎https://tab-web-ten.vercel.app/j/4821 | **T_PLAN_READY** (new). The URL sits alone on the last line (⏎ = newline), so a long-press copies cleanly and tapping it opens `/j/4821`, which recognizes the organizer ("This is your plan" + one-tap share sheet, 4.4). In the happy path it is the 2nd outbound, sent after the user's 2nd inbound |
+| ~15 s | Maya | maya! santa monica saturday, prob 4 of us | `parsePlanDraft` → name Maya, area Santa Monica, date 2026-10-24, party 4, no time given (default 17:30) |
+| ~17 s | SquadTab | You're set, Maya: Dinner + show, Sat, Oct 24 from 5:30 PM in Santa Monica, 4 of you. Send this link to your group chat and I'll take it from there:⏎https://tab-web-ten.vercel.app/j/4821 | **T_PLAN_READY** (new). The URL sits alone on the last line (⏎ = newline), so a long-press copies cleanly and tapping it opens `/j/4821`, which recognizes the organizer ("This is your plan" + one-tap share sheet, 4.4). In the happy path it is the 2nd outbound, sent after the user's 2nd inbound |
 | ~18 s | SquadTab | First up: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it. | existing T_BUDGET_ASK; organizer is JOINED via `createPlanRecord` |
 | ~30 s | Maya | like 60, 80 tops | existing budget delegate |
 | ~32 s | SquadTab | Got it. Just between us: aim ~$60, never over $80. Text 'change budget' anytime. | T_BUDGET_CONFIRM |
@@ -312,7 +312,7 @@ Missing-field branches, at most 2 asks before falling back to defaults:
 - Area missing: **T_START_ASK_AREA** (new), "Sounds fun! Which neighborhood or city should I look in?" Area is required. It keeps asking (it can't research without it), at most once per inbound.
 - Party size missing: **T_START_ASK_COUNT** (new), "Got it. How many of you, counting you?" Defaults to 4 after one unanswered ask.
 - Both missing: **T_START_ASK_BOTH** (new), "Sounds fun! Where should I look, and how many of you, counting you?"
-- Date missing: today (America/Los_Angeles). Time missing: 19:00. End time: start + 4 h, capped at 23:59.
+- Date missing: today (America/Los_Angeles). Time missing: 17:30 to 23:00, the demo seed's window (`apps/agent/src/plan/defaults.ts`; at 19:00 the cached Scout snapshot had only 2 shows starting T+90 to T+150, so cached research ended in T_NO_FIT). A time given: end = start + 4 h, capped at 23:59.
 - Title: always "Dinner + show". The research pipeline is fixed to dinner and show (`converse.ts whereThingsStand`; PLAN §6 row 6), so asking "what" would promise something the product doesn't do.
 
 **Copy flag (team decision, money/privacy copy is frozen per PLAN §8).** T_BUDGET_ASK and T_PREFS_ASK say "tonight". For a plan on another day, change them to "...spend, all-in?" and "...steer clear of?". Recommended, but only with the copy owner's sign-off.
@@ -558,7 +558,7 @@ export async function handleStartText(user: UserRow, e: InboundEvent): Promise<v
 5. Else if `area` is missing: T_START_ASK_AREA (or T_START_ASK_BOTH if `party` is also missing); `asks++`.
 6. Else if `party` is missing and `asks < 1`: T_START_ASK_COUNT; `asks++`.
 7. Else create the plan:
-   - `party ??= 4`, `date ??= todayLA()`, `time_start ??= "19:00"`, `time_end = min(start + 4h, "23:59")`.
+   - `party ??= 4`, `date ??= todayLA()`, `time_start ??= "17:30"`, `time_end = time given ? min(start + 4h, "23:59") : "23:00"`.
    - `createPlanRecord(user, { title: "Dinner + show", ... }, { organizerStage: "JOINED" })`.
    - Send T_PLAN_READY `{name_part, title, date: fmtDate, time: clock12, area, n, url: join_url}`, then T_BUDGET_ASK with keys `replyKey(e.message_id, 1)` and `(…, 2)`.
    - Delete the draft.
@@ -622,7 +622,7 @@ Check whether `render` rejects empty strings before using `name_part`. `VARS` us
 3. **`/t/[token]`** (new, W2): client page, 4.5.
 4. **`app/j/[code]/opengraph-image.tsx`** (new, W2): 4.6.
 5. **Retire** `components/join/CreatePlanForm.tsx`, `JoinForm.tsx`, `lib/createPlanForm.ts` and the budget/consent parts of `lib/joinForm.ts` and their tests. Keep `CopyButton.tsx`.
-   - Fallback branch (10.4): `CreatePlanForm` shrinks to area, party stepper (2 to 8, default 4) and phone, with date defaulting to today and time 19:00 to 23:00 hidden. Its success screen is the shared hand-off and status components, so there is still no QR on phones and no copy-only link.
+   - Fallback branch (10.4): `CreatePlanForm` shrinks to area, party stepper (2 to 8, default 4) and phone, with date defaulting to today and time 17:30 to 23:00 hidden. Its success screen is the shared hand-off and status components, so there is still no QR on phones and no copy-only link.
 6. **Shared hook** `lib/useStatus.ts`: polling with the cadence in 4.3. Pure reducer `lib/statusPhase.ts`, unit-tested.
 7. **UI rule** (user's CLAUDE.md): builders touching UI invoke `vercel-react-best-practices`, `vercel-composition-patterns` and `web-design-guidelines`.
    - Build `StartFlow` and `InviteFlow` from one shared compound: `<Flow.PhoneStep/>`, `<Flow.Handoff/>`, `<Flow.LiveStatus/>`. Use variant components, not boolean props.

@@ -1,6 +1,8 @@
 // VENUE_MODE=mock: an in-memory stand-in for apps/venue. It prices with the shared priceBundle() (M3), holds only
 // fake authorizations, captures only when every share is AUTHORIZED and the consent set matches (M4), and returns a
 // TapVerifyReport labelled as mock (no signature exists in mock mode). `authorize()` simulates the pay page.
+// Like the live client (venueClient commitOnce), commit() puts the report on the console as `tap.verify`; it never emits
+// `tap.signed`, because nothing is signed here, and the console labels a report without one as the simulation.
 import { randomBytes } from "node:crypto";
 import {
   type CommitResult,
@@ -9,6 +11,7 @@ import {
   type CreateOrderResponse,
   type OrderItem,
   type OrderStatus,
+  type SseEvent,
   type Share,
   TAX,
   TIP,
@@ -26,8 +29,12 @@ const id = (prefix: string) => prefix + randomBytes(8).toString("hex").slice(0, 
 const STEPS: TapStep["name"][] = ["tag", "params", "timestamps", "nonce", "key", "signature"];
 const FAIL_AT: Record<TapTestKind, number> = { wrong_tag: 1, expired: 3, replay: 4, tamper: 6 };
 
+export type MockVenueDeps = { emit?: (ev: SseEvent) => Promise<unknown> | void };
+
 export class MockVenue implements VenuePort {
   readonly orders = new Map<string, MockOrder>();
+
+  constructor(private readonly deps: MockVenueDeps = {}) {}
 
   async checkAvailability(_bundleKey: string): Promise<{ available: boolean }> {
     return { available: true };
@@ -64,6 +71,12 @@ export class MockVenue implements VenuePort {
   }
 
   async commit(orderId: string, consent: ConsentSet, test?: TapTestKind): Promise<CommitResult> {
+    const result = this.commitResult(orderId, consent, test);
+    await this.deps.emit?.({ type: "tap.verify", order_id: orderId, report: result.tap });
+    return result;
+  }
+
+  private commitResult(orderId: string, consent: ConsentSet, test?: TapTestKind): CommitResult {
     const o = this.get(orderId);
     const failAt = test ? FAIL_AT[test] : null;
     const steps: TapStep[] = STEPS.map((name, i) => ({

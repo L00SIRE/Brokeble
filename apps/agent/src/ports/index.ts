@@ -32,7 +32,13 @@ export function createPorts(e: Pick<Env, "MESSAGING_MODE" | "LLM_MODE" | "PLANNE
                 (err) => log.warn(errInfo(err), "mock planner progress"),
               ),
           }),
-    venue: e.VENUE_MODE === "live" ? new LiveVenue() : new MockVenue(),
+    venue: e.VENUE_MODE === "live" ? new LiveVenue() : new MockVenue({
+            // Console evidence only: a failed emit is logged and never fails the (in-memory) capture.
+            emit: (ev) => emit(ev).then(
+              () => {},
+              (err) => log.warn(errInfo(err), "mock venue tap.verify"),
+            ),
+          }),
   };
 }
 

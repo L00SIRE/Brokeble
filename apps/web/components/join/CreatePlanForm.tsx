@@ -1,184 +1,107 @@
 "use client";
 
-// "/" organizer form (B plan T8; minimal, the demo uses the seed). Creates a plan and shows the QR and join link.
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import type { CreatePlanResponse } from "@/lib/agent";
+// Fallback "/" (ux-flow §10.4 cut line): if start-by-chat isn't green, the stub asks where and how many plus the phone,
+// and posts to POST /plans, which seats the organizer. Everything after the submit is the shared hand-off and live
+// status (components/flow), so there is still no QR on phones and no copy-only link. Date defaults to today, 7 to 11 PM.
+import { useId, useState } from "react";
+import { phoneInput } from "@/components/flow/classes";
+import { type SubmitInput, type SubmitResult, useFlow } from "@/components/flow/FlowContext";
 import { createPlan } from "@/lib/agentRequest";
-import { CREATE_FIELD_ORDER, type CreateField, localToday, mapCreateIssues, validateCreatePlan } from "@/lib/createPlanForm";
-import { firstError } from "@/lib/formUtils";
-import { CopyButton } from "./CopyButton";
-import { buttonClass, Field, inputClass, Notice, Spinner } from "./ui";
 
-type Errors = Partial<Record<CreateField, string>>;
-type Banner = "network" | "rate_limited" | "failed";
+export const FALLBACK_FIRST_TEXT = "Hey SquadTab! Let's get planning.";
 
-const INPUT_NAME: Record<CreateField, string> = {
-  title: "title",
-  area: "area",
-  date: "date",
-  timeStart: "time_start",
-  timeEnd: "time_end",
-  partyTarget: "party_target",
-  firstName: "first_name",
-  phone: "phone",
-};
+const AREA_ERROR = "Enter a neighborhood or city, like Santa Monica.";
+const PARTY_ERROR = "Pick 2 to 8 people, counting you.";
+const MIN_PARTY = 2;
+const MAX_PARTY = 8;
+/** Same window as a chat plan with no time (apps/agent/src/plan/defaults.ts): the evening shows research finds fit it. */
+const PLAN_START = "17:30";
+const PLAN_END = "23:00";
 
-const BANNER_COPY: Record<Banner, { title: string; body: string }> = {
-  network: { title: "Couldn't reach SquadTab", body: "Check your connection. Nothing was created." },
-  rate_limited: { title: "Too many plans from this connection", body: "Wait a minute, then try again." },
-  failed: { title: "Something went wrong on our side", body: "Nothing was created. Please try again." },
-};
+/** Local "YYYY-MM-DD" (en-CA formats as ISO). */
+const localToday = (now = new Date()): string => now.toLocaleDateString("en-CA");
 
-export function CreatePlanForm() {
-  const formRef = useRef<HTMLFormElement>(null);
-  const [created, setCreated] = useState<CreatePlanResponse | null>(null);
-  const [errors, setErrors] = useState<Errors>({});
-  const [banner, setBanner] = useState<Banner | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+/** FlowProvider `submit` for the fallback: validates the two extra fields, then POST /plans. */
+export async function submitCreatePlan({ phoneE164, form }: SubmitInput, today = localToday(), f?: typeof fetch): Promise<SubmitResult> {
+  const area = String(form.get("area") ?? "").trim();
+  const party = Number(form.get("party_target"));
+  const errors: Record<string, string> = {};
+  if (area.length < 2 || area.length > 60) errors.area = AREA_ERROR;
+  if (!Number.isInteger(party) || party < MIN_PARTY || party > MAX_PARTY) errors.party_target = PARTY_ERROR;
+  if (Object.keys(errors).length > 0) return { kind: "invalid", errors };
 
-  useEffect(() => {
-    const field = firstError(CREATE_FIELD_ORDER, errors);
-    if (field) (formRef.current?.elements.namedItem(INPUT_NAME[field]) as HTMLElement | null)?.focus();
-  }, [errors]);
-
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (submitting) return;
-    const data = new FormData(e.currentTarget);
-    const text = (name: string) => String(data.get(name) ?? "");
-    const checked = validateCreatePlan(
-      {
-        title: text("title"),
-        area: text("area"),
-        date: text("date"),
-        timeStart: text("time_start"),
-        timeEnd: text("time_end"),
-        partyTarget: text("party_target"),
-        firstName: text("first_name"),
-        phone: text("phone"),
-      },
-      localToday(),
-    );
-    setBanner(null);
-    if (!checked.ok) {
-      setErrors(checked.errors);
-      return;
+  const out = await createPlan(
+    { title: "Dinner + show", area, date: today, time_start: PLAN_START, time_end: PLAN_END, party_target: party, organizer: { phone_e164: phoneE164, first_name: "" } },
+    f,
+  );
+  if (out.kind === "rejected" && out.error === "invalid") {
+    const mapped: Record<string, string> = {};
+    for (const { path } of out.issues) {
+      if (path === "area") mapped.area = AREA_ERROR;
+      if (path === "party_target") mapped.party_target = PARTY_ERROR;
     }
-    setErrors({});
-    setSubmitting(true);
-    const out = await createPlan(checked.body);
-    setSubmitting(false);
-    if (out.kind === "ok") return setCreated(out.data);
-    if (out.kind === "network") return setBanner("network");
-    if (out.error === "invalid") {
-      const mapped = mapCreateIssues(out.issues);
-      setErrors(mapped.errors);
-      if (mapped.rest || Object.keys(mapped.errors).length === 0) setBanner("failed");
-      return;
-    }
-    setBanner(out.error === "rate_limited" ? "rate_limited" : "failed");
+    if (Object.keys(mapped).length > 0) return { kind: "invalid", errors: mapped };
   }
+  return out;
+}
 
-  if (created) return <PlanCreated result={created} />;
-
+/** Where + how many, rendered inside <PhoneStep> before the phone field. */
+export function CreatePlanFields() {
+  const { state } = useFlow();
+  const areaId = useId();
+  const areaError = state.fieldErrors.area;
   return (
-    <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Create a plan">
-      <fieldset disabled={submitting} className="flex min-w-0 flex-col gap-4">
-        <legend className="sr-only">Plan details</legend>
-
-        <Field label="What's the plan?" error={errors.title}>
-          {(c) => <input {...c} name="title" type="text" maxLength={80} required autoComplete="off" placeholder="Saturday dinner and a show" className={inputClass} />}
-        </Field>
-
-        <Field label="Where?" hint="A neighborhood or city." error={errors.area}>
-          {(c) => <input {...c} name="area" type="text" maxLength={60} required autoComplete="off" placeholder="Santa Monica" className={inputClass} />}
-        </Field>
-
-        <Field label="Date" error={errors.date}>
-          {(c) => <input {...c} name="date" type="date" required className={`${inputClass} appearance-none`} />}
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Start" error={errors.timeStart}>
-            {(c) => <input {...c} name="time_start" type="time" required defaultValue="18:00" className={`${inputClass} tabular-nums`} />}
-          </Field>
-          <Field label="End" error={errors.timeEnd}>
-            {(c) => <input {...c} name="time_end" type="time" required defaultValue="22:00" className={`${inputClass} tabular-nums`} />}
-          </Field>
-        </div>
-
-        <Field label="How many people?" hint="Between 2 and 8, including you." error={errors.partyTarget}>
-          {(c) => <input {...c} name="party_target" type="text" inputMode="numeric" pattern="[2-8]" maxLength={1} required defaultValue="4" autoComplete="off" className={`${inputClass} tabular-nums`} />}
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Your first name" error={errors.firstName}>
-            {(c) => <input {...c} name="first_name" type="text" autoComplete="given-name" autoCapitalize="words" maxLength={40} required placeholder="Maya" className={inputClass} />}
-          </Field>
-          <Field label="Your phone" error={errors.phone}>
-            {(c) => <input {...c} name="phone" type="tel" inputMode="tel" autoComplete="tel" spellCheck={false} required placeholder="(310) 555-0123" className={inputClass} />}
-          </Field>
-        </div>
-
-        <div aria-live="polite">
-          {banner ? (
-            <Notice tone="error" title={BANNER_COPY[banner].title}>
-              <p className="text-sm text-muted">{BANNER_COPY[banner].body}</p>
-              <button type="button" onClick={() => formRef.current?.requestSubmit()} className="self-start text-sm font-semibold text-accent underline underline-offset-4">
-                Try again
-              </button>
-            </Notice>
-          ) : null}
-        </div>
-
-        <button type="submit" className={buttonClass}>
-          {submitting ? (
-            <>
-              <Spinner />
-              Creating…
-            </>
-          ) : (
-            "Create plan"
-          )}
-        </button>
-      </fieldset>
-    </form>
+    <>
+      <div className="grid gap-2">
+        <label htmlFor={areaId} className="text-[15px] font-[650]">
+          Where?
+        </label>
+        <input
+          id={areaId}
+          name="area"
+          type="text"
+          autoComplete="off"
+          autoCapitalize="words"
+          maxLength={60}
+          placeholder="Santa Monica"
+          aria-invalid={areaError ? true : undefined}
+          aria-describedby={areaError ? `${areaId}-error` : undefined}
+          className={phoneInput}
+        />
+        {areaError ? (
+          <p id={`${areaId}-error`} className="text-[15px] font-semibold">
+            {areaError}
+          </p>
+        ) : null}
+      </div>
+      <PartyStepper error={state.fieldErrors.party_target} />
+    </>
   );
 }
 
-/** Result: QR as <img src="data:image/svg+xml…"> (never dangerouslySetInnerHTML), the join link with a copy button. */
-export function PlanCreated({ result }: { result: CreatePlanResponse }) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []);
-
+function PartyStepper({ error }: { error?: string }) {
+  const [n, setN] = useState(4);
+  const labelId = useId();
+  const step =
+    "inline-flex size-11 touch-manipulation items-center justify-center rounded-control border-2 border-ink bg-white text-xl font-bold text-ink disabled:opacity-40";
   return (
-    <section aria-labelledby="created-heading" className="flex flex-col gap-5">
-      <div className="flex flex-col gap-2">
-        <h2 id="created-heading" ref={heading} tabIndex={-1} className="text-xl font-semibold text-balance outline-none">
-          Your plan is ready
-        </h2>
-        <p className="text-pretty text-muted">Paste this link in your group chat. SquadTab never joins it.</p>
+    <div className="grid gap-2" role="group" aria-labelledby={labelId}>
+      <span id={labelId} className="text-[15px] font-[650]">
+        How many of you, counting you?
+      </span>
+      <div className="flex items-center gap-3">
+        <button type="button" className={step} onClick={() => setN((v) => Math.max(MIN_PARTY, v - 1))} disabled={n <= MIN_PARTY} aria-label="Fewer people">
+          −
+        </button>
+        <output aria-live="polite" className="mono min-w-[9ch] text-center text-[17px]">
+          {n} people
+        </output>
+        <button type="button" className={step} onClick={() => setN((v) => Math.min(MAX_PARTY, v + 1))} disabled={n >= MAX_PARTY} aria-label="More people">
+          +
+        </button>
+        <input type="hidden" name="party_target" value={n} />
       </div>
-
-      {/* A data: URI is not optimizable by next/image; the SVG comes from our own agent and renders as an inert image. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.qr_svg)}`}
-        alt={`QR code to join plan ${result.code}`}
-        width={256}
-        height={256}
-        className="mx-auto size-64 rounded-2xl bg-white p-3"
-      />
-
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-4">
-        <div className="min-w-0">
-          <p className="text-sm text-muted">
-            Join link · code <span className="font-mono tabular-nums">{result.code}</span>
-          </p>
-          <p className="font-mono text-sm break-all select-all">{result.join_url}</p>
-        </div>
-        <CopyButton value={result.join_url} what="join link" />
-      </div>
-    </section>
+      {error ? <p className="text-[15px] font-semibold">{error}</p> : null}
+    </div>
   );
 }

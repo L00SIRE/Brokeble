@@ -167,7 +167,10 @@ export async function useCached(row: ResearchRunRow): Promise<void> {
       share_url: f.share_url,
     });
   } else {
-    await optionsRepo.upsertOptions(p.id, row.id, f.options);
+    // The snapshot was captured for one area ("Westwood / Sawtelle"), but a chat-created plan can be anywhere, and
+    // compose() keeps only options whose area equals the plan's. The fallback therefore stands in for the plan's area;
+    // the run is marked cached on the console, so this is never presented as live research.
+    await optionsRepo.upsertOptions(p.id, row.id, f.options.map((o) => ({ ...o, area: p.area })));
     await runs.mergeRunResult(row.id, { cached_from_run_id: f.run_id, share_url: f.share_url });
   }
   await runs.markRunCached(row.id);

@@ -4,8 +4,12 @@
 import { cors } from "hono/cors";
 import { env } from "./env";
 
-/** Paths the web app and console call: POST /join, POST /plans, GET /events (SSE), GET /events/snapshot. */
-export const PUBLIC_CORS_PATHS = ["/join", "/plans", "/events", "/events/snapshot"] as const;
+/**
+ * Paths the web app and console call from the browser: POST /start, /join, /plans; GET /plans/:code (mostly fetched by
+ * the Next server, but a client refetch of counts needs it); GET /status (live status polling); GET /events (SSE) and
+ * /events/snapshot. A Hono path without a wildcard matches only itself, so "/plans" does not cover "/plans/4821".
+ */
+export const PUBLIC_CORS_PATHS = ["/join", "/plans", "/plans/:code", "/start", "/status", "/events", "/events/snapshot"] as const;
 
 export const publicCors = cors({
   origin: env.WEB_ORIGIN,

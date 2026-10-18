@@ -106,7 +106,8 @@ describe("orgJoinStatusJob", () => {
     expect(m.notify).toHaveBeenCalledWith("org", "T_ORG_JOIN_STATUS", { k: 2, n: 4 }, { key: "tpl:p1:org:T_ORG_JOIN_STATUS:2", planId: "p1" });
   });
 
-  it.each([[{}], [{ PREFS_DONE: 4 }]])("stays quiet when nobody joined or the plan is full (%j)", async (counts) => {
+  // { JOINED: 1 } = only the organizer (a participant since chat-first start): GO needs 2, so no "Reply GO" offer.
+  it.each([[{}], [{ JOINED: 1 }], [{ INVITED: 3, PREFS_DONE: 1 }], [{ PREFS_DONE: 4 }]])("stays quiet when fewer than 2 joined or the plan is full (%j)", async (counts) => {
     m.countByStage.mockResolvedValue(counts);
     await orgJoinStatusJob(job());
     expect(m.notify).not.toHaveBeenCalled();
@@ -127,7 +128,7 @@ describe("approveRepingJob", () => {
   beforeEach(() => {
     m.listMembers.mockResolvedValue([member("a", "HELD"), member("b", "LINK_SENT"), member("c", "GATED"), member("d", "LINK_SENT"), member("e", "CAPTURED")]);
     m.getPayLink.mockImplementation(async (_p: string, u: string) =>
-      u === "d" ? { pay_url: "https://pay/d", expires_at: new Date(Date.now() - 1) } : { pay_url: `https://pay/${u}`, expires_at: future });
+      u === "d" ? { pay_url: "https://pay/d", expires_at: new Date(Date.now() - 60_000) } : { pay_url: `https://pay/${u}`, expires_at: future });
     m.getBundle.mockResolvedValue({ id: "bnd_1" });
   });
 

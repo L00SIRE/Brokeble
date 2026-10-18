@@ -1,71 +1,100 @@
-// /j/[code] form rules (B plan T8). Pure: the budget is only ever read from the form, validated and posted.
-import type { JoinRequest } from "./agent";
-import { type Errors, mapIssues, parseUsd } from "./formUtils";
+// /j/[code] friend flow rules (ux-flow §4.4, §9). Pure except `fetchPlanPreview`, which takes its fetch as a parameter.
+// The web asks for one thing, the person's phone number. Names and budgets are asked only in the private chat.
+import { PlanPreview } from "./agent";
 import { normalizePhone } from "./normalizePhone";
 
-export type JoinField = "phone" | "firstName" | "budgetTarget" | "budgetMax" | "consent";
-export type JoinFields = { phone: string; firstName: string; budgetTarget: string; budgetMax: string; consent: boolean };
+export const CODE_RE = /^\d{4}$/;
 
-export const JOIN_FIELD_ORDER: readonly JoinField[] = ["phone", "firstName", "budgetTarget", "budgetMax", "consent"];
+/** POST /join wire body. `first_name` and `budget_usd` are left out on purpose (ux-flow §7.2): the chat asks for both. */
+export type JoinBody = { code: string; phone_e164: string; consent: true };
 
-// The agent rejects a target under $5 (acceptBudget: 500 cents), so the form says the same.
-const MIN_USD = 5;
-const MAX_USD = 1000;
+export const PHONE_ERROR = "That doesn’t look like a US mobile number. Try 10 digits, like (310) 555-0123.";
 
-const MESSAGES: Record<JoinField, string> = {
-  phone: "Enter a valid phone number, like (310) 555-0123.",
-  firstName: "Enter your first name.",
-  budgetTarget: "Enter an amount between $5 and $1,000.",
-  budgetMax: "Enter an amount between $5 and $1,000.",
-  consent: "Agree to continue.",
-};
-
-export const joinFieldMessage = (f: JoinField): string => MESSAGES[f];
-
-export function validateJoin(code: string, f: JoinFields): { ok: true; body: JoinRequest } | { ok: false; errors: Errors<JoinField> } {
-  const errors: Errors<JoinField> = {};
-  const phone = normalizePhone(f.phone);
-  if (!phone) errors.phone = MESSAGES.phone;
-  const firstName = f.firstName.trim();
-  if (!firstName) errors.firstName = MESSAGES.firstName;
-  else if (firstName.length > 40) errors.firstName = "Keep your name under 40 characters.";
-
-  const target = parseUsd(f.budgetTarget);
-  const max = parseUsd(f.budgetMax);
-  const outOfRange = (n: number | null | "invalid") => n === "invalid" || (n !== null && (n < MIN_USD || n > MAX_USD));
-  if (outOfRange(target)) errors.budgetTarget = MESSAGES.budgetTarget;
-  if (outOfRange(max)) errors.budgetMax = MESSAGES.budgetMax;
-  if (!errors.budgetTarget && !errors.budgetMax) {
-    if (target === null && max !== null) errors.budgetTarget = "Add your target amount first.";
-    else if (typeof target === "number" && typeof max === "number" && max < target) errors.budgetMax = "Your hard max can't be below your target.";
-  }
-  if (!f.consent) errors.consent = MESSAGES.consent;
-
-  if (Object.keys(errors).length > 0 || !phone) return { ok: false, errors };
-  const budget = typeof target === "number" ? { target, ...(typeof max === "number" && { hard_max: max }) } : undefined;
-  return { ok: true, body: { code, phone_e164: phone, first_name: firstName, ...(budget && { budget_usd: budget }), consent: true } };
+export function validateJoinPhone(code: string, phone: string): { ok: true; body: JoinBody } | { ok: false; error: string } {
+  const e164 = normalizePhone(phone);
+  if (!CODE_RE.test(code) || !e164) return { ok: false, error: PHONE_ERROR };
+  return { ok: true, body: { code, phone_e164: e164, consent: true } };
 }
 
-const PATH_FIELD: Record<string, JoinField> = {
-  phone_e164: "phone",
-  first_name: "firstName",
-  budget_usd: "budgetTarget",
-  "budget_usd.target": "budgetTarget",
-  "budget_usd.hard_max": "budgetMax",
-  consent: "consent",
-};
+export type JoinFailure = "not_found" | "plan_closed" | "plan_full" | "capacity" | "rate_limited" | "network" | "invalid" | "unknown";
 
-/** Server 422 issues → field errors. Server wording is ignored (it is zod-technical); `rest` means "show a banner". */
-export const mapJoinIssues = (issues: readonly { path: string }[]) => mapIssues(issues, (p) => PATH_FIELD[p], joinFieldMessage);
+/** What the error screen offers: `start` links to `/`, `retry` re-submits the same number, `fix` focuses the field. */
+export type FailureAction = "start" | "retry" | "fix";
 
-export type JoinFailure = "not_found" | "plan_closed" | "rate_limited" | "capacity" | "invalid" | "unknown";
+export type FailureCopy = { title: string; body: string; terminal: boolean; action: FailureAction };
 
-/** Copy for each rejection (B plan T8 state table). not_found and plan_closed are terminal for this link. */
-export const JOIN_FAILURE_COPY: Record<JoinFailure, { title: string; body: string; terminal: boolean }> = {
-  not_found: { title: "That code doesn't match a plan", body: "Check the link your organizer sent you.", terminal: true },
-  plan_closed: { title: "This plan isn't taking new people anymore", body: "Ask your organizer to start a new one.", terminal: true },
-  capacity: { title: "SquadTab is at capacity, try again in a minute", body: "Your details weren't saved. Nothing was sent.", terminal: false },
-  rate_limited: { title: "SquadTab is at capacity, try again in a minute", body: "Too many tries from this connection. Your details weren't saved.", terminal: false },
-  invalid: { title: "Check the highlighted fields", body: "Something in the form wasn't accepted.", terminal: false },
-  unknown: { title: "Something went wrong on our side", body: "Your details weren't saved. Please try again.", terminal: false },
-};
+const planOf = (name: string | null) => (name ? `${name}’s plan` : "this plan");
+
+/**
+ * Error copy table (ux-flow §4.4). Terminal failures replace the form; the rest show above it.
+ * `organizer` is the first name from the public plan preview, or null when the preview is unavailable.
+ */
+export function joinFailureCopy(failure: JoinFailure, organizer: string | null): FailureCopy {
+  switch (failure) {
+    case "not_found":
+      return { title: "We couldn’t find that plan", body: `Double-check the link ${organizer ?? "your friend"} sent, or start your own.`, terminal: true, action: "start" };
+    case "plan_closed":
+      return { title: "This plan’s already moving", body: "It’s past the joining stage. Ask the organizer to start a new one, or start your own.", terminal: true, action: "start" };
+    case "plan_full":
+      return { title: "This plan’s full", body: "It already has 8 people, the most SquadTab plans for.", terminal: true, action: "start" };
+    case "capacity":
+      return { title: "SquadTab is packed right now", body: "Every line is busy. Try again in a few minutes.", terminal: false, action: "retry" };
+    case "rate_limited":
+      return { title: "Too many tries", body: "Wait a minute, then try again.", terminal: false, action: "retry" };
+    case "network":
+      return { title: "Couldn’t reach SquadTab", body: "Check your connection and try again. Nothing was sent.", terminal: false, action: "retry" };
+    case "invalid":
+      return { title: "Check your number", body: PHONE_ERROR, terminal: false, action: "fix" };
+    case "unknown":
+      return { title: "Something went wrong on our side", body: `Nothing was sent. Try again to join ${planOf(organizer)}.`, terminal: false, action: "retry" };
+  }
+}
+
+/** Maps the agent's error code to a copy key. Codes this client doesn't know degrade to "unknown". */
+export function toJoinFailure(error: string): JoinFailure {
+  switch (error) {
+    case "not_found":
+    case "plan_closed":
+    case "plan_full":
+    case "capacity":
+    case "rate_limited":
+    case "network":
+    case "invalid":
+      return error;
+    default:
+      return "unknown";
+  }
+}
+
+/** Android notice (ux-flow §4.4, §6). A product choice, not a verified platform limit, so the page offers an override. */
+export function androidCopy(organizer: string | null): { title: string; body: string } {
+  return { title: "SquadTab lives in iMessage", body: `Open this link on an iPhone, iPad or Mac to join ${planOf(organizer)}.` };
+}
+
+/** "Sat, Oct 24 · 7:00 PM · Santa Monica": the meta line under the plan title. Empty parts are dropped. */
+export function planMeta(p: { date_label?: string | null; time_label?: string | null; area?: string | null }): string {
+  return [p.date_label, p.time_label, p.area].filter((s): s is string => Boolean(s?.trim())).join(" · ");
+}
+
+export type PreviewResult = { kind: "ok"; plan: PlanPreview } | { kind: "not_found" } | { kind: "unavailable" };
+
+/**
+ * Server-side GET /plans/:code for the invite page and its link preview. `revalidate: 10` because every server call
+ * shares Vercel's egress IP, and with it one rate-limit bucket (ux-flow §6). A slow or down agent must never block the
+ * page: it times out at 3 s and the page falls back to a generic header with a working form (ux-flow §4.4).
+ */
+export async function fetchPlanPreview(code: string, base = process.env.NEXT_PUBLIC_AGENT_URL ?? "", f: typeof fetch = fetch): Promise<PreviewResult> {
+  if (!CODE_RE.test(code) || !/^https?:\/\//.test(base)) return { kind: "unavailable" };
+  try {
+    const res = await f(`${base}/plans/${code}`, { next: { revalidate: 10 }, signal: AbortSignal.timeout(3000) });
+    if (res.status === 404) return { kind: "not_found" };
+    if (!res.ok) return { kind: "unavailable" };
+    const parsed = PlanPreview.safeParse(await res.json());
+    return parsed.success && parsed.data.code === code ? { kind: "ok", plan: parsed.data } : { kind: "unavailable" };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
+/** Status tokens are `base64url(payload).base64url(mac)` (ux-flow §7.1). /t/[token] rejects anything else before any fetch. */
+export const TOKEN_RE = /^[\w-]{8,1024}\.[\w-]{8,256}$/;

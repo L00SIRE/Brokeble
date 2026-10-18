@@ -1,51 +1,377 @@
 @import "tailwindcss";
 
-/* Single source of design tokens. The console is read from 5 m on a 16:9 projector,
-   so its scale is much larger than the mobile join page's. */
-@theme {
-  --color-bg: #0b0f14;
-  --color-surface: #131a22;
-  --color-surface-2: #1b2530;
-  --color-border: #2a3644;
-  --color-fg: #e8eef5;
-  --color-muted: #93a1b3;
-  --color-accent: #4cc3ff;
-  --color-ok: #3ddc97;
-  --color-warn: #ffc857;
-  --color-danger: #ff6b6b;
-  --color-lock: #b69cff;
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-
-  /* Page scale (inputs stay >= 16px to prevent iOS zoom). */
-  --text-body: 1rem;
-  --text-title: 1.75rem;
-  /* Console scale: key numbers >= 28px. */
-  --text-console-label: 1.125rem;
-  --text-console-body: 1.375rem;
-  --text-console-key: 2.25rem;
-  --text-console-hero: 3.5rem;
+/* SquadTab "Signal" tokens: docs/design/design-system.md section 3.4.
+   Fonts come from next/font in app/layout.tsx; `inline` makes utilities use the hashed family directly. */
+@theme inline {
+  --font-display: var(--font-funnel-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian-mono), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-/* Tall screens (a 1080p projector in fullscreen) lock the console to the viewport; shorter ones scroll the page. */
-@custom-variant tall (@media (min-height: 1000px));
+@theme static {
+  --color-sodium: #ffb224; --color-sodium-hi: #ffc65a; --color-sodium-deep: #e59a12; --color-on-sodium-2: #3a2a06;
+  --color-ink: #100e0a; --color-ink-2: #1a1813; --color-ink-3: #24211a; --color-rule-night: #34302a;
+  --color-paper: #f6f1e6; --color-paper-2: #ede6d6; --color-on-paper-2: #6b6355; --color-rule-paper: #d8cfbc;
+  --color-night-2: #a39c8c; --color-night-3: #8c8576;
+  --color-go: #3be38b; --color-go-ink: #0b6b3f; --color-held-line-paper: #b07209;
 
-html {
-  color-scheme: dark;
+  /* Legacy aliases: every existing component re-skins on day one, before its rewrite lands.
+     Mapped by meaning, not by hue. No purple lock, no cyan accent, no red.
+     These are the ink-ground values; [data-ground] below remaps them per ground. */
+  --color-bg: #100e0a;        /* ink */
+  --color-surface: #1a1813;   /* ink-2 */
+  --color-surface-2: #24211a; /* ink-3 */
+  --color-border: #a39c8c;    /* night-2: today it outlines state chips, so it must pass 3:1 */
+  --color-fg: #f6f1e6;        /* paper */
+  --color-muted: #a39c8c;     /* night-2 */
+  --color-accent: #ffb224;    /* sodium = HELD */
+  --color-ok: #3be38b;        /* go = CAPTURED */
+  --color-warn: #a39c8c;      /* RELEASED is neutral, never a warning */
+  --color-danger: #a39c8c;    /* DECLINED is neutral too: there is no red */
+  --color-lock: #ffb224;
+
+  --text-hero: clamp(2.875rem, 6.6vw, 6.25rem); --text-hero--line-height: .88; --text-hero--letter-spacing: -.055em;
+  --text-title: clamp(1.875rem, 3.4vw, 3rem);   --text-title--line-height: 1;  --text-title--letter-spacing: -.04em;
+  --text-body: 1.0625rem; --text-body--line-height: 1.5;
+  --text-micro: .8125rem;  --text-micro--line-height: 1.4;
+  /* console scale kept for the legacy panels until D3 lands */
+  --text-console-label: 1.125rem; --text-console-body: 1.375rem; --text-console-key: 2.25rem; --text-console-hero: 3.5rem;
+
+  --radius-control: 6px; --radius-ticket: 14px; --radius-screen: 30px;
+  --ease-out: cubic-bezier(.2,.8,.2,1); --ease-snap: cubic-bezier(.7,0,.2,1);
 }
 
-body {
-  background: var(--color-bg);
-  color: var(--color-fg);
-  font-family: var(--font-sans);
+/* Martian Mono at the UI width (design-system 3.3). `font-mono` alone keeps the default width. */
+@utility mono {
+  font-family: var(--font-mono);
+  font-variation-settings: "wdth" 87.5;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+@layer base {
+  /* The root ground is ink (the console, "you're in"). Paper and sodium surfaces declare data-ground. The canvas is
+     painted on <html> (body stays transparent) so overscroll bands and the scrollbar match the page's own ground. */
+  html {
+    background-color: var(--color-ink);
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    --btn-bg: var(--color-sodium);
+    --btn-fg: var(--color-ink);
   }
+
+  /* Page grounds: a paper page is a paper <main> (or the Shell wrapper) directly under <body>; the landing is the
+     sodium field that holds the hero ticket. */
+  html:has(body > [data-ground="paper"]) { background-color: var(--color-paper); color-scheme: light; }
+  html:has(body > [data-ground="sodium"], .ticket-hero) { background-color: var(--color-sodium); color-scheme: light; }
+
+  body {
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* design-system 9: a 3px currentColor outline with a 3px offset, on every ground. */
+  :focus-visible {
+    outline: 3px solid currentColor;
+    outline-offset: 3px;
+  }
+  /* The ring sits on the ground, 3px outside the control, so on a ground it takes the ground's contrast color, never
+     currentColor: a primary button's label is the fill's partner (ink on sodium), which vanishes on ink. */
+  [data-ground] :focus-visible { outline-color: var(--color-fg); }
+
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+
+  /* Grounds (design-system 1). A ground paints its own background and remaps the legacy aliases, so
+     `text-muted`, `border-border` or `buttonClass` stays legible wherever it lands (pairs are checked in
+     components/brand/tokens.test.ts). Buttons follow "the contrast color of the ground". */
+  [data-ground] {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+  }
+  [data-ground="ink"] {
+    color-scheme: dark;
+    --color-bg: var(--color-ink); --color-fg: var(--color-paper); --color-muted: var(--color-night-2);
+    --color-border: var(--color-night-2); --color-surface: var(--color-ink-2); --color-surface-2: var(--color-ink-3);
+    --color-accent: var(--color-sodium); --color-ok: var(--color-go); --color-lock: var(--color-sodium);
+    --color-warn: var(--color-night-2); --color-danger: var(--color-night-2);
+    --btn-bg: var(--color-sodium); --btn-fg: var(--color-ink);
+  }
+  [data-ground="paper"] {
+    color-scheme: light;
+    --color-bg: var(--color-paper); --color-fg: var(--color-ink); --color-muted: var(--color-on-paper-2);
+    --color-border: var(--color-on-paper-2); --color-surface: var(--color-paper-2); --color-surface-2: #fff;
+    --color-accent: var(--color-ink); --color-ok: var(--color-go-ink); --color-lock: var(--color-ink);
+    --color-warn: var(--color-on-paper-2); --color-danger: var(--color-on-paper-2);
+    --btn-bg: var(--color-ink); --btn-fg: var(--color-sodium);
+  }
+  [data-ground="sodium"] {
+    color-scheme: light;
+    --color-bg: var(--color-sodium); --color-fg: var(--color-ink); --color-muted: var(--color-on-sodium-2);
+    --color-border: var(--color-ink); --color-surface: var(--color-sodium-hi); --color-surface-2: #fff;
+    --color-accent: var(--color-ink); --color-ok: var(--color-ink); --color-lock: var(--color-ink);
+    --color-warn: var(--color-on-sodium-2); --color-danger: var(--color-on-sodium-2);
+    --btn-bg: var(--color-ink); --btn-fg: var(--color-sodium);
+  }
+}
+
+/* Reduced motion (design-system 9): one still frame. No CSS transitions or animations; state still updates. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Pause motion (WCAG 2.2.2): MotionProvider sets this on <html>; canvases stop through the context. */
+html[data-motion="paused"] *, html[data-motion="paused"] *::before, html[data-motion="paused"] *::after {
+  animation-play-state: paused !important;
+}
+
+/* =====================================================================
+   Brand kit (components/brand). Class names follow docs/design/prototype.html.
+   ===================================================================== */
+@layer components {
+  /* ---- Wordmark: a ticket with a perforation, never a dot grid ---- */
+  .wordmark {
+    display: inline-flex; align-items: center; gap: .41em;
+    font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: -.045em; line-height: 1;
+    text-decoration: none; white-space: nowrap;
+  }
+  .wordmark svg { width: 1.364em; height: .909em; flex: none; }
+
+  /* ---- Dot icons ---- */
+  svg.di { width: 22px; height: 22px; flex: none; }
+
+  /* ---- Lamps: shape carries state, never color alone (WCAG 1.4.1) ---- */
+  .lamp {
+    display: block; flex: none; width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--lamp-edge, currentColor);
+    transition: background-color .25s, border-color .25s;
+  }
+  .lamp[data-state="HELD"] { background: var(--color-sodium); border-color: var(--lamp-on-edge, var(--color-sodium)); }
+  .lamp[data-state="CAPTURED"] { background: var(--color-go); border-color: var(--lamp-on-edge, var(--color-go)); }
+  .lamp[data-state="RELEASED"], .lamp[data-state="DECLINED"] { border-style: dashed; border-color: var(--lamp-off-edge, var(--color-night-2)); }
+  .lamps { display: flex; gap: 7px; }
+  .lamps > i { display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; }
+  .lamps > i[data-on] { background: currentColor; }
+
+  /* ---- The hero ticket: [main | perforation | stub] ---- */
+  .ticket-hero {
+    --perf: 22px; --ticket-ground: var(--color-sodium);
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--perf) 372px; align-self: start;
+  }
+  .t-main {
+    background: var(--color-ink); color: var(--color-paper); border-radius: var(--radius-ticket) 0 0 var(--radius-ticket);
+    padding: 24px 34px 22px; display: grid; grid-template-rows: auto 1fr auto; min-width: 0;
+  }
+  .t-top { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; }
+  .t-top .eyebrow { font-size: 15px; color: var(--color-night-2); }
+  .t-top .eyebrow b { color: var(--color-paper); font-weight: 650; }
+  .t-flag {
+    font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 13px; color: var(--color-night-2);
+    white-space: nowrap; transition: color .3s;
+  }
+  .t-flag[data-mode="booked"] { color: var(--color-go); }
+  .t-price { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; column-gap: 14px; padding: 6px 0 10px; }
+  .t-price .cur {
+    font-family: var(--font-display); font-weight: 800; font-size: 92px; line-height: 1; letter-spacing: -.04em;
+    color: var(--color-sodium); align-self: start; margin-top: 22px;
+  }
+  .t-price canvas.price {
+    --ph: clamp(240px, calc(100svh - 525px), 400px);
+    display: block; flex: none; max-width: none; height: var(--ph); width: calc(var(--ph) * 1.62);
+  }
+  .t-each { align-self: end; padding-bottom: 20px; display: grid; gap: 6px; }
+  .t-each .each { font-family: var(--font-display); font-weight: 760; font-size: 46px; line-height: .9; letter-spacing: -.045em; color: var(--color-sodium); }
+  .t-price .cur, .t-each .each { transition: color .5s var(--ease-out); }
+  .ticket-hero[data-torn="true"] .t-price .cur, .ticket-hero[data-torn="true"] .t-each .each { color: var(--color-paper); }
+  .t-each .fits { font-size: 15.5px; line-height: 1.35; color: var(--color-night-2); max-width: 13em; }
+  .t-foot {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 36px; align-items: end;
+    border-top: 1px solid var(--color-rule-night); padding-top: 16px;
+  }
+  .seats { display: grid; grid-template-columns: repeat(4, minmax(96px, auto)); column-gap: 20px; list-style: none; margin: 0; padding: 0; }
+  .seat { display: grid; grid-template-columns: 16px auto; column-gap: 9px; row-gap: 2px; align-items: center; }
+  .seat .lamp { grid-row: 1 / 3; --lamp-edge: var(--color-paper); }
+  .seat .nm { font-family: var(--font-display); font-weight: 650; font-size: 20px; letter-spacing: -.03em; line-height: 1; }
+  .seat .st { font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 12.5px; color: var(--color-night-2); line-height: 1.2; white-space: nowrap; }
+  .seat[data-s="HELD"] .st { color: var(--color-sodium); }
+  .seat[data-s="CAPTURED"] .st { color: var(--color-go); }
+  .t-status { text-align: right; justify-self: end; max-width: 30em; }
+  .t-status b { display: block; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: -.03em; line-height: 1.1; }
+  .t-status span { display: block; font-size: 15px; color: var(--color-night-2); margin-top: 3px; }
+
+  /* the perforation: punched holes in the ground color, two notches, and a tear on capture */
+  .t-perf {
+    position: relative;
+    background:
+      radial-gradient(circle 3.4px at 50% 50%, var(--ticket-ground) 96%, transparent) 0 6px / 100% 15px repeat-y,
+      linear-gradient(90deg, var(--color-ink) 50%, var(--color-paper) 50%);
+  }
+  .t-perf::before, .t-perf::after {
+    content: ""; position: absolute; left: 50%; width: 30px; height: 30px; margin-left: -15px; border-radius: 50%;
+    background: var(--ticket-ground); z-index: 2;
+  }
+  .t-perf::before { top: -15px; }
+  .t-perf::after { bottom: -15px; }
+  .t-perf .tear {
+    position: absolute; left: 50%; top: 0; bottom: 0; width: 6px; margin-left: -3px; background: var(--ticket-ground);
+    transform: scaleY(0); transform-origin: 50% 0; transition: transform .7s var(--ease-snap);
+  }
+  .ticket-hero[data-torn="true"] .t-perf .tear { transform: scaleY(1); }
+
+  .t-stub {
+    background: var(--color-paper); color: var(--color-ink); border-radius: 0 var(--radius-ticket) var(--radius-ticket) 0;
+    padding: 24px 28px 22px; display: flex; flex-direction: column; min-width: 0;
+  }
+  .stub-kicker { font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 12.5px; color: var(--color-on-paper-2); margin-bottom: 8px; }
+  .stub-title { font-family: var(--font-display); font-weight: 740; font-size: 27px; line-height: 1; letter-spacing: -.04em; margin: 0 0 16px; text-wrap: balance; }
+
+  /* desktop stub: scan first (ux-flow 4.2) */
+  /* QR at 200px with its own quiet zone (ux-flow 4.2, 4.3), caption underneath. The bottom margin keeps a gap above
+     the disclosure's rule even when the stub has no free space and `.or-number`'s auto margin collapses. */
+  .scan { display: grid; justify-items: start; gap: 12px; margin-bottom: 18px; }
+  .scan-qr { flex: none; width: 200px; height: 200px; color: var(--color-ink); }
+  .scan-qr svg { display: block; width: 100%; height: 100%; }
+  .scan p { max-width: 300px; font-size: 15px; line-height: 1.4; color: var(--color-on-paper-2); text-wrap: pretty; }
+  .scan p b { color: var(--color-ink); font-weight: 650; }
+  .or-number { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--color-rule-paper); }
+  .or-number > summary {
+    font-weight: 650; font-size: 15px; display: flex; justify-content: space-between; align-items: center;
+    min-height: 44px; padding: 6px 0;
+  }
+  .or-number > summary::after { content: "+"; font-family: var(--font-mono); font-size: 18px; }
+  .or-number[open] > summary::after { content: "\2013"; }
+  .or-number > :not(summary) { padding-top: 8px; }
+
+  /* phone stub: the start is the first line of a conversation */
+  .firsttext { display: grid; gap: 4px; border-left: 3px solid var(--color-sodium); padding: 4px 0 4px 12px; }
+  .firsttext .k { font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 12px; color: var(--color-muted); }
+  .firsttext q { font-size: 16px; font-weight: 600; quotes: "\201C" "\201D"; overflow-wrap: anywhere; }
+  .legal { font-size: 13px; color: var(--color-muted); line-height: 1.4; }
+  /* Same 13px underlined look, with a 44px hit area (design-system 9). */
+  .legal > summary { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
+  .legal > p { margin-top: 4px; }
+
+  /* ---- The paper-page ticket (join, organizer): sodium block with a scalloped bottom edge ---- */
+  .plan-ticket {
+    background: var(--color-sodium); color: var(--color-ink); border-radius: 16px 16px 0 0; padding: 20px 20px 24px; position: relative;
+    -webkit-mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 0 0 / 18px 100% repeat-x;
+    mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 0 0 / 18px 100% repeat-x;
+  }
+  .plan-ticket .eyebrow { font-size: 15px; font-weight: 600; margin: 0 0 6px; color: var(--color-on-sodium-2); }
+  .plan-ticket .title {
+    font-family: var(--font-display); font-weight: 780; font-size: 40px; letter-spacing: -.05em; line-height: .92;
+    margin: 0 0 10px; text-wrap: balance; overflow-wrap: anywhere;
+  }
+  .plan-ticket .meta { font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 12.5px; }
+  .plan-ticket .count-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 18px; padding-top: 14px; border-top: 2px dotted var(--color-ink);
+  }
+  .plan-ticket .count { font-weight: 700; font-size: 15px; }
+
+  /* ---- Buttons: the arrow nudges 3px on hover ---- */
+  .arrow { display: inline-block; transition: transform .25s var(--ease-out); }
+  @media (hover: hover) {
+    :hover > .arrow { transform: translateX(3px); }
+  }
+
+  /* Busy: the ux-flow label plus a three-dot sequence at 6 Hz */
+  .busy-dots { display: inline-flex; gap: 3px; align-items: center; }
+  .busy-dots > i { display: block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: busy-dot .5s steps(1, end) infinite; }
+  .busy-dots > i:nth-child(2) { animation-delay: calc(.5s / 3); }
+  .busy-dots > i:nth-child(3) { animation-delay: calc(.5s * 2 / 3); }
+
+  /* ---- Pause motion ---- */
+  .motion-toggle {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0;
+    background: none; border: 0; color: inherit; font: inherit; font-weight: 650; font-size: 13.5px; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .motion-toggle .glyph { display: inline-flex; gap: 3px; }
+  .motion-toggle .glyph i { display: block; width: 4px; height: 12px; background: currentColor; border-radius: 1px; }
+  .motion-toggle[aria-pressed="true"] .glyph i:last-child { clip-path: polygon(0 0, 100% 50%, 0 100%); width: 10px; }
+  .motion-toggle[aria-pressed="true"] .glyph i:first-child { display: none; }
+
+  /* ---- Desktop: the ticket is fixed and the task yields to it (design-system 4.4) ----
+     Size containment takes the stub out of the row height, so the hero is sized by .t-main alone; an open disclosure or
+     an inline error scrolls inside the stub instead of stretching the ticket and moving the price mark. */
+  @media (min-width: 900px) {
+    .ticket-hero > .t-stub {
+      container: stub / size; overflow-y: auto; overscroll-behavior: contain;
+      scrollbar-width: thin; scrollbar-color: var(--color-rule-paper) transparent;
+    }
+  }
+  /* The stub's height is the ticket's, so the scan block fits itself to it. Short ticket (720-800px tall windows): the
+     prototype's 168px QR beside its caption (the hand-off QR drops to 168px too). Number path open: a compact QR, so
+     the field shows without scrolling. */
+  @container stub (max-height: 440px) {
+    .scan { grid-template-columns: 168px minmax(0, 1fr); align-items: end; gap: 16px; }
+    .scan-qr { width: 168px; height: 168px; }
+  }
+  @container stub (min-height: 0) {
+    .scan:has(~ .or-number[open]) { grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 14px; margin-bottom: 14px; }
+    .scan:has(~ .or-number[open]) .scan-qr { width: 88px; height: 88px; }
+  }
+
+  /* ---- Phones: the ticket stacks, the perforation turns horizontal ---- */
+  @media (max-width: 899px) {
+    .ticket-hero { grid-template-columns: 1fr; grid-template-rows: auto 20px auto; }
+    .t-main { border-radius: var(--radius-ticket) var(--radius-ticket) 0 0; padding: 16px; }
+    .t-top { flex-direction: column; gap: 2px; }
+    .t-top .eyebrow { font-size: 14px; }
+    .t-flag { font-size: 11.5px; }
+    .t-price { grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; padding: 4px 0; }
+    .t-price .cur { font-size: 46px; margin-top: 10px; }
+    /* Height-aware so "Start in iMessage" stays above the fold with Safari's toolbars showing (svh = toolbars in):
+       138px at 844, 72px at 664. */
+    .t-price canvas.price { height: clamp(72px, calc(100svh - 592px), 138px); width: 100%; }
+    .t-each { grid-column: 1 / -1; padding: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+    .t-each .each { font-size: 26px; }
+    .t-each .fits { font-size: 14px; max-width: none; }
+    .t-foot { grid-template-columns: 1fr; row-gap: 12px; padding-top: 12px; }
+    .seats { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 8px; }
+    .seat { grid-template-columns: 12px auto; column-gap: 6px; }
+    .seat .lamp { width: 11px; height: 11px; }
+    .seat .nm { font-size: 16px; }
+    .seat .st { font-size: 10.5px; }
+    .t-status { text-align: left; justify-self: start; }
+    .t-status b { font-size: 17px; }
+    .t-status span { font-size: 13.5px; }
+    .t-perf {
+      background:
+        radial-gradient(circle 3.4px at 50% 50%, var(--ticket-ground) 96%, transparent) 6px 0 / 15px 100% repeat-x,
+        linear-gradient(180deg, var(--color-ink) 50%, var(--color-paper) 50%);
+    }
+    .t-perf::before, .t-perf::after { top: 50%; left: auto; margin: -15px 0 0; }
+    .t-perf::before { left: -15px; }
+    .t-perf::after { right: -15px; bottom: auto; }
+    .t-perf .tear { left: 0; right: 0; top: 50%; bottom: auto; width: auto; height: 6px; margin: -3px 0 0; transform: scaleX(0); transform-origin: 0 50%; }
+    .ticket-hero[data-torn="true"] .t-perf .tear { transform: scaleX(1); }
+    .t-stub { border-radius: 0 0 var(--radius-ticket) var(--radius-ticket); padding: 16px; }
+  }
+  /* Short phones (Safari with its toolbars showing is ~664px on a 390x844 iPhone): drop the secondary lines so the
+     phone field and "Start in iMessage" stay above the fold. The flag's count repeats the seat row and status line. */
+  @media (max-width: 899px) and (max-height: 800px) {
+    .t-flag, .t-each .fits, .t-status span { display: none; }
+    .t-main { padding: 12px 16px; }
+    .t-price { padding: 0; }
+    .t-foot { row-gap: 8px; padding-top: 8px; }
+  }
+  /* 320px (first-generation SE): four seats collide, so they pair up. */
+  @media (max-width: 359px) {
+    .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+  }
+}
+
+@keyframes busy-dot {
+  0% { opacity: 1; }
+  33.333% { opacity: .25; }
 }

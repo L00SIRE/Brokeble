@@ -49,6 +49,14 @@ export const TemplateId = z.enum([
   "T_PLAN_OFF", // cancelled before any pay link existed (T_CANCELLED mentions a released authorization)
   "T_HOLD_RELEASED_RETRY", // a hold that timed out and was reversed (the card itself was fine)
   "T_PLAN_FULL", // JOIN text when 8 lanes are already confirmed (the venue caps party_size at 8)
+  // Chat-first start and join (docs/design/ux-flow.md §8.5): the organizer plans in chat, a blank name is asked once.
+  "T_START_HELLO",
+  "T_START_ASK_AREA",
+  "T_START_ASK_COUNT",
+  "T_START_ASK_BOTH",
+  "T_PLAN_READY",
+  "T_JOIN_WELCOME_NAME",
+  "T_BUDGET_ASK_NAMED",
 ]);
 export type TemplateId = z.infer<typeof TemplateId>;
 
@@ -89,7 +97,7 @@ export const COPY = {
   T_BALLOT_CLARIFY: "Which ones would you be happy with? Just send the numbers, like '1 3'.",
   T_BUDGET_CONFIRM_NOCAP: "Got it. Just between us: no hard cap. Text 'change budget' anytime.",
   T_SMALL_GROUP: "Heads up: with fewer than 3 of us, it's easier to guess each other's limits. Reply GO again if you're still good to continue.",
-  T_NOT_IN_PLAN: "I don't see you in a plan yet. Tap the join link your friend shared and we'll get going.",
+  T_NOT_IN_PLAN: "You're not in a plan right now. Want to start one? Tell me where and how many of you.",
   T_CARD_REMOVED: "Done. Your saved card is removed from the venue.",
   T_VOICE_RECAP_IN:
     "Great chatting! Tap the hold link I sent to lock in {title}. Nobody's charged unless everyone's in by {deadline}.",
@@ -99,7 +107,20 @@ export const COPY = {
   T_BUDGET_REASK: "Sure! What's the most you'd want to spend tonight, all-in? Still just between us.",
   T_PLAN_OFF: "Plan's off. Nobody was charged.",
   T_HOLD_RELEASED_RETRY: "I couldn't confirm your hold, so I released it. Nothing was charged. Here's a fresh link: {url}",
-  T_PLAN_FULL: "Sorry, this plan is already full (8 people max), so I can't add you. If a spot opens up, send the same JOIN message again.",
+  T_PLAN_FULL: "Sorry, this plan is already full (8 people max), so I can't add you. If a spot opens up, just text me again.",
+  // No link in T_START_HELLO: it is the organizer's first reply (Photon deliverability rule).
+  T_START_HELLO:
+    "Hey! I'm SquadTab. I'll plan dinner and a show with your friends, keep everyone's budget private, and nobody fronts the bill. What should I call you, and where and when are we going? Like: \"Maya, Santa Monica tonight, 4 of us\"",
+  T_START_ASK_AREA: "Sounds fun! Which neighborhood or city should I look in?",
+  T_START_ASK_COUNT: "Got it. How many of you, counting you?",
+  T_START_ASK_BOTH: "Sounds fun! Where should I look, and how many of you, counting you?",
+  // The URL sits alone on the last line so a long-press copies it cleanly.
+  T_PLAN_READY:
+    "{greeting}: {title}, {date} from {time} in {area}, {n} of you. Send this link to your group chat and I'll take it from there:\n{url}",
+  T_JOIN_WELCOME_NAME:
+    "Hey, you're in for {title}, {date}! I'm SquadTab. A few quick questions and I'll get planning, and whatever you tell me stays between us. First, what should I call you?",
+  T_BUDGET_ASK_NAMED:
+    "Nice to meet you, {name}. Next: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it.",
 } as const satisfies Record<TemplateId, string>;
 
 const s = z.string().min(1);
@@ -149,6 +170,14 @@ export const VARS = {
   T_PLAN_OFF: none,
   T_HOLD_RELEASED_RETRY: z.strictObject({ url: z.url() }),
   T_PLAN_FULL: none,
+  T_START_HELLO: none,
+  T_START_ASK_AREA: none,
+  T_START_ASK_COUNT: none,
+  T_START_ASK_BOTH: none,
+  // greeting = "You're set, Maya" or "You're set": never empty, because render() rejects an empty variable.
+  T_PLAN_READY: z.strictObject({ greeting: s, title: s, date: s, time: s, area: s, n: count, url: z.url() }),
+  T_JOIN_WELCOME_NAME: z.strictObject({ title: s, date: s }),
+  T_BUDGET_ASK_NAMED: z.strictObject({ name: s }),
 } as const satisfies Record<TemplateId, z.ZodObject>;
 
 export type TemplateVars<T extends TemplateId> = z.infer<(typeof VARS)[T]>;

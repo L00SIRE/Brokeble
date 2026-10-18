@@ -78,7 +78,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("postgres integration", () => {
       })
       .catch(() => {});
     const id = await emit({ type: "system", level: "info", msg: `committed ${run}` });
-    const mineNow = () => got.filter((e) => e.data.type === "system" && e.data.msg.includes(run));
+    // Only this test's two messages: the previous test's "snap <run> n" NOTIFYs can still be arriving.
+    const mineNow = () => got.filter((e) => e.data.type === "system" && (e.data.msg === `rolled back ${run}` || e.data.msg === `committed ${run}`));
     // NOTIFY delivery can lag under a parallel suite: wait for the committed event, then a short grace for strays.
     for (let t = 0; t < 50 && mineNow().length === 0; t++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 300));

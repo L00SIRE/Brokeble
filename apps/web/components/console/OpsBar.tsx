@@ -6,16 +6,18 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentError, agent, type OpsAction } from "@/lib/agent";
 import { readOperatorKey, writeOperatorKey } from "@/lib/operatorKey";
+import { MONO } from "./Panel";
 
 const CONFIRM_MS = 3_000;
 const REFUSED: Record<number, string> = { 401: "wrong operator key", 409: "plan not ready", 429: "too soon, try again in a few minutes", 503: "ops disabled on the agent" };
 
-type Action = { id: string; label: string; run: (key: string) => Promise<{ ok: boolean }>; confirm?: boolean };
+type Action = { id: string; label: string; run: (key: string) => Promise<{ ok: boolean; released?: number }>; confirm?: boolean };
 const op = (action: OpsAction, label: string, confirm = false): Action => ({ id: action, label, confirm, run: (k) => agent.ops(action, k) });
 const ACTIONS: Action[] = [
   op("reset", "Reset", true),
   op("replay", "Replay"),
   op("live-scout", "Live scout"),
+  op("release-untexted", "Release untexted"),
   op("release-seats", "Release seats"),
 ];
 
@@ -49,8 +51,9 @@ export function OpsBar() {
     setBusy(a.id);
     setResult(`${a.label}…`);
     try {
-      const { ok } = await a.run(key);
-      setResult(`${a.label}: ${ok ? "ok" : "not done"}`);
+      const { ok, released } = await a.run(key);
+      const freed = released === undefined ? "" : `, ${released} ${released === 1 ? "seat" : "seats"} freed`;
+      setResult(`${a.label}: ${ok ? `ok${freed}` : "not done"}`);
     } catch (e) {
       const why = e instanceof AgentError ? (REFUSED[e.status] ?? `HTTP ${e.status}`) : "network error";
       setResult(`${a.label} failed: ${why}`);
@@ -59,9 +62,11 @@ export function OpsBar() {
     }
   };
 
+  // Console scale and tokens (design-system §7): 13px mono like the footer, 44px targets, sentence-case labels, no red.
+  // The armed reset gets a 2px held-edge outline (sodium on ink, ink on paper, so it keeps 3:1 on both grounds).
   return (
-    <div role="region" aria-label="Operator controls" className="flex flex-wrap items-center gap-2 border-t border-border pt-3 font-mono text-(length:--text-console-label)">
-      <label className="flex items-center gap-2 text-muted">
+    <div role="region" aria-label="Operator controls" className={`${MONO} flex flex-wrap items-center gap-2 border-t border-(--c-rule) pt-3 text-[13px] text-(--c-2)`}>
+      <label className="flex items-center gap-2">
         <span>Operator key</span>
         <input
           type="password"
@@ -70,7 +75,7 @@ export function OpsBar() {
           spellCheck={false}
           value={key}
           onChange={(e) => saveKey(e.target.value)}
-          className="w-56 rounded-md border border-border bg-surface px-3 py-1 text-fg focus-visible:outline-2 focus-visible:outline-accent"
+          className="min-h-11 w-56 rounded-[4px] border border-(--c-line) bg-transparent px-3 text-(--c-fg)"
         />
       </label>
       {ACTIONS.map((a) => (
@@ -78,17 +83,16 @@ export function OpsBar() {
           key={a.id}
           type="button"
           disabled={!key || busy !== null}
+          aria-busy={busy === a.id}
           onClick={() => void fire(a)}
-          className={`rounded-md border px-3 py-1 transition-colors focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40 ${
-            armed === a.id ? "border-danger bg-danger/15 text-danger" : "border-border bg-surface-2 text-fg hover:border-accent"
+          className={`min-h-11 touch-manipulation rounded-[4px] border px-3 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            armed === a.id ? "border-2 border-(--c-held-edge) text-(--c-held-edge)" : "border-(--c-line) text-(--c-fg) hover:border-(--c-fg)"
           }`}
         >
           {armed === a.id ? "Confirm reset" : a.label}
         </button>
       ))}
-      <output aria-live="polite" className="text-muted">
-        {result}
-      </output>
+      <output aria-live="polite">{result}</output>
     </div>
   );
 }

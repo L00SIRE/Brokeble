@@ -27,7 +27,8 @@ import { log } from "../log";
 import type { LLMPort } from "../ports";
 import { EMPTY_PREFERENCES } from "../repo/preferences";
 import { ConverseResult, type ConverseInput, type DelegateConverser } from "./converseSchema";
-import { BALLOT_SYSTEM, BUDGET_SYSTEM, CONVERSE_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
+import { PlanDraftParse, parsePlanDraftText, type PlanDraftInput } from "./planDraft";
+import { BALLOT_SYSTEM, BUDGET_SYSTEM, CONVERSE_SYSTEM, PLAN_DRAFT_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
 
 export type LlmModel = "claude-haiku-5-5" | "claude-sonnet-5-5";
 export type LlmCallOptions = { model: LlmModel; maxTokens: number; timeoutMs: number; maxRetries: number };
@@ -165,6 +166,14 @@ export class AnthropicLLM implements LLMPort, DelegateConverser {
   /** CONVERSE_SYSTEM over JSON(ConverseInput): the private delegate's free-form reply. Null on failure (caller falls back to templates). */
   async converse(i: ConverseInput): Promise<ConverseResult | null> {
     return this.structuredParse("converse", ConverseResult, CONVERSE_SYSTEM, JSON.stringify(i), CONVERSE_CALL);
+  }
+
+  /**
+   * PLAN_DRAFT_SYSTEM over JSON(PlanDraftInput), DELEGATE_CALL. Null (failure, refusal, timeout) → the deterministic
+   * parser, so the start chat still works when the model is down. Every field is validated in code by startByChat.
+   */
+  async parsePlanDraft(i: PlanDraftInput): Promise<PlanDraftParse> {
+    return (await this.structuredParse("parsePlanDraft", PlanDraftParse, PLAN_DRAFT_SYSTEM, JSON.stringify(i), DELEGATE_CALL)) ?? parsePlanDraftText(i);
   }
 
   /** B's RATE_SYSTEM + buildRateUserMessage(prefs, candidates), RATE_CALL. Null → {ratings: []} (B defaults in code). */

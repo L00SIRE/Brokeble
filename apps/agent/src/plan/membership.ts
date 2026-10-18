@@ -2,6 +2,7 @@
 import type { InboundEvent, LaneStage } from "@tab/shared";
 import { cancelResearch, startResearch } from "../creao/research";
 import { sql } from "../db";
+import { setAwaiting } from "../delegates/awaiting";
 import { confirmFormBudget } from "../delegates/budget";
 import { enqueue } from "../dueJobs";
 import { emit } from "../events";
@@ -14,7 +15,7 @@ import { fmtDate } from "../notify/render";
 import { getParticipant, listMembers, updateStage } from "../repo/participants";
 import { getPlan, getPlanByCode } from "../repo/plans";
 import type { MemberContext, PlanState, UserRow } from "../repo/types";
-import { getUser } from "../repo/users";
+import { getUser, setFirstName } from "../repo/users";
 import { sendStatus } from "../router/handlers";
 import { cancel } from "./cancel";
 import { stageAtLeast, transition } from "./machine";
@@ -52,9 +53,12 @@ export async function setStage(planId: string, userId: string, stage: LaneStage,
 }
 
 /**
- * "JOIN <code>": plan must be COLLECTING|RESEARCHING|VOTING and the user a non-terminal participant (joined via
- * /join), else T_NOT_IN_PLAN. INVITED/JOINED: set JOINED, T_JOIN_WELCOME {title, date} (once per plan version), then
- * delegates.confirmFormBudget or T_BUDGET_ASK. Already past JOINED: a repeated JOIN just gets T_STATUS.
+ * A JOIN text, or any first text from an INVITED member (router forgiving join): plan must be
+ * COLLECTING|RESEARCHING|VOTING and the user a non-terminal participant (joined via /join), else T_NOT_IN_PLAN.
+ * INVITED/JOINED: set JOINED, then
+ * - blank first name: T_JOIN_WELCOME_NAME and the 'name' awaiting flag; the name reply (onNameText) asks the budget;
+ * - otherwise T_JOIN_WELCOME {title, date} (once per plan version), then delegates.confirmFormBudget or T_BUDGET_ASK.
+ * Already past JOINED: a repeated JOIN just gets T_STATUS.
  */
 export async function onJoinText(user: UserRow, code: string, e: InboundEvent): Promise<void> {
   const plan = await getPlanByCode(code);
@@ -69,12 +73,32 @@ export async function onJoinText(user: UserRow, code: string, e: InboundEvent): 
   }
   if (participant.stage === "INVITED") await setStage(plan.id, user.id, "JOINED");
   const ctx: MemberContext = { user, plan, participant: { ...participant, stage: "JOINED" } };
+  if (user.first_name === "") {
+    // replyKey: until they answer, a repeated JOIN asks again, while a redelivery of the same message stays deduped.
+    // The flag is set even on a duplicate send: the question did go out.
+    await notify(user.id, "T_JOIN_WELCOME_NAME", { title: plan.title, date: fmtDate(plan.event_date) }, { key: replyKey(e.message_id, 1), planId: plan.id });
+    setAwaiting(user.id, "name");
+    return;
+  }
   await notify(user.id, "T_JOIN_WELCOME", { title: plan.title, date: fmtDate(plan.event_date) }, {
     key: tplKey(plan.id, user.id, "T_JOIN_WELCOME", plan.version), planId: plan.id, replyTo: e.message_id,
   });
   if (await confirmFormBudget(ctx, e)) return;
   // replyKey, not tplKey: a repeated JOIN text re-asks, while a redelivery of the same message stays deduped.
   await notify(user.id, "T_BUDGET_ASK", {}, { key: replyKey(e.message_id, 2), planId: plan.id });
+}
+
+/**
+ * The reply to T_JOIN_WELCOME_NAME (router 'name' flag, stage JOINED; `name` already passed looksLikeName). Stores the
+ * name only while it is blank, re-emits the lane so the console shows it, then T_BUDGET_ASK_NAMED, or the confirmation
+ * of a budget already given on the join form.
+ */
+export async function onNameText(ctx: MemberContext, name: string, e: InboundEvent): Promise<void> {
+  const { user, plan, participant } = ctx;
+  if (await setFirstName(user.id, name)) await setStage(plan.id, user.id, participant.stage);
+  const shown = user.first_name || name;
+  if (await confirmFormBudget({ ...ctx, user: { ...user, first_name: shown } }, e)) return;
+  await notify(user.id, "T_BUDGET_ASK_NAMED", { name: shown }, { key: replyKey(e.message_id, 1), planId: plan.id });
 }
 
 /**

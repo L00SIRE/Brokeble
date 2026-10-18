@@ -1,5 +1,5 @@
 // "/" organizer form rules (B plan T8). Pure. Limits mirror CreatePlanBody in apps/agent/src/join/schemas.ts.
-import type { CreatePlanRequest } from "./agent";
+import type { CreatePlanRequest } from "./agentSchemas";
 import { type Errors, mapIssues } from "./formUtils";
 import { normalizePhone } from "./normalizePhone";
 

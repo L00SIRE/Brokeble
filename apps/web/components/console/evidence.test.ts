@@ -43,7 +43,7 @@ describe("creao lane", () => {
     expect(elapsedFor(run(), 1_500)).toBe(4000);
     expect(elapsedFor(run({ status: "completed" }), 999_999)).toBe(4000);
   });
-  it("shows run chip, cached badge, Open Run only with a share url, and progress", () => {
+  it("shows run chip, cached badge, Open run only with a share url, and progress", () => {
     const html = renderToStaticMarkup(
       createElement(CreaoLane, {
         runs: [run({ source: "cached", share_url: "https://agent.creao.ai/share/x" })],
@@ -52,9 +52,9 @@ describe("creao lane", () => {
     );
     expect(html).toContain("abcdef12");
     expect(html).toContain("cached");
-    expect(html).toContain("Open Run");
+    expect(html).toContain("Open run");
     expect(html).toContain("Searching venues");
-    expect(renderToStaticMarkup(createElement(CreaoLane, { runs: [run()], progress: [] }))).not.toContain("Open Run");
+    expect(renderToStaticMarkup(createElement(CreaoLane, { runs: [run()], progress: [] }))).not.toContain("Open run");
   });
 });
 
@@ -82,9 +82,9 @@ describe("tap panel", () => {
     expect(html).toContain("Rejected by merchant");
     expect(html).toContain("Key directory: mock");
     expect(html).toContain("@method");
-    expect(html).toContain("Wrong Tag");
+    expect(html).toContain("Wrong tag");
     expect(html).not.toContain("Visa-verified");
-    expect(renderToStaticMarkup(createElement(TapPanel, props))).not.toContain("Wrong Tag");
+    expect(renderToStaticMarkup(createElement(TapPanel, props))).not.toContain("Wrong tag");
   });
   it("labels an accepted report as verified by merchant", () => {
     const html = renderToStaticMarkup(createElement(TapPanel, { signed: null, verify: { order_id: "o", report: { ...report, accepted: true, reason: null } } }));

@@ -31,7 +31,16 @@ vi.mock("../src/repo/options", () => ({
   hasOptionsForRun: m.hasOptionsForRun, upsertOptions: m.upsertOptions, categoriesWithOptions: m.categoriesWithOptions,
 }));
 
+import type { Option, ScoutOption } from "@tab/shared";
+import { compose } from "../src/decide/compose";
+import { SHORTLIST_N } from "../src/decide/config";
+import { filter } from "../src/decide/filter";
+import { fitsPrefs } from "../src/decide/fitsPrefs";
+import { selectForRating } from "../src/decide/rateCandidates";
+import { shortlist } from "../src/decide/score";
+import { DEFAULT_END, DEFAULT_START } from "../src/plan/defaults";
 import type { DueJob } from "../src/dueJobs";
+import { loadCachedOptions } from "../src/ports/cachedOptions";
 import { env } from "../src/env";
 import {
   cancelResearch, checkResearchReadyJob, creaoPollJob, creaoTimeoutJob, extractScoutJson, reconcile, reconcileByCreaoRunId,
@@ -267,6 +276,46 @@ describe("useCached", () => {
     expect(m.upsertOptions).toHaveBeenCalledWith("plan-1", "run-1", expect.any(Array));
     expect(m.emit).toHaveBeenCalledWith(expect.objectContaining({ type: "creao.run", source: "cached" }));
     expect(m.emit).toHaveBeenCalledWith({ type: "system", level: "info", msg: "cached options (show)" });
+  });
+
+  // A chat-created plan can be anywhere ("Santa Monica"), but the snapshot is one area. compose() keeps only options in
+  // the plan's area, so without re-scoping every chat plan that fell back to cached research ended in T_NO_FIT.
+  const CHAT_PLAN = { ...PLAN, area: "Santa Monica", time_start: DEFAULT_START, time_end: DEFAULT_END }; // startByChat defaults
+  const cachedForChatPlan = async (): Promise<Option[]> => {
+    m.getPlan.mockResolvedValue(CHAT_PLAN);
+    await useCached(row({ id: "run-d", category: "dinner" }) as never);
+    await useCached(row({ id: "run-s", category: "show" }) as never);
+    return (m.upsertOptions.mock.calls as [string, string, ScoutOption[]][]).flatMap(([, runId, opts]) =>
+      opts.map((data, i) => ({ id: `${runId}-${i}`, run_id: runId, source: "cached" as const, data, est_high_pp_cents: data.est_high_pp_usd * 100 })),
+    );
+  };
+
+  it("re-scopes the fixture to the plan's area and keeps every venue", async () => {
+    const options = await cachedForChatPlan();
+    expect(options.length).toBe((await loadCachedOptions("dinner")).options.length + (await loadCachedOptions("show")).options.length);
+    expect(new Set(options.map((o) => o.data.area))).toEqual(new Set(["Santa Monica"]));
+  });
+
+  it("a chat-created plan in another area still reaches a full shortlist from the cached fallback", async () => {
+    const { EMPTY_PREFERENCES } = await vi.importActual<typeof import("../src/repo/preferences")>("../src/repo/preferences");
+    const options = await cachedForChatPlan();
+    const constraints = [150, 150, 160, 140].map((usd, i) => ({ user_id: `u${i}`, target_pp_cents: usd * 100, hard_max_pp_cents: null }));
+    const bundles = compose(options, CHAT_PLAN);
+    const survivors = filter(fitsPrefs(bundles, constraints.map(() => EMPTY_PREFERENCES)), constraints as never);
+    expect(bundles.length).toBeGreaterThan(0);
+    expect(shortlist(selectForRating(survivors), [], constraints as never)).toHaveLength(SHORTLIST_N);
+  });
+
+  // The demo risk this pins: with the old 19:00 default only 2 cached shows started T+90..T+150, so a chat-created plan
+  // on cached research hit T_NO_FIT. Typical group budgets ($45+ each, no hard max) must reach a full 3-option ballot.
+  it.each([45, 60, 90])("the default chat plan reaches %i-dollar budgets with a full shortlist from the cached snapshot", async (usd) => {
+    const { EMPTY_PREFERENCES } = await vi.importActual<typeof import("../src/repo/preferences")>("../src/repo/preferences");
+    const options = await cachedForChatPlan();
+    const constraints = [0, 1, 2, 3].map((i) => ({ user_id: `u${i}`, target_pp_cents: usd * 100, hard_max_pp_cents: null }));
+    const survivors = filter(fitsPrefs(compose(options, CHAT_PLAN), constraints.map(() => EMPTY_PREFERENCES)), constraints as never);
+    const picks = shortlist(selectForRating(survivors), [], constraints as never);
+    expect(picks).toHaveLength(SHORTLIST_N);
+    expect(new Set(picks.map((b) => b.show.id)).size).toBe(SHORTLIST_N);
   });
 });
 

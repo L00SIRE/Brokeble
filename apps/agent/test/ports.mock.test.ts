@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type CreateOrderRequest, type DelegateInput, type PublicBundle, priceBundle, ScoutSubmission } from "@tab/shared";
 import { consentFromOrder } from "@tab/shared/tap";
 import { loadCachedOptions } from "../src/ports/cachedOptions";
@@ -61,6 +61,21 @@ describe("MockVenue (M3/M4)", () => {
     expect(await failedStep("replay")).toBe(4);
     expect(await failedStep("tamper")).toBe(6);
     expect((await v.getOrder(order_id)).status).toBe("OPEN");
+  });
+
+  it("puts every commit's TAP report on the console as tap.verify, and never a tap.signed (nothing is signed in mock)", async () => {
+    const emit = vi.fn();
+    const v = new MockVenue({ emit });
+    const { order_id, shares } = await v.createOrder(orderReq());
+    shares.forEach((s) => v.authorize(s.share_id));
+    const consent = consentFromOrder(await v.getOrder(order_id));
+    const rejected = await v.commit(order_id, consent, "tamper");
+    const ok = await v.commit(order_id, consent);
+    expect(ok.result).toBe("captured");
+    expect(emit.mock.calls.map(([ev]) => ev)).toEqual([
+      { type: "tap.verify", order_id, report: rejected.tap },
+      { type: "tap.verify", order_id, report: ok.tap },
+    ]);
   });
 
   it("cancel releases holds and voids pending shares", async () => {

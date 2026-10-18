@@ -17,6 +17,7 @@ import type {
   Ratings,
   ResearchBrief,
 } from "@tab/shared";
+import type { PlanDraftInput, PlanDraftParse } from "../delegates/planDraft";
 
 export type DmAddress = { userId: string; spaceId: string; agentUserId: string };
 
@@ -44,6 +45,7 @@ export interface LLMPort {                             // A owns the one adapter
   parseBallot(i: DelegateInput, shortlist: PublicBundle[]): Promise<BallotParse>; // claude-haiku-5-5
   rateBundles(prefs: Preferences, candidates: RateCandidate[]): Promise<Ratings>;      // claude-sonnet-5-5, effort "low"
   repairScoutJson(raw: string, category: "dinner" | "show"): Promise<unknown>;    // claude-haiku-5-5; Scout text only
+  parsePlanDraft(i: PlanDraftInput): Promise<PlanDraftParse>;   // claude-haiku-5-5; one organizer's own start-chat text (ux-flow §8.4)
 }
 
 export interface VenuePort {                           // C. real: TAP-signed fetch. mock: in-memory venue with fake holds

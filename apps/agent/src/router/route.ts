@@ -7,12 +7,15 @@ import { handleBallotText } from "../delegates/ballot";
 import { converseReply, handleFreeText, mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "../delegates/free";
 import { handlePrefsText } from "../delegates/prefs";
 import { emit } from "../events";
+import { joinWouldOverfill } from "../join/capacity";
 import * as holdGate from "../money/holdGate";
 import { notifyRaw, replyKey } from "../notify/notify";
 import { markReadSafe, typingOn } from "../notify/presence";
 import { usd2 } from "../notify/render";
 import { handleDigitsBallot } from "../plan/ballots";
 import { stageAtLeast, TERMINAL_STAGES } from "../plan/machine";
+import { onJoinText, onNameText } from "../plan/membership";
+import { handleStartText } from "../plan/startByChat";
 import type { DmAddress } from "../ports";
 import { upsertDmRoute } from "../repo/dmRoutes";
 import * as holdGates from "../repo/holdGates";
@@ -21,7 +24,7 @@ import { currentPlanForUser, getPlan } from "../repo/plans";
 import type { MemberContext, UserRow } from "../repo/types";
 import { findUserByPhone, findUserByPhotonId, setPhotonUserId } from "../repo/users";
 import { getPayLink } from "../repo/payLinks";
-import { parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
+import { isPrefillText, looksLikeName, parseCommand, parseDigitsBallot, parseTier, parseYesNo } from "./commands";
 import { handleCommand, reply } from "./handlers";
 import { containsCardNumber } from "./luhn";
 
@@ -30,9 +33,12 @@ import { containsCardNumber } from "./luhn";
  * 0 resolve user (photon_user_id, else phone → setPhotonUserId) and upsert dm_route;
  * 1 text null → markReadSafe, return; 2 containsCardNumber → T_CARD_INTERCEPT (replyTo), system event, return
  * (before ANY log/LLM/text write); 3 markReadSafe; 4 no user → notifyRaw(T_NOT_IN_PLAN);
- * 5 parseCommand → handleCommand (deterministic, so no typing bubble); then typingOn; a CONFIRMED plan → free text;
+ * 5 INVITED and not a leave/other-plan command → onJoinText (any first text joins: ux-flow §8.1), or T_PLAN_FULL when
+ * 8 texted lanes are already in (the same cap as a JOIN command); else parseCommand → handleCommand; a web pre-fill
+ * (isPrefillText) → status (all deterministic, so no typing bubble); then typingOn; no active plan → start-by-chat
+ * (plan/startByChat.ts); a CONFIRMED plan → free text;
  * 6 another member's budget asked about during the budget/prefs steps → T_ONLY_YOURS (code check, no stage change);
- * 7 awaiting flags (holdgate/tiers/budget; under 'tiers' a yes/no drops the menu and a question that isn't a
+ * 7 awaiting flags (holdgate/tiers/budget/name; under 'tiers' a yes/no drops the menu and a question that isn't a
  * budget goes to the free-text delegate); 8 stage handlers
  * (JOINED → budget, BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or delegate ballot, else free).
  */
@@ -61,11 +67,22 @@ export async function route(e: InboundEvent): Promise<void> {
   }
 
   const cmd = parseCommand(text);
+  // Forgiving first message: an INVITED member's first text joins whatever it says ("I'm in for Dinner + show!",
+  // "hey"). Leaving, forget-me and a JOIN for another plan still run as commands.
+  const joinsCurrent = !cmd || cmd.kind === "help" || cmd.kind === "status" || (cmd.kind === "join" && cmd.code === ctx?.plan.code);
+  if (ctx?.participant.stage === "INVITED" && joinsCurrent) {
+    // The same 8-lane cap as a JOIN command (handlers.ts): the lane stays INVITED, so a later text works once a spot frees.
+    if (await joinWouldOverfill(user, ctx.plan.code)) return void (await reply(user, "T_PLAN_FULL", {}, e));
+    return onJoinText(user, ctx.plan.code, e);
+  }
   if (cmd) return handleCommand(user, ctx, cmd, e);
+  // A member already past INVITED who taps Start or Open Messages again sends a pre-filled sentence. It is never a
+  // budget, preference or vote, so it gets the status. Awaiting flags stay set for the member's next real answer.
+  if (ctx && isPrefillText(text, ctx.plan.title)) return handleCommand(user, ctx, { kind: "status" }, e);
   // Fired only before handlers that may call the LLM: a fast deterministic reply could otherwise land before the
   // typing request and leave a bubble showing after the answer.
   typingOn(addr);
-  if (!ctx) return handleFreeText(user, null, e);
+  if (!ctx) return handleStartText(user, e);
   if (ctx.plan.state === "CONFIRMED") {
     clearAwaiting(user.id); // nothing can change after capture; a leftover budget/tiers flag must not reopen it
     return handleFreeText(user, ctx, e);
@@ -98,6 +115,14 @@ export async function route(e: InboundEvent): Promise<void> {
     return handleBudgetText(ctx, e, isQuestion(text) ? () => converseReply(user, ctx, e) : undefined);
   } else if (flag === "budget") {
     return handleBudgetText(ctx, e);
+  } else if (flag === "name") {
+    // Only right after T_JOIN_WELCOME_NAME, and only once: a non-name ("40 max") is the budget answer, and a blank name
+    // is never asked again. Never inferred from first_name === "" alone (a budget reply would become a name).
+    clearAwaiting(user.id);
+    if (ctx.participant.stage === "JOINED") {
+      const name = looksLikeName(text);
+      return name ? onNameText(ctx, name, e) : handleBudgetText(ctx, e);
+    }
   }
 
   if (stage === "JOINED") return handleBudgetText(ctx, e);

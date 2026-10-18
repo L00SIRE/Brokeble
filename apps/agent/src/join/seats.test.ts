@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   insertAssignment: vi.fn(),
   markAssignmentReleased: vi.fn(),
   listActiveAssignmentsExcept: vi.fn(),
+  listUntextedAssignments: vi.fn(),
   findAssignmentByHandle: vi.fn(),
 }));
 
@@ -24,7 +25,7 @@ vi.mock("../env", async (orig) => {
   return { ...actual, env: { ...actual.env, DEMO_TEAM: [{ phone_e164: "+14155550100", first_name: "Team" }] } };
 });
 
-const { CapacityError, ensureSeat, joinIdempotencyKey, releaseAllExceptTeam, releaseSeat } = await import("./seats");
+const { CapacityError, ensureSeat, joinIdempotencyKey, joinSeatScope, releaseAllExceptTeam, releaseSeat, releaseUntexted, seatIdempotencyKey, START_SEAT_SCOPE } = await import("./seats");
 
 const user = { id: "u1", phone_e164: "+14155550111", first_name: "Ana" } as UserRow;
 const row = (id: string, number = "+13105550001") => ({ user_id: "u1", photon_assignment_id: id, assigned_number: number }) as AssignmentRow;
@@ -37,10 +38,16 @@ beforeEach(() => {
   m.insertAssignment.mockImplementation(async (a) => row(a.photon_assignment_id, a.assigned_number));
 });
 
-describe("joinIdempotencyKey", () => {
+describe("seat idempotency keys", () => {
   it("suffixes the released count only when positive", () => {
     expect(joinIdempotencyKey("p", "u", 0)).toBe("join:p:u");
     expect(joinIdempotencyKey("p", "u", 2)).toBe("join:p:u:2");
+    expect(seatIdempotencyKey(START_SEAT_SCOPE, "u", 0)).toBe("start:u");
+    expect(seatIdempotencyKey(START_SEAT_SCOPE, "u", 3)).toBe("start:u:3");
+  });
+
+  it("regression: the /join scope yields byte-identical keys to the pre-scope joinIdempotencyKey format", () => {
+    for (const n of [0, 1, 7]) expect(seatIdempotencyKey(joinSeatScope("plan-9"), "user-3", n)).toBe(`join:plan-9:user-3${n ? `:${n}` : ""}`);
   });
 });
 
@@ -51,11 +58,23 @@ describe("ensureSeat", () => {
     expect(m.assign).not.toHaveBeenCalled();
   });
 
+  it("ensureSeat(user, join:<planId>) sends exactly the legacy join key", async () => {
+    m.assign.mockResolvedValue({ assignmentId: "asg_3", assignedPhoneNumber: "+13105550003" });
+    await ensureSeat(user, joinSeatScope("plan-1"));
+    expect(m.assign).toHaveBeenCalledWith("+14155550111", "Ana", joinIdempotencyKey("plan-1", "u1", 0));
+  });
+
+  it("scope start: key start:<userId>, and a blank first name is passed through (messaging omits it)", async () => {
+    m.assign.mockResolvedValue({ assignmentId: "asg_4", assignedPhoneNumber: "+13105550004" });
+    await ensureSeat({ ...user, first_name: "" }, START_SEAT_SCOPE);
+    expect(m.assign).toHaveBeenCalledWith("+14155550111", "", "start:u1");
+  });
+
   it("assigns with the release-suffixed key and records the seat", async () => {
     m.countReleasedAssignments.mockResolvedValue(1);
     m.assign.mockResolvedValue({ assignmentId: "asg_2", assignedPhoneNumber: "+13105550002" });
     expect(await ensureSeat(user, "p")).toEqual({ assignmentId: "asg_2", assignedPhoneNumber: "+13105550002" });
-    expect(m.assign).toHaveBeenCalledWith("+14155550111", "Ana", "join:p:u1:1");
+    expect(m.assign).toHaveBeenCalledWith("+14155550111", "Ana", "p:u1:1");
     expect(m.insertAssignment).toHaveBeenCalledWith({ user_id: "u1", photon_assignment_id: "asg_2", assigned_number: "+13105550002" });
   });
 
@@ -102,5 +121,29 @@ describe("releaseAllExceptTeam", () => {
     expect(await releaseAllExceptTeam()).toBe(2);
     expect(m.listActiveAssignmentsExcept).toHaveBeenCalledWith(["+14155550100"]);
     expect(m.markAssignmentReleased.mock.calls.map((c) => c[0])).toEqual(["b", "c"]);
+  });
+});
+
+describe("releaseUntexted", () => {
+  it("queries untexted seats older than 15 min by default, keeping DEMO_TEAM, and releases each", async () => {
+    m.listUntextedAssignments.mockResolvedValue([row("x"), row("y")]);
+    expect(await releaseUntexted()).toBe(2);
+    expect(m.listUntextedAssignments).toHaveBeenCalledWith(15, ["+14155550100"]);
+    expect(m.release.mock.calls.map((c) => c[0])).toEqual(["x", "y"]);
+    expect(m.markAssignmentReleased.mock.calls.map((c) => c[0])).toEqual(["x", "y"]);
+  });
+
+  it("continues past a failed release and honours a custom age", async () => {
+    m.listUntextedAssignments.mockResolvedValue([row("a"), row("b")]);
+    m.release.mockRejectedValueOnce(new Error("down")).mockResolvedValue(undefined);
+    expect(await releaseUntexted(30)).toBe(1);
+    expect(m.listUntextedAssignments).toHaveBeenCalledWith(30, ["+14155550100"]);
+    expect(m.markAssignmentReleased.mock.calls.map((c) => c[0])).toEqual(["b"]);
+  });
+
+  it("releases nothing when every seat was texted on", async () => {
+    m.listUntextedAssignments.mockResolvedValue([]);
+    expect(await releaseUntexted()).toBe(0);
+    expect(m.release).not.toHaveBeenCalled();
   });
 });
