@@ -18,10 +18,10 @@ Anything these sources don't confirm is tagged **UNVERIFIED** and has a smoke te
 
 ## 1. Context and goal
 
-Tab's money promise is **"nobody pays until everyone's in."** You build the merchant side that makes it true and checkable:
-- **Tab Partner Venue (sandbox merchant of record)** sells a **prepaid, ticketed dinner + show bundle**.
+SquadTab's money promise is **"nobody pays until everyone's in."** You build the merchant side that makes it true and checkable:
+- **SquadTab Partner Venue (sandbox merchant of record)** sells a **prepaid, ticketed dinner + show bundle**.
 - Each friend places their own **cardholder-initiated authorization** (`capture:false`) on a Microform v2 page.
-- Tab's agent can commit the purchase only with an **Ed25519 RFC 9421 signature (Visa Trusted Agent Protocol)**. The signature covers the **exact consent set**, and the venue rebuilds that set from its own DB.
+- SquadTab's agent can commit the purchase only with an **Ed25519 RFC 9421 signature (Visa Trusted Agent Protocol)**. The signature covers the **exact consent set**, and the venue rebuilds that set from its own DB.
 - The venue captures every share or none. A decline, an "I'm out" or a missed deadline releases every hold.
 
 **Prizes this work wins:**
@@ -503,7 +503,7 @@ It then sets `delivered_at`, or `attempts+1`. Handlers `await deliver(...)` afte
 | `orders/route.ts` POST (`withTap`) | See the steps below |
 | `orders/[orderId]/route.ts` GET (`withTap`) | → `OrderStatus` (shares: `share_id, payer_ref, amount_cents, status, cybs_payment_id, card_last4`; **no tokens or URLs**) |
 | `orders/[orderId]/cancel/route.ts` POST (`withTap`, `maxDuration = 120`) | See the steps below |
-| `page.tsx` `/` | Static: "Tab Partner Venue (sandbox merchant of record) — prepaid dinner + show bundles, booked through Tab. Demo merchant; payments run on the Cybersource sandbox." No real brands. |
+| `page.tsx` `/` | Static: "SquadTab Partner Venue (sandbox merchant of record) — prepaid dinner + show bundles, booked through SquadTab. Demo merchant; payments run on the Cybersource sandbox." No real brands. |
 
 **`POST /orders`:**
 1. `CreateOrderRequest.parse(JSON.parse(body.toString('utf8')))`. Strict zod rejects extra fields such as amounts.
@@ -614,10 +614,10 @@ export function sign(method: 'GET' | 'POST', url: URL, body: Uint8Array | null,
 
 | # | State | When | Primary copy |
 |---|---|---|---|
-| 1 | **Ready** | PENDING, token valid | Header: "Tab Partner Venue · sandbox merchant of record". "Prepaid dinner + show bundle · {date} · dinner {time} · show {time} · party of {n}". Big **"$30.00"**. "This is a hold. It's charged only if everyone's in by {deadline}; otherwise it's released." Microform fields + MM/YYYY + name + ZIP. Unchecked ☐ "Save this card with Tab Partner Venue for one-tap holds next time (stored as a Cybersource token)". Button **"Hold $30.00"**. **Saved-card variant:** "Hold $30.00 on Visa ••1111" + "Use a different card". A processing overlay shows during auth. |
+| 1 | **Ready** | PENDING, token valid | Header: "SquadTab Partner Venue · sandbox merchant of record". "Prepaid dinner + show bundle · {date} · dinner {time} · show {time} · party of {n}". Big **"$30.00"**. "This is a hold. It's charged only if everyone's in by {deadline}; otherwise it's released." Microform fields + MM/YYYY + name + ZIP. Unchecked ☐ "Save this card with SquadTab Partner Venue for one-tap holds next time (stored as a Cybersource token)". Button **"Hold $30.00"**. **Saved-card variant:** "Hold $30.00 on Visa ••1111" + "Use a different card". A processing overlay shows during auth. |
 | 2 | **Held** | after AUTHORIZED | "Held $30.00 on Visa ••1111. Not charged yet. You'll get a text when everyone's in." |
 | 3 | **Declined** | DECLINED | "That card didn't go through. Only you see this." Button "Try another card" → `retry_url` |
-| 4 | **Expired / used** | no row, expired or consumed | "This link has expired or was already used. Text Tab for a fresh one." |
+| 4 | **Expired / used** | no row, expired or consumed | "This link has expired or was already used. Text SquadTab for a fresh one." |
 | 5 | **Already held / booked** | AUTHORIZED / CAPTURING / CAPTURED | "Your hold is in place." / CAPTURED: "Everyone's in. Charged $30.00." |
 | 6 | **Cancelled** | order CANCELLING/CANCELLED, share VOID/RELEASED | "Plan cancelled. Nobody was charged; your pending authorization was released." |
 | 7 | **Something went wrong** | (a) script `onerror`, `new Flex` throws, or capture-context error; (b) `unconfirmed` (AUTH_UNKNOWN) | (a) "The secure card form didn't load. Reload to try again." Button "Reload". (b) "We couldn't confirm your hold. Nothing has been charged. You'll get a fresh link in about a minute." |
@@ -680,7 +680,7 @@ T9 sweep actions:
 - **Rest 4:00–5:30.**
 - **5:30–7:00:**
   - Pay-page polish.
-  - Optional OG image: `app/opengraph-image.tsx` with `ImageResponse` from `next/og` (Next 16.4.2 docs), reading "Tab Partner Venue · secure hold". **No amount, no budget.**
+  - Optional OG image: `app/opengraph-image.tsx` with `ImageResponse` from `next/og` (Next 16.4.2 docs), reading "SquadTab Partner Venue · secure hold". **No amount, no budget.**
   - Screenshot the Business Center transaction search (auth, capture and reversal rows) for the Devpost.
   - Check `merchantDescriptor`.
 - **7:00 freeze.**
@@ -787,10 +787,10 @@ T9 sweep actions:
 **Stage (1:20–2:10):** holds → TAP-verified consent set → capture → tamper rejected.
 
 **Visa pitch (45 s, you):**
-> "A group purchase is an assurance contract at the merchant of record. Every friend places their own cardholder-initiated authorization on a Cybersource Microform page; nobody fronts money. Tab's agent then sends a signed agent request, using the Visa Trusted Agent Protocol, that covers the exact consent set: the order, the total and each authorization ID. The merchant rebuilds that set from its own database and verifies all six TAP steps. Only if every share is held does it capture. One decline or one 'I'm out', and every hold is released. A share above your private max needs your private yes first. We send no Agentic Payment Container: each human pays their own share; the agent's signature only proves which consent set it may commit."
+> "A group purchase is an assurance contract at the merchant of record. Every friend places their own cardholder-initiated authorization on a Cybersource Microform page; nobody fronts money. SquadTab's agent then sends a signed agent request, using the Visa Trusted Agent Protocol, that covers the exact consent set: the order, the total and each authorization ID. The merchant rebuilds that set from its own database and verifies all six TAP steps. Only if every share is held does it capture. One decline or one 'I'm out', and every hold is released. A share above your private max needs your private yes first. We send no Agentic Payment Container: each human pays their own share; the agent's signature only proves which consent set it may commit."
 
 **Merchant honesty (say it before a judge asks):**
-- "CREAO finds real options; partner merchants integrate Tab checkout; this demo merchant is ours: Tab Partner Venue, a sandbox merchant of record selling a prepaid, ticketed dinner + show bundle, so capture at booking is normal."
+- "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours: SquadTab Partner Venue, a sandbox merchant of record selling a prepaid, ticketed dinner + show bundle, so capture at booking is normal."
 - "The key directory is a labelled mock; production is Visa agent registration."
 
 **Q&A you answer** (from PLAN §16, plus payments specifics):
@@ -798,7 +798,7 @@ T9 sweep actions:
 | Question | Answer |
 |---|---|
 | What does the TAP signature prove? Is the agent Visa-approved? | Which agent is acting, with what intent (tag), for which venue-priced order and exact consent set, with replay (nonce) and expiry (≤8 min; we sign for 120 s) protection. We verify the spec's six steps ourselves. The key directory is a labelled mock; Cybersource's `/icc/v1/agents` registry is the production path. Never say "Visa-verified". |
-| What stops "@Tab charge Sam $500"? | No LLM has tools. A charge needs Sam's own action on the merchant page, through a single-use link bound to his exact amount. Capture only follows a TAP-verified commit of the exact consent set, and Cybersource rejects a capture above the hold (`EXCEEDS_AUTH_AMOUNT` is in the capture error enum). |
+| What stops "@SquadTab charge Sam $500"? | No LLM has tools. A charge needs Sam's own action on the merchant page, through a single-use link bound to his exact amount. Capture only follows a TAP-verified commit of the exact consent set, and Cybersource rejects a capture above the hold (`EXCEEDS_AUTH_AMOUNT` is in the capture error enum). |
 | Where does the venue's price come from? | From the bundle the agent submits in a TAP-signed, content-digested `POST /orders`. The venue computes every amount itself with the shared `priceBundle()`, and no amount is accepted from any request. A real partner merchant would price from its own catalog. |
 | Double charges on network failure? | Cybersource has no idempotency header. Every call gets a unique `(share, op, attempt)` row, a deterministic reference code and a persisted `transactionId`. An unknown auth outcome gets a timeout reversal after 60 s, never a blind retry. Captures are never auto-retried; we check the transaction status first. |
 | Capturing at booking for a restaurant? | It's a prepaid, ticketed bundle. Holds are released at our deadline, well inside Visa's 10-calendar-day authorization-to-clearing window for cardholder-initiated card-not-present transactions (Visa Business News AI13522, effective Apr 2024). |

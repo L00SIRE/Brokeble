@@ -14,7 +14,7 @@
 
 ## 1. Context and goal
 
-**Why:** Tab exists because of the moment someone has to say "I can't afford that" in front of the group. A owns every message a human sends or receives. That covers:
+**Why:** SquadTab exists because of the moment someone has to say "I can't afford that" in front of the group. A owns every message a human sends or receives. That covers:
 - the judge's self-join;
 - each person's **private delegate**;
 - the plan state machine that turns sealed constraints into one booked plan;
@@ -240,20 +240,20 @@ We never use these, whatever the result. The result only feeds the Photon pitch 
 **S6. Agent profile (10 min).** The path parameter is `projectId`, not `id` (verified):
 
 ```js
-await photon.projects.agentProfile.update({ path: { projectId: id }, headers: { idempotencyKey: "profile-tab-1" }, body: { firstName: "Tab" } });
+await photon.projects.agentProfile.update({ path: { projectId: id }, headers: { idempotencyKey: "profile-tab-1" }, body: { firstName: "SquadTab" } });
 // avatar (stretch, 4–7 AM), verified sequence:
 // const u = await photon.projects.agentProfile.createAvatarUpload({ path:{projectId:id}, body:{ contentType:"image/png" } }); // {uploadUrl, formFields, uploadId, expiresAt}
 // multipart POST to u.uploadUrl: every formFields entry, then the file as the FINAL part; no Photon credentials; don't log the URL/fields
 // await photon.projects.agentProfile.commitAvatar({ path:{projectId:id}, headers:{ idempotencyKey:"avatar-1" }, body:{ uploadId: u.uploadId } });
 ```
 
-Text from a second team phone and check whether "Tab" shows (**UNVERIFIED — smoke-test first** on shared lines).
+Text from a second team phone and check whether "SquadTab" shows (**UNVERIFIED — smoke-test first** on shared lines).
 
 **S7. Release (2 min).** Run `photon.projects.platforms.imessage.assignments.release({ path: { id, assignmentId } })`. This is `DELETE …/assignments/{assignmentId}` → 200, and it is repeat-safe (verified). Re-create it with a **new** idempotency key, then text first again. The rule (verified, sendMessage description): a shared line sends "only to a peer with an active Assignment who has messaged it since that Assignment."
 
 **Also before 6:00:**
 - Assign the 3 team phones plus 1 spare through S1 and keep the `assignmentId`s.
-- Each team phone sends at least 3 messages to Tab.
+- Each team phone sends at least 3 messages to SquadTab.
 - Put the team phones in `DEMO_TEAM` (T14).
 
 ---
@@ -979,7 +979,7 @@ Tests that need SQL semantics (race, notify, transition) run against `TEST_DATAB
 
 | # | Do | Expected |
 |---|---|---|
-| M1 | Scan the QR on a phone that is not yet assigned → join page → Text Tab → send | `T_JOIN_WELCOME` + `T_BUDGET_ASK` within about 5 s, and typing within about 1 s. "Read" may not show: the API notes that privacy settings can suppress it (verified). |
+| M1 | Scan the QR on a phone that is not yet assigned → join page → Text SquadTab → send | `T_JOIN_WELCOME` + `T_BUDGET_ASK` within about 5 s, and typing within about 1 s. "Read" may not show: the API notes that privacy settings can suppress it (verified). |
 | M2 | "honestly 30 tops tonight" | "Just between us: aim ~$30, never over $30. Text 'change budget' anytime.", then `T_PREFS_ASK` |
 | M3 | "idk, depends" | `T_BUDGET_TIERS`; then "2" → "aim ~$40, never over $50" |
 | M4 | Prefs "veggie, nothing after 10" | Team phones get `T_PICKS_REFRESH` with no reason; the judge gets `T_PICKS` |
@@ -1039,7 +1039,7 @@ Tests that need SQL semantics (race, notify, transition) run against `TEST_DATAB
 | t | Beat |
 |---|---|
 | 0:20 | Zelle hook verbatim: *"According to Zelle research (June 2026), 76% of Gen Z consumers who have fronted money for a group expense, like a trip or event, say they were not fully repaid."* Then the thesis. |
-| 0:45 | Guide the judge through the QR, the phone number and Text Tab. Prompt them to text "honestly 30 tops tonight". Point at the team phones: "the group changed, and nobody knows why." |
+| 0:45 | Guide the judge through the QR, the phone number and Text SquadTab. Prompt them to text "honestly 30 tops tonight". Point at the team phones: "the group changed, and nobody knows why." |
 | 1:45 | Prompt "2, but not if it ends after 10". The team taps its votes, then the winner arrives. |
 | 2:30 | Hand over to C for pay and TAP. Team phones hold with one tap. |
 | 3:30 | After C's tamper: Reset → a team phone texts "I'm out" → every DM shows the "released" copy, and nobody is named. |

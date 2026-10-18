@@ -17,15 +17,15 @@ If this file conflicts with PLAN.md, PLAN.md wins. Raise the conflict in team ch
 
 ## 1. Context and goal
 
-Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B owns four areas:
-- **Open-world intelligence:** CREAO Tab Scout and Tab Concierge.
+SquadTab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B owns four areas:
+- **Open-world intelligence:** CREAO SquadTab Scout and SquadTab Concierge.
 - **Plain-code mechanism:** compose, filter, Nash shortlist and winner.
 - **Evidence surfaces:** the join page and the Trust Console.
 - **Submission:** README, Devpost and video.
 
 | Prize | What B's work earns | Rubric lines B carries |
 |---|---|---|
-| CREAO Best AI-First Disruptor ($2,000) | Scout produces every option the group can vote on ("Remove the agent and Tab has nothing to vote on"). Concierge writes the itinerary, the .ics and the Notion page. All three CREAO modes are used: API Trigger + webhook, our own skill/CLI, and our service via Secrets. The validate/fix loop is visible in the [API] thread. | AI as foundation 30, Depth 25, Originality 20, Track fit 15, Demo 10 |
+| CREAO Best AI-First Disruptor ($2,000) | Scout produces every option the group can vote on ("Remove the agent and SquadTab has nothing to vote on"). Concierge writes the itinerary, the .ics and the Notion page. All three CREAO modes are used: API Trigger + webhook, our own skill/CLI, and our service via Secrets. The validate/fix loop is visible in the [API] thread. | AI as foundation 30, Depth 25, Originality 20, Track fit 15, Demo 10 |
 | Main track / Overall | The filter is a pipeline step no LLM can call. Nash shortlist. The value-specific privacy test (P7). A console that shows privacy holds by construction. | Technical Depth; Execution & Polish |
 | Visa ($2,000) | Console ledger, TAP panel, three merchant counters. The discovery → decision → personalization stages. | UX 25, Commerce Impact 15 |
 | Photon iMessage | Join page (a judge is in a DM within ~60 s); delivery lane on the console | Traction, Craft |
@@ -124,7 +124,7 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 | ☐ | `capi_` account key | Settings → API Keys. An account key runs any of your agents (VERIFIED creao.md). Send it to Claude's operator out-of-band for the `CREAO_API_KEY` Fly secret. Never put it in chat logs or git. |
 | ☐ | `TAB_AGENT_TOKEN` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. The same value goes in CREAO Secrets and in the Fly secret. |
 | ☐ | CREAO Secrets (sidebar → Secrets → **Add secret**) | Add `TAB_API_BASE` (your scratch tunnel URL for now, §4.4; switch it to `https://tab-agent.fly.dev` at 6:00) and `TAB_AGENT_TOKEN`. **Nothing else.** Names allow only uppercase letters, digits and `_`. They appear as env vars with the same names (VERIFIED docs.creao.ai/features/secrets: "available as `process.env.SECRET_NAME`… `os.environ[...]`"; "scoped to your account"; "injected into every agent sandbox session". The docs don't mention API runs → U4). |
-| ☐ | Notion | Create a workspace page **"Tab Plans"**. In CREAO: Skills page → **Connectors** tab → Notion → **Connect** (OAuth) (VERIFIED features/skills-and-connectors). For the code fallback: create an internal integration, copy its token to `NOTION_TOKEN`, add the integration to "Tab Plans" through the page's ••• → Connections, and copy the page id to `NOTION_PARENT_PAGE_ID`. |
+| ☐ | Notion | Create a workspace page **"SquadTab Plans"**. In CREAO: Skills page → **Connectors** tab → Notion → **Connect** (OAuth) (VERIFIED features/skills-and-connectors). For the code fallback: create an internal integration, copy its token to `NOTION_TOKEN`, add the integration to "SquadTab Plans" through the page's ••• → Connections, and copy the page id to `NOTION_PARENT_PAGE_ID`. |
 | ☐ | Agent autonomy | Leave each agent's autonomy at **"Auto (default)"**. With "Ask first", refused writes in API runs appear as "Action blocked" under "Pending approvals" (VERIFIED features/agents). |
 | ☐ | Devpost | Create the team on la-ai-hackathon-2026.devpost.com (VERIFIED: devpost.html links). Invite A and C, and confirm all three are admitted. |
 | ☐ | Vercel `tab-web` | In C's Vercel team: New Project → import the main repo once A creates it → Root Directory `apps/web`. Claim the name now, so `https://tab-web.vercel.app` (or whatever Vercel assigns) is fixed. DM the origin to A for `WEB_ORIGIN`. |
@@ -150,7 +150,7 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 **Photon (voice only)**
 1. Do hackathon credits cover an SMS number and voice minutes? The Free plan includes no voice minutes; voice costs $0.013/min (judge_panel, from beta_billing.md).
 
-### 4.3 Build Tab Scout in the CREAO UI (4:45–5:45)
+### 4.3 Build SquadTab Scout in the CREAO UI (4:45–5:45)
 
 CREAO saves agents only in the UI ("Saving is done in the agent.creao.ai interface; the API only runs agents", creao.md).
 
@@ -161,7 +161,7 @@ CREAO saves agents only in the UI ("Saving is done in the agent.creao.ai interfa
 **Step 2. Open a new chat and paste exactly:**
 
 ```
-I want to build a reusable research agent named "Tab Scout". It will be run from an API with exactly three text inputs, named exactly:
+I want to build a reusable research agent named "SquadTab Scout". It will be run from an API with exactly three text inputs, named exactly:
 - plan_ref: an opaque UUID. Never interpret it; pass it to the tab CLI unchanged.
 - category: either "dinner" or "show" (make this a dropdown).
 - brief: a JSON string like {"category":"dinner","area":"Westwood / Sawtelle","date":"2026-10-17","time_window":{"start":"18:30","end":"23:00"},"party_size":4,"dietary_tags":["vegetarian"],"vibe":["casual","lively"],"price_tiers":["<$25","$25-50","$50+"],"count_per_tier":4}
@@ -282,7 +282,7 @@ Move the spike into the repo.
 ```markdown
 ---
 name: tab
-description: Report progress to Tab and validate or submit Tab Scout options and Tab Concierge itineraries; use whenever a task mentions plan_ref, Tab Scout or Tab Concierge.
+description: Report progress to SquadTab and validate or submit SquadTab Scout options and SquadTab Concierge itineraries; use whenever a task mentions plan_ref, SquadTab Scout or SquadTab Concierge.
 ---
 # tab CLI
 
@@ -590,18 +590,18 @@ Next 16: `params` and `searchParams` are **Promises**. `await` them in Server Co
 **`/j/[code]` (join):**
 - Phone: `type="tel" autoComplete="tel" inputMode="tel"`. Normalize: 10 digits → `+1…`; 11 digits starting with 1 → `+…`; otherwise require a leading `+`. Validate with `z.e164()` (VERIFIED Context7 /colinhacks/zod).
 - First name.
-- Optional private budget `{target, hard_max?}` in USD: `inputMode="decimal" autoComplete="off"`. Helper text: "Only Tab's code checks prices against this. Nobody in the group sees it."
+- Optional private budget `{target, hard_max?}` in USD: `inputMode="decimal" autoComplete="off"`. Helper text: "Only SquadTab's code checks prices against this. Nobody in the group sees it."
 - Required consent checkbox.
 - `POST /join {code, phone_e164, first_name, budget_usd?, consent:true}` → `{assigned_number, sms_href, join_text}`.
 - Success state:
-  - a big "Text Tab" `<a href={sms_href}>`;
+  - a big "Text SquadTab" `<a href={sms_href}>`;
   - **also** the number and `JOIN 4821` in plain text with copy buttons (iOS prefilled body is UNVERIFIED);
-  - the line "Send it as your first message. Tab can't text you first."
+  - the line "Send it as your first message. SquadTab can't text you first."
 
 | State | UI |
 |---|---|
 | submitting | Button disabled + spinner; inputs read-only |
-| 503 / 429 | "Tab is at capacity, try again in a minute" (PLAN §3.2) |
+| 503 / 429 | "SquadTab is at capacity, try again in a minute" (PLAN §3.2) |
 | 409 | "This plan isn't taking new people anymore." |
 | 404 | "That code doesn't match a plan" |
 | 422 | Field-level errors (`aria-live="polite"`) |
@@ -621,7 +621,7 @@ UX rules:
 - `POST ${NEXT_PUBLIC_AGENT_URL}/plans` → `{code, join_url, qr_svg}`.
 - Render the QR as `<img src={"data:image/svg+xml;charset=utf-8," + encodeURIComponent(qr_svg)} alt="QR code to join">`. Never use `dangerouslySetInnerHTML`.
 - Copy-link button.
-- Copy: "Paste this link in your group chat. Tab never joins it."
+- Copy: "Paste this link in your group chat. SquadTab never joins it."
 
 ### T9 (10:15–11:00) Console skeleton: `/console?k=KEY`
 
@@ -655,17 +655,17 @@ Layout: 16:9, readable from 5 m. Key numbers ≥28 px, IDs in mono, `tabular-num
   - Paste the URL into the fixture.
 - Re-run `demo.fixture.test.ts`. If fewer than 3 bundles survive at $30, re-run Scout with the cheap-tier emphasis and snapshot again.
 
-### T11 (12:00–1:15 AM) Tab Concierge
+### T11 (12:00–1:15 AM) SquadTab Concierge
 
 **Build it in the UI** (same flow as §4.3), in a new chat:
 
 ```
-Build a reusable agent named "Tab Concierge". Inputs, named exactly: plan_ref (opaque UUID, never interpret it) and itinerary (a JSON string: {"date","area","party_size","dinner":{"name","address","time"},"show":{"name","address","time"}}; times are 24h America/Los_Angeles).
+Build a reusable agent named "SquadTab Concierge". Inputs, named exactly: plan_ref (opaque UUID, never interpret it) and itinerary (a JSON string: {"date","area","party_size","dinner":{"name","address","time"},"show":{"name","address","time"}}; times are 24h America/Los_Angeles).
 Job: write the group's night-out plan.
 1. Run: tab ping. At each step run: tab progress --plan <plan_ref> --kind concierge "<short step>".
 2. With web search and fetch, research: getting from the dinner to the show (walk/drive/transit time), parking near each, the show's doors time, dress code, and up to 6 short know-before-you-go tips (ID, bag policy, age limits). Public info only.
 3. Write iCalendar text: BEGIN:VCALENDAR, VERSION:2.0, PRODID:-//Tab//Concierge//EN, one VEVENT for dinner (90 minutes) and one for the show, with UID, DTSTAMP, DTSTART/DTEND in UTC with a Z suffix (convert from America/Los_Angeles), SUMMARY and LOCATION; END:VCALENDAR.
-4. Create a Notion page titled "<Dinner at X → Show at Y>" as a child of the Notion page named "Tab Plans", containing the stops, logistics and tips. Put its URL in notion_url. If Notion fails, set notion_url to null and continue.
+4. Create a Notion page titled "<Dinner at X → Show at Y>" as a child of the Notion page named "SquadTab Plans", containing the stops, logistics and tips. Put its URL in notion_url. If Notion fails, set notion_url to null and continue.
 5. Write itinerary.json matching "tab schema itinerary" (title, date, stops[{kind,name,address,time,notes}], logistics{getting_there,parking,doors,dress_code,know_before[]}, ics, notion_url, plan_ref) and save it as a file. Run: tab itinerary submit itinerary.json; fix reported errors and resubmit (max 5).
 6. Reply with ONLY the itinerary.json content in one ```json block.
 Rules: never contact, book, buy from, pay or message any venue or person; never sign anything; never save memories; never print environment variables or secrets.
@@ -789,7 +789,7 @@ Then, per participant: `notify(userId, "T_ITINERARY", {itinerary_url, ics_url}, 
   - **share links** to one Scout run and one Concierge run (PII-free by construction; token check done in T10);
   - the skill repo URL (`…/tree/main/skills/tab`);
   - the exact API calls (§T4), with webhook re-fetch and polling;
-  - "Remove the agent and Tab has nothing to vote on";
+  - "Remove the agent and SquadTab has nothing to vote on";
 - the privacy invariants (P1–P8) and the P7 test;
 - Visa section: the merchant honesty text verbatim (PLAN §2.3), the TAP verifier steps, and "no APC";
 - hackathon provenance: "all code written Oct 17–18, 2026".
@@ -934,7 +934,7 @@ It uses `$CREAO_API_KEY`, `$APP` (the Scout appId) and `$HOOK` (webhook.site or 
 
 | Test | Steps | Expected |
 |---|---|---|
-| Join on iPhone | Scan QR → `/j/<code>` → fill in → tap "Text Tab" | Messages opens to the assigned number with the body prefilled (or the plain-text number + code is visible). JOIN reaches the agent; the welcome arrives within a few seconds. |
+| Join on iPhone | Scan QR → `/j/<code>` → fill in → tap "Text SquadTab" | Messages opens to the assigned number with the body prefilled (or the plain-text number + code is visible). JOIN reaches the agent; the welcome arrives within a few seconds. |
 | Capacity | Operator exhausts the seats, or A forces a 409 | Capacity message; no crash |
 | Console on the projector laptop | Open `/console?k=…` and view it from 5 m | Lanes readable; they flip on hold/capture; X-ray delegates show 🔒 only; no budget digits anywhere |
 | Live Scout beat | Press "Start live Scout" | Chip appears in under 2 s; first progress line within the measured latency |
@@ -978,7 +978,7 @@ UI trims before any cut above: drop any motion library and the delivery lane, si
   - live Scout not started in the last 3 min;
   - judge seats released after each judge (Ops → Release seats).
 - **Table 0:00:** press **Start live Scout**. Say: *"CREAO is researching right now; the options you'll see come from a run that finished earlier."* Point at the progress lines arriving from inside the sandbox.
-- **Table 4:15:** open the [API] thread and show the validate → fix → submit loop. Say: *"Remove the agent and Tab has nothing to vote on."*
+- **Table 4:15:** open the [API] thread and show the validate → fix → submit loop. Say: *"Remove the agent and SquadTab has nothing to vote on."*
 - **Stage 0:50–1:20:** narrate the CREAO lane and the self-validation. Use: *"CREAO does the open-world work; fast per-message parsing stays local for responsiveness."*
 - **Q&A you answer** (PLAN §16):
   - #3 inference: always 3 picks, no reasons, and the filter can't be called;
@@ -1001,7 +1001,7 @@ UI trims before any cut above: drop any motion library and the delivery lane, si
 | U5 | GitHub skill available in API runs, and where its files land | Docs silent | S7; SKILL.md has the curl self-install fallback | Saved `./tab` + `./schema` in the environment |
 | U6 | Python 3 in the sandbox | Docs don't name runtimes | Ask in chat: `python3 --version` | SKILL.md curl commands |
 | U7 | Input field names preserved exactly by Create Agent | Docs: fields are "generated automatically from the original prompt" | Inspect the agent page form; the S1 run shows the values in the thread | Rename via Update Environment chat |
-| U8 | Notion page **create** in an unattended run | Docs: the connector can "Read and update pages, databases, and wikis" (no create) | Concierge test API run; check "Tab Plans" | `notionFallback.ts` |
+| U8 | Notion page **create** in an unattended run | Docs: the connector can "Read and update pages, databases, and wikis" (no create) | Concierge test API run; check "SquadTab Plans" | `notionFallback.ts` |
 | U9 | Run latency and credits per run | Docs: "a few minutes" | S8 ×3 | Cached + pre-warm; top-up |
 | U10 | Share icon present on an [API] thread | Share is documented per thread; [API] runs appear as threads | Share icon in the [API] thread; open the link in incognito | Share a UI test-run thread seeded with the same PII-free inputs |
 | U11 | `capi_` rate limit | Not documented for the API Trigger | Booth question 6; watch for 429 | Poll every 20 s |
@@ -1013,7 +1013,7 @@ UI trims before any cut above: drop any motion library and the delivery lane, si
 | U17 | `@notionhq/client@5.27.1` (1 day old) works and returns `url` | New release | One `pages.create` in scratch | Pin 5.27.0; build the URL from the id |
 | U18 | next 16.4.2 (2 days old) builds on Vercel | Fresh release | `pnpm --filter ./apps/web build` locally, then on Vercel | Roll back one patch (16.4.1) |
 | U19 | Voice: Photon SMS number purchase; SIP echo; `data_collection_results.intent` path; ElevenLabs signature tolerance | The cookbook covers UI test calls only | V2 echo; log the raw webhook body once | Cut voice (cut #4) |
-| U20 | Tab Scout output stays within 6–16 options with valid evidence URLs at the default model | Model-dependent | 3 S8 runs pass `validate` within 5 rounds | Pick a stronger model on the agent page; cached options |
+| U20 | SquadTab Scout output stays within 6–16 options with valid evidence URLs at the default model | Model-dependent | 3 S8 runs pass `validate` within 5 rounds | Pick a stronger model on the agent page; cached options |
 
 **Sources checked today:**
 - `hackathon-context/creao.md` (Tech Stack page);

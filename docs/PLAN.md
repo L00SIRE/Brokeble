@@ -1,4 +1,6 @@
-# Tab: master plan (single source of truth)
+# SquadTab: master plan (single source of truth)
+
+Product name: SquadTab (internal identifiers keep the `tab` prefix).
 
 **Event:** LA Hacks AI Hackathon, UCLA JWAC. Hacking runs Sat Oct 17 12:00 PM to **Sun Oct 18 12:00 PM PDT**. There is no grace period and late Devpost submissions are not accepted. Judging: Round 1 is a science fair from 12:30 to 2:00 PM, 4–5 min per judge, several judges per table. Round 2 is the top 5 on stage: 3 min demo plus 5 min Q&A. The whole team must be present.
 **Written:** Sat 4:25 PM.
@@ -10,10 +12,10 @@
 ## 1. Pitch
 
 - **Thesis (use everywhere):** *"Say no without saying why. Nobody pays until everyone's in."*
-- **Pitch line:** *"Tab is the friend who knows everyone's budget and tells no one. It finds the plan you can all afford, and nobody pays until everyone's in."*
-- **Product line:** *"Tab never joins your group chat, on purpose. Money talk only works in private."*
+- **Pitch line:** *"SquadTab is the friend who knows everyone's budget and tells no one. It finds the plan you can all afford, and nobody pays until everyone's in."*
+- **Product line:** *"SquadTab never joins your group chat, on purpose. Money talk only works in private."*
 - **Privacy claim (the only one we make):** *"Only your own agent hears your budget. CREAO, the group messages, and everyone else's agent never get it, and every money decision is plain code."*
-- **CREAO line:** *"CREAO does the open-world work; fast per-message parsing stays local for responsiveness. Remove the agent and Tab has nothing to vote on."*
+- **CREAO line:** *"CREAO does the open-world work; fast per-message parsing stays local for responsiveness. Remove the agent and SquadTab has nothing to vote on."*
 - **Visa line:** *"A group purchase as an assurance contract at the merchant of record. N cardholder-initiated authorizations, and an identified agent that can commit only the exact consent set."*
 - **Impact hook (verbatim):** *"According to Zelle research (June 2026), 76% of Gen Z consumers who have fronted money for a group expense, like a trip or event, say they were not fully repaid."*
 - **Words to avoid on stage unless a judge asks:** "Nash welfare", "RFC 9421", "advocates", "agents negotiate", "Visa-verified agent", "$0 instantly".
@@ -61,7 +63,7 @@ Rubric: AI as foundation 30, Depth 25, Originality 20, Track fit 15, Demo 10.
 
 | Requirement (creao.md) | How we exceed it | Where in demo |
 |---|---|---|
-| At least one CREAO agent does the core work | **Tab Scout** produces every option the group can vote on. **Tab Concierge** writes the itinerary, a hosted .ics and the Notion page after the commit. Code only filters, composes and scores. | Say out loud: "Remove the agent and Tab has nothing to vote on." |
+| At least one CREAO agent does the core work | **SquadTab Scout** produces every option the group can vote on. **SquadTab Concierge** writes the itinerary, a hosted .ics and the Notion page after the commit. Code only filters, composes and scores. | Say out loud: "Remove the agent and SquadTab has nothing to vote on." |
 | Built on agent.creao.ai | Both agents built by chatting, then Create Agent. The `tab` CLI is saved via Update Environment → Save to Agent, and is also a public GitHub SKILL.md repo. | [API] run thread in a second tab |
 | README: run share link + agent ID | Share links to one Scout run and one Concierge run, both seeded from PII-free inputs (a share link exposes the full conversation). Both appIds, the skill repo URL and the exact API calls. | Devpost README |
 | Show the agent running | A fresh live Scout run starts at second 0 of every demo. Agent-posted `tab progress` lines stream into the console CREAO lane. The flow uses a pre-warmed completed run, **and we say so**. | CREAO lane |
@@ -83,9 +85,9 @@ Rubric: Innovation 25, UX 25, Technical 20, Commerce Impact 15, Trust 15.
 | Trust and responsibility | **holdGate** (a share above your private max needs your private yes). Card data only in Microform iframes. Single-use, amount-bound pay links. Live tamper, replay, expired and wrong-tag rejections. Mock key directory labelled "mock". "Released" wording. | Tamper button; holdGate DM |
 
 **Merchant honesty (mandatory):**
-- The merchant is **"Tab Partner Venue (sandbox merchant of record)"**, selling a **prepaid, ticketed dinner + show bundle**, so capturing at booking is normal practice.
+- The merchant is **"SquadTab Partner Venue (sandbox merchant of record)"**, selling a **prepaid, ticketed dinner + show bundle**, so capturing at booking is normal practice.
 - Never put a real business's name or brand on the pay page.
-- Say: "CREAO finds real options; partner merchants integrate Tab checkout; this demo merchant is ours."
+- Say: "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours."
 - Say: "We send no Agentic Payment Container. Each human pays their own share; the agent's signature only proves which consent set it may commit."
 
 ### 2.4 Photon iMessage ($700 / $300)
@@ -95,7 +97,7 @@ Rubric: Innovation 25, UX 25, Technical 20, Commerce Impact 15, Trust 15.
 | Built on Photon 2.0 | `@photon-ai/api@0.5.0` against `https://api.photon.codes/v1` plus Socket.IO events with a persisted replay cursor. The brief's "SDK reference" link points at spectrum-ts (Stable), so ask the booth which counts. | Photon delivery lane; beta dashboard tab |
 | Live on ≥1 Photon channel | Live iMessage DMs. Judges join from **their own phones** via assignment-create (free tier: 25 seats, released after each judge). | QR → in a DM in about 60 s |
 | Vision: hybrid intelligence | A private delegate per friend, a code mechanism between them, humans keep the final yes | Context X-ray panel |
-| Craft: responsive | Typing within about 1 s, refreshed during runs. Mark-as-read on receipt. Threaded replies (`parentMessageId`). Agent profile "Tab" + avatar (visibility on shared lines **UNVERIFIED**). PNG cards are a stretch. | Judge's phone |
+| Craft: responsive | Typing within about 1 s, refreshed during runs. Mark-as-read on receipt. Threaded replies (`parentMessageId`). Agent profile "SquadTab" + avatar (visibility on shared lines **UNVERIFIED**). PNG cards are a stretch. | Judge's phone |
 | Depth: edge cases | User texts first; the agent number can differ per user; `SHARED_LINE_*` errors handled; idempotent sends; Socket.IO replay; re-ping ladder; deadline releases all holds | Decline/deadline beat |
 | Traction | No app install, no group app, works with the friend group you already have | Judge onboarding |
 
@@ -115,7 +117,7 @@ Criteria (lahacks.md): Technical Depth; Product Thinking & Impact; Originality &
   - Zelle hook.
 - **Originality:**
   - Prior art: Sunday (TreeHacks 2026) takes a public group budget inside group chats. PayByGroup (2012) and Airbnb split pay (2017) know nothing about constraints.
-  - Tab combines sealed constraints with an assurance contract.
+  - SquadTab combines sealed constraints with an assurance contract.
 - **Execution:** three clean runs in a row by 4 AM; scope is cut before polish.
 
 ### 2.6 Voice (stretch, gated)
@@ -139,9 +141,9 @@ The work only starts after the 11 PM checkpoint passes.
 
 | # | Step | System behaviour | Owner |
 |---|---|---|---|
-| 0 | **Demo prep** | 3 team phones assigned; each has sent ≥3 messages to Tab. `pnpm seed:demo` creates the demo plan (title "Dinner + show", area, date, 18:30–23:00, party target 4), seeds 3 members with budgets and prefs, and loads cached options from a real earlier Scout run (its real runId kept in `research_runs.result.cached_from_run_id`). | A |
-| 1 | **Create plan** (non-demo) | Organizer opens `apps/web /` → `POST /plans` → gets code `4821`, join link `/j/4821` and a QR. The organizer pastes the link into **their own existing group chat**; Tab is never in it. | A + B |
-| 2 | **Join** | `/j/4821`: phone (E.164), first name, optional private budget field, consent checkbox → `POST /join`. Then: (a) the agent upserts the user and participant; (b) it calls `assignments.create` (idempotency key `join:<planId>:<userId>`); (c) the page shows a "Text Tab" button `sms:<assignedNumber>&body=JOIN%204821` **and** the number and code in plain text (iOS prefilled-body behaviour is **UNVERIFIED**). | A (API), B (page) |
+| 0 | **Demo prep** | 3 team phones assigned; each has sent ≥3 messages to SquadTab. `pnpm seed:demo` creates the demo plan (title "Dinner + show", area, date, 18:30–23:00, party target 4), seeds 3 members with budgets and prefs, and loads cached options from a real earlier Scout run (its real runId kept in `research_runs.result.cached_from_run_id`). | A |
+| 1 | **Create plan** (non-demo) | Organizer opens `apps/web /` → `POST /plans` → gets code `4821`, join link `/j/4821` and a QR. The organizer pastes the link into **their own existing group chat**; SquadTab is never in it. | A + B |
+| 2 | **Join** | `/j/4821`: phone (E.164), first name, optional private budget field, consent checkbox → `POST /join`. Then: (a) the agent upserts the user and participant; (b) it calls `assignments.create` (idempotency key `join:<planId>:<userId>`); (c) the page shows a "Text SquadTab" button `sms:<assignedNumber>&body=JOIN%204821` **and** the number and code in plain text (iOS prefilled-body behaviour is **UNVERIFIED**). | A (API), B (page) |
 | 3 | **First DM** (user texts first) | Inbound `JOIN 4821` → route stored (spaceId, receivedBy.id) → markRead → typing → template `T_JOIN_WELCOME` + `T_BUDGET_ASK`. Text only, no links (Apple suppresses link-clicking until a reply lands). | A |
 | 4 | **Private budget** | The reply goes to **that person's delegate** (Haiku, stateless; input is only this message plus the stage) → `BudgetParse` → code validates and writes `private_constraints` → template `T_BUDGET_CONFIRM` ("Just between us: aim ~$30, never over $30. Text 'change budget' anytime."). Low confidence → `T_BUDGET_TIERS` ("Reply 1: under $25, 2: $25–50, 3: $50–80, 4: no cap"), mapped in code. | A |
 | 5 | **Prefs** | `T_PREFS_ASK` → delegate `parsePreferences` → `Preferences` (no money fields, enums for dietary and vibe). | A |
@@ -176,7 +178,7 @@ The work only starts after the 11 PM checkpoint passes.
 | TAP verify fails or a business check fails at checkout | No capture. Order stays OPEN. The agent logs `tap.verify rejected`. A real failure (not a demo test button) on an order that is still OPEN → cancel the plan (reverse all). If the order is COMMITTING or CAPTURED, wait for `order.captured`. | `T_CANCELLED` |
 | Capture fails mid-loop | Order `NEEDS_ATTENTION`; check `GET /tss/v2/transactions/{id}` before any retry; console flag. Double-capture behaviour is **UNVERIFIED**. | none until resolved |
 | Photon redelivery / reconnect | `inbound_events` insert-or-ignore on `(photon, event.id)`; cursor saved only after a successful handle; outbound idempotency key `reply:<inboundMessageId>:<n>` or `tpl:<planId>:<userId>:<templateId>:<version>` | — |
-| `SHARED_LINE_CAP_EXCEEDED` / `POOL_EXHAUSTED` on join | The join page shows "Tab is at capacity, try again in a minute"; operator releases judge seats | page |
+| `SHARED_LINE_CAP_EXCEEDED` / `POOL_EXHAUSTED` on join | The join page shows "SquadTab is at capacity, try again in a minute"; operator releases judge seats | page |
 | `SHARED_LINE_INBOUND_REQUIRED` on send | Never send a first message; queue until that user texts | — |
 | Process restart | Socket.IO resubscribes with the saved `startSeq`; due_jobs and state resume from the DB | — |
 | Pay link forwarded | Single-use token, consumed on POST only (preview GETs don't consume it); amount from the DB; bound to share + order version | — |
@@ -225,7 +227,7 @@ Effective hard max (code-only, `decide/filter.ts`): `hard_max_pp_cents ?? round(
 └───────────────┬──────────────────────────────────────────────┬────────────────────────────────────┘
                 │ RFC 9421-signed HTTPS (TAP)                    │ SSE (CONSOLE_KEY)
 ┌───────────────▼───── apps/venue (Next.js, Vercel) ─────┐   ┌───▼──── apps/web (Next.js, Vercel) ────┐
-│ "Tab Partner Venue (sandbox merchant of record)"       │   │ /  (create plan)  /j/[code] (join)     │
+│ "SquadTab Partner Venue (sandbox merchant of record)"       │   │ /  (create plan)  /j/[code] (join)     │
 │ TAP verifier (6 steps) · mock key dir /keys/[keyid]    │   │ /console (lanes, X-ray, CREAO, TAP,    │
 │ /availability /orders /checkout/[id] /orders/[id]/cancel│   │  ledger, counters, ops buttons)        │
 │ /pay/[token] Microform v2 · Cybersource (JWT shared sec)│   └────────────────────────────────────────┘
@@ -233,7 +235,7 @@ Effective hard max (code-only, `decide/filter.ts`): `hard_max_pp_cents ?? round(
 └───────────────┬────────────────────────────────────────┘
                 ▼
      Supabase Postgres:  schema app (agent role)   schema venue (venue role)
-CREAO agent.creao.ai: Tab Scout, Tab Concierge ──(tab CLI: TAB_API_BASE + TAB_AGENT_TOKEN)──▶ apps/agent /agent/*
+CREAO agent.creao.ai: SquadTab Scout, SquadTab Concierge ──(tab CLI: TAB_API_BASE + TAB_AGENT_TOKEN)──▶ apps/agent /agent/*
 ```
 
 ```
@@ -892,7 +894,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 - Typing: `photon.projects.setSpaceTyping({ path:{id, spaceId}, body:{ senderId, typing:true } })`. `true` starts or refreshes typing.
 - Read: `photon.projects.markMessageRead({ path:{id, messageId}, headers:{"idempotency-key":k} })`.
 - Assign: `photon.projects.platforms.imessage.assignments.create({ path:{id}, headers:{ idempotencyKey:k }, body:{ handle, firstName? } })` → 201 `{assignmentId, assignedPhoneNumber, …}`. Release: `.assignments.release({ path:{id, assignmentId} })` (repeat-safe).
-- Agent profile: `photon.projects.agentProfile.update({firstName:"Tab"})`; avatar via `createAvatarUpload` + `commitAvatar`.
+- Agent profile: `photon.projects.agentProfile.update({firstName:"SquadTab"})`; avatar via `createAvatarUpload` + `commitAvatar`.
 - Events:
   - Connect: `io("https://api.photon.codes", { path:\`/v1/projects/${id}/events/ws\`, addTrailingSlash:false, transports:["websocket"], extraHeaders:{Authorization:\`Bearer ${key}\`}, autoConnect:false })`.
   - On `connect`: `socket.timeout(10_000).emit("subscribe", { startSeq: saved, apiVersion:"2026-07-01" }, ack)`. `startSeq` 0 = live; a positive value resumes after it.
@@ -1010,11 +1012,11 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | 7 | Vercel team + projects `tab-venue` (root apps/venue) + `tab-web` (root apps/web) | C / B | Production domains fixed in hour 1 (Microform needs them) |
 | 8 | Public GitHub repo | A | Push the foundation. `.env*` ignored from the first commit |
 | 9 | Public GitHub repo `tab-skill` (or `skills/tab` in the main repo; a GitHub URL is required for Install from GitHub) | B | |
-| 10 | Notion workspace + "Tab Plans" parent page shared with the CREAO connection | B | |
+| 10 | Notion workspace + "SquadTab Plans" parent page shared with the CREAO connection | B | |
 | 11 | Devpost team (all 3 admitted) | B | |
 | 12 | Visa Developer account (only if MCP features need OAuth) | C | |
 | 13 | ElevenLabs + Photon SMS number + payment method (voice go only) | B | |
-| 14 | 3 team iPhones on cellular + 1 borrowed spare; USB cable for mirroring | all | Each sends ≥3 messages to Tab before the demo |
+| 14 | 3 team iPhones on cellular + 1 borrowed spare; USB cable for mirroring | all | Each sends ≥3 messages to SquadTab before the demo |
 | 15 | Secrets shared out-of-band (password manager / DM), never in git or chat logs | all | |
 
 ---
@@ -1024,7 +1026,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | Time | Claude (foundation) | A: platform and conversation | B: intelligence and experience | C: trust and commerce | Gate |
 |---|---|---|---|---|---|
 | **4:25–4:45** | Starts the foundation from this doc | Photon booth (§17); create Photon project and key; Supabase, Fly app, GitHub repo, Anthropic key; DM secrets to Claude's operator | CREAO booth (send the account email for the upgrade); Devpost team; Notion page | Cybersource signup **now**, then the Visa booth; Vercel team and 2 projects | — |
-| **4:45–6:00** | Builds: monorepo, shared contracts, migrations, 4 ports + mocks, `/dev/inbound`, due_jobs poller, events + SSE, Fly/Vercel config, `.env.example`, `.gitignore`, CLAUDE.md, AGENTS.md, `pnpm sim:plan` | `scratch/photon/`: Socket.IO echo to own phone; assignment create/release; typing refresh; markRead; record whether name/avatar shows | Build **Tab Scout** in the CREAO UI by chatting → Create Agent; write the `tab` skill (SKILL.md + CLI) and install it; curl smoke tests: run with idempotencyKey (replay returns the same run), latency, credits per run | `scratch/cybs/`: auth→capture, auth→reverse, timeout reversal against apitest; capture-context call; Ed25519 keygen + sign/verify spike with `node:crypto` | — |
+| **4:45–6:00** | Builds: monorepo, shared contracts, migrations, 4 ports + mocks, `/dev/inbound`, due_jobs poller, events + SSE, Fly/Vercel config, `.env.example`, `.gitignore`, CLAUDE.md, AGENTS.md, `pnpm sim:plan` | `scratch/photon/`: Socket.IO echo to own phone; assignment create/release; typing refresh; markRead; record whether name/avatar shows | Build **SquadTab Scout** in the CREAO UI by chatting → Create Agent; write the `tab` skill (SKILL.md + CLI) and install it; curl smoke tests: run with idempotencyKey (replay returns the same run), latency, credits per run | `scratch/cybs/`: auth→capture, auth→reverse, timeout reversal against apitest; capture-context call; Ed25519 keygen + sign/verify spike with `node:crypto` | — |
 | **6:00** | Foundation pushed and deployed (Fly + both Vercel); `pnpm sim:plan` green on mocks | pull | pull | pull | **F: foundation** |
 | 6:00–6:45 | On call for foundation fixes | Real `PhotonMessaging` + consumer; JOIN through `route()` on a real phone by 7:15 | `/agent/*` live + final skill; Scout calls `tab ping` from an API run (CreaoPlanner 6:35–7:15, webhook/poll 7:15–7:45) | Venue Cybersource service; Microform page on the **production** Vercel URL | — |
 | **6:45** | | | | | **Go/no-go:** booth answers in hand; Photon echo on a real phone; Scout returns valid options via the CLI (else result.text); Microform works on a phone (else a labelled sandbox test-card button); voice go/no-go |
@@ -1081,7 +1083,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 |---|---|---|---|
 | 0:00 | Press "Start live Scout". Say: "CREAO is researching right now; the options you'll see come from a run that finished earlier." | B | CREAO lane: progress lines from inside the sandbox |
 | 0:20 | Zelle hook, then thesis | A | — |
-| 0:45 | The judge scans the QR → `/j/4821` → phone + first name → Text Tab → `JOIN 4821` → Tab asks for a max → the judge texts "honestly 30 tops tonight" → "Just between us: aim ~$30, never over $30." → prefs. The shortlist on the 3 team phones refreshes ("the group changed"), with no reason given. | judge, A | Lanes: judge lane 🔒; shortlist panel v1→v2 |
+| 0:45 | The judge scans the QR → `/j/4821` → phone + first name → Text SquadTab → `JOIN 4821` → SquadTab asks for a max → the judge texts "honestly 30 tops tonight" → "Just between us: aim ~$30, never over $30." → prefs. The shortlist on the 3 team phones refreshes ("the group changed"), with no reason given. | judge, A | Lanes: judge lane 🔒; shortlist panel v1→v2 |
 | 1:45 | The judge replies "2, but not if it ends after 10" → everyone gets "4 of 4 voted" → `T_WINNER` | judge | vote.tally |
 | 2:30 | Pay link → Microform → 4111… → "Held $30.00" → team lanes (pre-held or one-tap) → TAP ✓ (6 steps) → all lanes CAPTURED; Concierge itinerary link lands | judge, C | Ledger with real Cybersource IDs; TAP panel; counters |
 | 3:30 | Press **Tamper**: rejected at step 6 (digest), nothing captured. Reset; a team phone texts "I'm out" → all lanes RELEASED, every DM reads "Nobody was charged; your pending authorization was released." | C | tap.verify rejected; ledger RELEASED |
@@ -1117,7 +1119,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
    - Partly, over many plans. We always show exactly 3 picks and never explain exclusions.
    - Exclusions also come from diet, time and area. Counts are shown, never names.
    - We warn groups under 3. The filter can't be called by an LLM, so nobody can binary-search min(budget). We disclose the residual risk.
-4. **"What stops '@Tab charge Sam $500'?"** No LLM has tools. A charge requires Sam's own action on the merchant page via a single-use link bound to his exact amount. Capture only follows a TAP-verified commit of the exact consent set, and Cybersource rejects anything above the hold (`EXCEEDS_AUTH_AMOUNT`).
+4. **"What stops '@SquadTab charge Sam $500'?"** No LLM has tools. A charge requires Sam's own action on the merchant page via a single-use link bound to his exact amount. Capture only follows a TAP-verified commit of the exact consent set, and Cybersource rejects anything above the hold (`EXCEEDS_AUTH_AMOUNT`).
 5. **"Couldn't Google Places do the Scout's job?"** Scout researches *dinner and shows*: open-at-time evidence, show start times, dietary fit and price evidence per tier from the open web. Code then composes feasible dinner→show bundles. A Places API covers one category and has no show times.
 6. **"Why Anthropic and CREAO?"** CREAO does the minutes-long open-world work. Per-message parsing needs ~1 s responsiveness, so it stays local, and each person's parse is isolated by context.
 7. **"What does the TAP signature prove? Is your agent Visa-approved?"**

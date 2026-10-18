@@ -1,6 +1,6 @@
-# Tab: coding-agent instructions (Claude Code)
+# SquadTab: coding-agent instructions (Claude Code)
 
-Tab is an iMessage group planner. Each friend DMs Tab privately, Tab finds a dinner + show bundle everyone can afford, and nobody pays until everyone's in.
+SquadTab is an iMessage group planner. Each friend DMs SquadTab privately, SquadTab finds a dinner + show bundle everyone can afford, and nobody pays until everyone's in.
 - **Hackathon:** LA Hacks AI, Sat Oct 17 – Sun Oct 18 2026. **Code stops Sun 12:00 PM PDT; no deploys after 11:30 AM.**
 - **Read first:** `docs/PLAN.md` (single source of truth: contracts §8, ports §9, API facts §10, env vars §11).
 - **Then your plan:** `docs/plans/A-platform-conversation.md`, `docs/plans/B-intelligence-experience.md` or `docs/plans/C-trust-commerce.md`.

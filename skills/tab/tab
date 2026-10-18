@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""tab: the CLI Tab Scout / Tab Concierge run inside CREAO (B plan T3). Python 3 stdlib only.
+
+Talks to TAB_API_BASE/agent/* with Bearer TAB_AGENT_TOKEN. Never prints the token or the environment.
+Exit codes: 0 ok, 1 validation errors ("path: message" lines), 2 usage, 3 env missing, 4 network,
+5 not authorized / no active run / server error.
+"""
+import argparse
+import http.client
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+EXIT_OK, EXIT_INVALID, EXIT_USAGE, EXIT_CONFIG, EXIT_NET, EXIT_SERVER = 0, 1, 2, 3, 4, 5
+ATTEMPTS = 3
+SCHEMAS = ("options", "itinerary")
+
+
+def die(msg, code):
+    """Print `tab: <msg>` to stderr and exit with `code`."""
+    print("tab: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects: urllib would replay the Bearer token to wherever Location points."""
+
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def call(method, path, body=None):
+    """HTTP to TAB_API_BASE + path with Bearer TAB_AGENT_TOKEN; JSON body in/out; 20 s timeout.
+
+    Retries 5xx and network errors up to 3 attempts (1 s, 2 s backoff). Returns (status, parsed_json_or_{}).
+    Missing env -> die(EXIT_CONFIG); network failure after retries -> die(EXIT_NET). HTTPError before URLError.
+    """
+    base, token = os.environ.get("TAB_API_BASE", "").strip().rstrip("/"), os.environ.get("TAB_AGENT_TOKEN", "").strip()
+    if not base or not token:
+        die("TAB_API_BASE/TAB_AGENT_TOKEN not set (CREAO Secrets)", EXIT_CONFIG)
+    if not base.startswith(("http://", "https://")):
+        die("TAB_API_BASE must start with http:// or https://", EXIT_CONFIG)
+    data = None if body is None else json.dumps(body).encode()
+    for attempt in range(ATTEMPTS):
+        req = urllib.request.Request(base + path, data=data, method=method, headers={
+            "Authorization": "Bearer " + token, "Content-Type": "application/json", "User-Agent": "tab-cli/1"})
+        try:
+            with _OPENER.open(req, timeout=20) as r:
+                return r.status, _json(r.read())
+        except urllib.error.HTTPError as e:  # must precede URLError (HTTPError subclasses it)
+            if e.code >= 500 and attempt < ATTEMPTS - 1:
+                time.sleep(2 ** attempt)
+                continue
+            return e.code, _json(e.read())
+        except (OSError, http.client.HTTPException) as e:  # URLError, timeouts, resets; class name only, URLs can embed secrets
+            if attempt < ATTEMPTS - 1:
+                time.sleep(2 ** attempt)
+                continue
+            die("network error (%s)" % e.__class__.__name__, EXIT_NET)
+
+
+def _json(raw):
+    try:
+        out = json.loads(raw or b"{}")
+    except ValueError:
+        return {}
+    return out if isinstance(out, dict) else {}
+
+
+def _finish(status, res, extra=None):
+    """Map a response to the exit-code contract: ok -> 0, validation errors -> 1, auth -> 5, anything else -> 5."""
+    if status in (401, 403):
+        die("not authorized or no active run for this plan_ref", EXIT_SERVER)
+    errors = res.get("errors")
+    if isinstance(errors, list) and (status in (200, 400, 422)) and (errors or res.get("ok") is False):
+        for e in errors:
+            print("%s: %s" % (e.get("path") or "(root)", e.get("message", "invalid")) if isinstance(e, dict) else e)
+        if not errors:
+            print("(root): rejected")
+        sys.exit(EXIT_INVALID)
+    if 200 <= status < 300 and res.get("ok", True):
+        print("ok")
+        if extra and "accepted" in res:
+            print("accepted: %s" % res["accepted"])
+        return EXIT_OK
+    die("server error (HTTP %d)" % status, EXIT_SERVER)
+
+
+def _read_json_file(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError as e:
+        die("cannot read %s (%s)" % (path, e.__class__.__name__), EXIT_USAGE)
+    except ValueError as e:
+        print("%s: invalid JSON (%s)" % (path, e))
+        sys.exit(EXIT_INVALID)
+
+
+def cmd_ping(args):
+    """GET /agent/ping -> print "ok", exit 0; 401/403 -> exit 5."""
+    return _finish(*call("GET", "/agent/ping"))
+
+
+def cmd_progress(args):
+    """POST /agent/progress {plan_ref, run_kind, category|null, step[:140]} -> 202 ok."""
+    step = args.step.strip()[:140]
+    if not step:
+        die("step must not be empty", EXIT_USAGE)
+    body = {"plan_ref": args.plan, "run_kind": args.kind, "category": args.category, "step": step}
+    return _finish(*call("POST", "/agent/progress", body))
+
+
+def cmd_schema(args):
+    """Print schema/<name>.schema.json next to this file (realpath), else ./schema/."""
+    name = "%s.schema.json" % args.name
+    here = os.path.dirname(os.path.realpath(__file__))
+    for d in (os.path.join(here, "schema"), "schema"):
+        try:
+            with open(os.path.join(d, name), encoding="utf-8") as f:
+                sys.stdout.write(f.read())
+            return EXIT_OK
+        except OSError:
+            continue
+    die("schema/%s not found (download it next to the tab script)" % name, EXIT_CONFIG)
+
+
+def cmd_options(args):
+    """validate -> POST /agent/options/validate; submit -> POST /agent/options. Prints ok / "accepted: n" or errors."""
+    body = _read_json_file(args.file)
+    path = "/agent/options/validate" if args.action == "validate" else "/agent/options"
+    return _finish(*call("POST", path, body), extra=args.action == "submit")
+
+
+def cmd_itinerary(args):
+    """submit -> POST /agent/itinerary. Prints ok or "path: message" errors."""
+    return _finish(*call("POST", "/agent/itinerary", _read_json_file(args.file)))
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="tab", description="Tab agent CLI (progress, options, itinerary).")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("ping", help="check TAB_API_BASE and TAB_AGENT_TOKEN").set_defaults(func=cmd_ping)
+
+    pr = sub.add_parser("progress", help="report one research step")
+    pr.add_argument("--plan", required=True, help="plan_ref (opaque UUID)")
+    pr.add_argument("--kind", required=True, choices=("scout", "concierge"))
+    pr.add_argument("--category", choices=("dinner", "show"))
+    pr.add_argument("step", help="short step, no URLs, max 140 chars")
+    pr.set_defaults(func=cmd_progress)
+
+    sc = sub.add_parser("schema", help="print a JSON Schema")
+    sc.add_argument("name", choices=SCHEMAS)
+    sc.set_defaults(func=cmd_schema)
+
+    op = sub.add_parser("options", help="validate or submit options.json")
+    op.add_argument("action", choices=("validate", "submit"))
+    op.add_argument("file")
+    op.set_defaults(func=cmd_options)
+
+    it = sub.add_parser("itinerary", help="submit itinerary.json")
+    it.add_argument("action", choices=("submit",))
+    it.add_argument("file")
+    it.set_defaults(func=cmd_itinerary)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)  # argparse exits 2 on usage errors
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
