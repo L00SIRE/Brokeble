@@ -298,7 +298,7 @@ The phone version of 4.2 and 4.3: the **Text SquadTab** button, built from `GET 
 | ~2 s | SquadTab | Hey! I'm SquadTab. I'll plan dinner and a show with your friends, keep everyone's budget private, and nobody fronts the bill. What should I call you, and where and when are we going? Like: "Maya, Santa Monica tonight, 4 of us" | **T_START_HELLO** (new) |
 | ~15 s | Maya | maya! santa monica saturday, prob 4 of us | `parsePlanDraft` → name Maya, area Santa Monica, date 2026-10-24, party 4, no time given (default 17:30) |
 | ~17 s | SquadTab | You're set, Maya: Dinner + show, Sat, Oct 24 from 5:30 PM in Santa Monica, 4 of you. Send this link to your group chat and I'll take it from there:⏎https://tab-web-ten.vercel.app/j/4821 | **T_PLAN_READY** (new). The URL sits alone on the last line (⏎ = newline), so a long-press copies cleanly and tapping it opens `/j/4821`, which recognizes the organizer ("This is your plan" + one-tap share sheet, 4.4). In the happy path it is the 2nd outbound, sent after the user's 2nd inbound |
-| ~18 s | SquadTab | First up: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it. | existing T_BUDGET_ASK; organizer is JOINED via `createPlanRecord` |
+| ~18 s | SquadTab | First up: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it. | existing T_BUDGET_ASK; organizer is JOINED via `createPlanRecord` |
 | ~30 s | Maya | like 60, 80 tops | existing budget delegate |
 | ~32 s | SquadTab | Got it. Just between us: aim ~$60, never over $80. Text 'change budget' anytime. | T_BUDGET_CONFIRM |
 | ~33 s | SquadTab | Last one: anything you're craving, can't eat, or want to steer clear of tonight? | T_PREFS_ASK |
@@ -324,7 +324,7 @@ Missing-field branches, at most 2 asks before falling back to defaults:
 | 0 s | Leo | I'm in for Dinner + show! | pre-filled; INVITED, so it counts as joining whatever it says (section 8.1) |
 | ~2 s | SquadTab | Hey, you're in for Dinner + show, Sat, Oct 24! I'm SquadTab. A few quick questions and I'll get planning, and whatever you tell me stays between us. First, what should I call you? | **T_JOIN_WELCOME_NAME** (new), used when `first_name = ''` |
 | ~8 s | Leo | leo | `looksLikeName` → `setFirstName('Leo')` |
-| ~9 s | SquadTab | Nice to meet you, Leo. Next: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it. | **T_BUDGET_ASK_NAMED** (new) |
+| ~9 s | SquadTab | Nice to meet you, Leo. Next: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it. | **T_BUDGET_ASK_NAMED** (new) |
 | ~20 s | Leo | 40 max honestly | budget delegate |
 | ~22 s | SquadTab | Got it. Just between us: aim ~$35, never over $40. Text 'change budget' anytime. | T_BUDGET_CONFIRM |
 | ~23 s | SquadTab | Last one: anything you're craving, can't eat, or want to steer clear of tonight? | T_PREFS_ASK |
@@ -595,7 +595,7 @@ export async function handleStartText(user: UserRow, e: InboundEvent): Promise<v
 | T_START_ASK_BOTH | Sounds fun! Where should I look, and how many of you, counting you? | none |
 | T_PLAN_READY | You're set{name_part}: {title}, {date} from {time} in {area}, {n} of you. Send this link to your group chat and I'll take it from there:\n{url} | `name_part: z.string()` (", Maya" or ""), `title, date, time, area: s`, `n: count`, `url: z.url()` |
 | T_JOIN_WELCOME_NAME | Hey, you're in for {title}, {date}! I'm SquadTab. A few quick questions and I'll get planning, and whatever you tell me stays between us. First, what should I call you? | `title, date: s` |
-| T_BUDGET_ASK_NAMED | Nice to meet you, {name}. Next: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it. | `name: s` |
+| T_BUDGET_ASK_NAMED | Nice to meet you, {name}. Next: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it. | `name: s` |
 
 Also change **T_NOT_IN_PLAN** (`templates.ts:87`), which is now reached only by plan commands with no plan, and by unknown senders in mock mode:
 

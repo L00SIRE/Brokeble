@@ -73,7 +73,7 @@ const EVENTS: Ev[] = [
   ...tab(2.1, D, "Hey, you're in for Post-midterms night out, Sat Oct 24! Two quick questions and I'll get planning. Whatever you tell me stays between us."),
   ...me(1.8, SU, "JOIN 4821"), ...lane(1.8, SU, "JOINED"),
   ...tab(2.7, SU, "Hey, you're in for Post-midterms night out, Sat Oct 24! Two quick questions and I'll get planning. Whatever you tell me stays between us."),
-  ...tabAll(3.8, () => "First up: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it."),
+  ...tabAll(3.8, () => "First up: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it."),
   { at: 5 * S, kind: "caption", text: "Each one answers in their own DM. Nobody in the group sees anyone else's number. Not the friends, not their agents." },
   ...me(5.2, C, "just got my first paycheck 💸 100 max, let's go big"),
   ...me(5.8, SU, "ok real talk. I have $27 to my name until friday 😭 like 30 max"),

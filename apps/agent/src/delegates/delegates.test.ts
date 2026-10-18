@@ -204,7 +204,7 @@ describe("budget delegate", () => {
     const c = ctx({ stage: "LINK_SENT", state: "VOTING", order: "ord_1" });
     await applyTier(c, 1, ev("1"));
     expect(m.setStage).not.toHaveBeenCalled();
-    expect(sent()).toEqual([["T_BUDGET_CONFIRM", { target: "$20", max: "$25" }, "reply:pho_msg_1:1"]]);
+    expect(sent()).toEqual([["T_BUDGET_CONFIRM", { target: "$40", max: "$50" }, "reply:pho_msg_1:1"]]);
     expect(m.enqueue).toHaveBeenCalledWith("recompute", `recompute:${PLAN}:evt_1`, expect.any(Date), {}, { planId: PLAN });
     expect(m.recheck).toHaveBeenCalledWith(c);
   });

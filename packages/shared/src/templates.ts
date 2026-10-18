@@ -64,9 +64,9 @@ export type TemplateId = z.infer<typeof TemplateId>;
 export const COPY = {
   T_JOIN_WELCOME: "Hey, you're in for {title}, {date}! Two quick questions and I'll get planning. Whatever you tell me stays between us.",
   T_BUDGET_ASK:
-    "First up: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it.",
+    "First up: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it.",
   T_BUDGET_CONFIRM: "Got it. Just between us: aim ~${target}, never over ${max}. Text 'change budget' anytime.",
-  T_BUDGET_TIERS: "No worries, pick whichever fits: 1 (under $25), 2 ($25–50), 3 ($50–80) or 4 (no cap).",
+  T_BUDGET_TIERS: "No worries, pick whichever fits: 1 (under $50), 2 ($50–80), 3 ($80–120) or 4 (no cap). That's per person for dinner + show tickets, all-in.",
   T_PREFS_ASK: "Last one: anything you're craving, can't eat, or want to steer clear of tonight?",
   T_STILL_LOOKING: "Still on it! Checking what's actually open and fun tonight.",
   T_PICKS:
@@ -105,7 +105,7 @@ export const COPY = {
   T_VOICE_RECAP_OUT: "Thanks for the call! If you're sitting this one out, just text 'I'm out'. Nobody's told why.",
   T_VOICE_RECAP_LATER: "Thanks for the call! No rush, your hold link for {title} works until {deadline}.",
   T_DELEGATE_REPLY: "{text}",
-  T_BUDGET_REASK: "Sure! What's the most you'd want to spend tonight, all-in? Still just between us.",
+  T_BUDGET_REASK: "Sure! What's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Still just between us.",
   T_PLAN_OFF: "Plan's off. Nobody was charged.",
   T_HOLD_RELEASED_RETRY: "I couldn't confirm your hold, so I released it. Nothing was charged. Here's a fresh link: {url}",
   T_PLAN_FULL: "Sorry, this plan is already full (8 people max), so I can't add you. If a spot opens up, just text me again.",
@@ -121,7 +121,7 @@ export const COPY = {
   T_JOIN_WELCOME_NAME:
     "Hey, you're in for {title}, {date}! I'm SquadTab. A few quick questions and I'll get planning, and whatever you tell me stays between us. First, what should I call you?",
   T_BUDGET_ASK_NAMED:
-    "Nice to meet you, {name}. Next: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it.",
+    "Nice to meet you, {name}. Next: what's the most you'd want to spend tonight on dinner + show tickets, all-in per person (tax and tip included)? Most nights land around $50–80. Totally private. Nobody in the group, and no other agent, ever sees it.",
   T_ALREADY_IN_PLAN:
     "You're still in {title} ({ready} of {total} ready). Text 'new plan' to start fresh, or 'status' to keep going.",
 } as const satisfies Record<TemplateId, string>;

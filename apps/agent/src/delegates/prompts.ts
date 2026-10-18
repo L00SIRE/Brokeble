@@ -2,7 +2,7 @@
 import type { PublicBundle } from "@tab/shared";
 
 export const BUDGET_SYSTEM =
-  "You read ONE person's own message about what they'd spend per person on tonight's outing (dinner + show, all-in). " +
+  "You read ONE person's own message about what they'd spend per person on tonight's outing (dinner + show tickets together, all-in per person with tax and tip). " +
   "Return cents. target_pp_cents = what they'd like to spend; hard_max_pp_cents = the most they'd ever spend, or null if " +
   "they gave no ceiling. Examples: '30 tops' → 3000/3000; '60ish, could stretch to 80' → 6000/8000; 'around 45' → 4500/null. " +
   "A range is a clear budget (confidence high): the low end is the target and the high end is the max, e.g. 'between 40 " +

@@ -20,9 +20,9 @@ type Budget = { target_pp_cents: number; hard_max_pp_cents: number | null };
 
 /** Tier replies (code only): 4 = no cap → T_BUDGET_CONFIRM_NOCAP. Written with source 'tier', confidence 'high'. */
 export const TIER_MAP: Readonly<Record<Tier, Budget>> = {
-  1: { target_pp_cents: 2000, hard_max_pp_cents: 2500 },
-  2: { target_pp_cents: 4000, hard_max_pp_cents: 5000 },
-  3: { target_pp_cents: 6500, hard_max_pp_cents: 8000 },
+  1: { target_pp_cents: 4000, hard_max_pp_cents: 5000 },
+  2: { target_pp_cents: 6500, hard_max_pp_cents: 8000 },
+  3: { target_pp_cents: 10000, hard_max_pp_cents: 12000 },
   4: { target_pp_cents: 50000, hard_max_pp_cents: null },
 };
 

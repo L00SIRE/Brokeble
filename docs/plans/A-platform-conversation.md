@@ -597,9 +597,9 @@ const ok = p && p.confidence === "high" && p.target_pp_cents >= 500 && p.target_
 
 | Reply | target / hard_max (cents) | Confirmation |
 |---|---|---|
-| 1 | 2000 / 2500 | `T_BUDGET_CONFIRM` |
-| 2 | 4000 / 5000 | `T_BUDGET_CONFIRM` |
-| 3 | 6500 / 8000 | `T_BUDGET_CONFIRM` |
+| 1 | 4000 / 5000 | `T_BUDGET_CONFIRM` |
+| 2 | 6500 / 8000 | `T_BUDGET_CONFIRM` |
+| 3 | 10000 / 12000 | `T_BUDGET_CONFIRM` |
 | 4 | 50000 / null | `T_BUDGET_CONFIRM_NOCAP` |
 
 All tier writes use source `'tier'` and confidence `'high'`.
