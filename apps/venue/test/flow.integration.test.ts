@@ -57,8 +57,8 @@ describe.skipIf(!DB)("venue money flow", () => {
   });
 
   const bill = (first_name: string) => ({ first_name, last_name: "T", postal_code: "90024" });
-  async function newOrder(n = 2) {
-    const r = await M.createOrder({ plan_ref: crypto.randomUUID(), plan_version: 1, bundle, party_size: n, payer_refs: Array.from({ length: n }, ref), deadline_at: deadline() });
+  async function newOrder(n = 2, refs?: string[]) {
+    const r = await M.createOrder({ plan_ref: crypto.randomUUID(), plan_version: 1, bundle, party_size: n, payer_refs: refs ?? Array.from({ length: n }, ref), deadline_at: deadline() });
     expect(r.status).toBe(201);
     return r.body as import("@tab/shared").CreateOrderResponse;
   }
@@ -154,6 +154,30 @@ describe.skipIf(!DB)("venue money flow", () => {
     const v = (await M.loadOrderView(M.sql(), o.order_id))!;
     expect(v.status).toBe("CANCELLED");
     expect(v.shares.map((s) => s.status).sort()).toEqual(["RELEASED", "VOID"]);
+  });
+
+  it("save card, then a later plan is a one-tap hold with no card entry", async () => {
+    const payer = ref();
+    const first = await newOrder(2, [payer, ref()]);
+    const r1 = (await M.authorize(tokenOf(first.shares[0]!.pay_url), { save_card: true, sandbox_test_card: false, bill_to: bill("Alex") })) as { state: string };
+    expect(r1.state).toBe("held");
+    const [cust] = await M.sql()<{ cybs_customer_id: string }[]>`select cybs_customer_id from venue.customers where payer_ref = ${payer}`;
+    expect(cust).toBeDefined();
+    expect(JSON.stringify(cust)).not.toMatch(/4111|number/);
+
+    const second = await newOrder(2, [payer, ref()]);
+    const share = second.shares.find((s) => s.payer_ref === payer)!;
+    const r2 = (await M.authorize(tokenOf(share.pay_url), { save_card: false, sandbox_test_card: false, bill_to: bill("Alex") })) as { state: string; card: { last4: string } };
+    expect(r2.state).toBe("held");
+    expect(r2.card.last4).toBe("1111");
+    const view = (await M.loadOrderView(M.sql(), second.order_id))!;
+    expect(view.shares.find((s) => s.payer_ref === payer)!.status).toBe("AUTHORIZED");
+  });
+
+  it("a different payer never sees another payer's saved card", async () => {
+    const o = await newOrder();
+    const [c] = await M.sql()<{ n: number }[]>`select count(*)::int n from venue.customers where payer_ref = ${o.shares[0]!.payer_ref}`;
+    expect(c!.n).toBe(0);
   });
 
   it("hook events carry a valid HMAC and never a pay token for authorized shares", async () => {
