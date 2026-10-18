@@ -11,7 +11,9 @@
     "build": "next build --webpack",
     "start": "next start --port 3001",
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "demo:serve": "docker start tab-pg >/dev/null 2>&1; next dev --port 3001",
+    "demo": "tsx --env-file=.env.demo-agent scripts/demo.ts"
   },
   "dependencies": {
     "@tab/shared": "workspace:*",
