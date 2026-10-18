@@ -8,8 +8,8 @@ type View = "ready" | "processing" | "held" | "declined" | "cancelled" | "expire
 type Result = { state: string; card?: { brand: string | null; last4: string | null } | null; retry_url?: string; error?: string };
 
 const YEARS = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() + i);
-const inputCls = "h-11 w-full rounded-xl border border-neutral-300 bg-white px-3 text-base";
-const btnCls = "h-12 w-full rounded-xl bg-neutral-900 px-4 text-base font-semibold text-white disabled:opacity-50";
+const inputCls = "field";
+const btnCls = "btn-ink";
 
 export function PayForm(p: {
   token: string; amountLabel: string; mode: "live" | "mock"; capture: Capture | null; initialFailed: boolean;
@@ -121,19 +121,19 @@ export function PayForm(p: {
       {useSaved ? (
         <>
           <button className={btnCls} disabled={busy}>{busy ? "Holding…" : `Hold ${p.amountLabel} on ${label(p.saved?.brand)} ••${p.saved?.last4 ?? ""}`}</button>
-          <button type="button" className="h-11 w-full text-base underline" onClick={() => setUseSaved(false)}>Use a different card</button>
+          <button type="button" className="h-11 w-full text-base underline underline-offset-4" onClick={() => setUseSaved(false)}>Use a different card</button>
         </>
       ) : (
         <>
           {p.sharedSandbox ? (
-            <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 text-pretty">
+            <p className="rounded-[6px] border-2 border-dotted border-[#100e0a] bg-[#ede6d6] p-3 text-[14px] leading-snug text-pretty">
               Test cards only. This is Cybersource&apos;s shared public sandbox: use 4111 1111 1111 1111, any future expiry, any CVC, and a made-up name.
             </p>
           ) : null}
           <input name="name" autoComplete="cc-name" placeholder={live ? "Name on card" : "Name (mock: decline or timeout)"} className={inputCls} aria-label="Name on card" />
           {live ? (
             <>
-              <div id="cc-number" className="h-11 rounded-xl border border-neutral-300 bg-white px-3" aria-label="Card number" />
+              <div id="cc-number" className="field" aria-label="Card number" />
               <div className="flex gap-2">
                 <select name="mm" defaultValue="12" className={inputCls} aria-label="Expiry month">
                   {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map((m) => <option key={m}>{m}</option>)}
@@ -141,19 +141,19 @@ export function PayForm(p: {
                 <select name="yyyy" defaultValue={String(YEARS[2])} className={inputCls} aria-label="Expiry year">
                   {YEARS.map((y) => <option key={y}>{y}</option>)}
                 </select>
-                <div id="cc-cvc" className="h-11 w-full rounded-xl border border-neutral-300 bg-white px-3" aria-label="Security code" />
+                <div id="cc-cvc" className="field" aria-label="Security code" />
               </div>
             </>
           ) : null}
           <input name="zip" inputMode="numeric" autoComplete="postal-code" placeholder="ZIP" className={inputCls} aria-label="ZIP" />
-          <label className="flex min-h-11 items-start gap-2 text-sm text-neutral-700">
-            <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} className="mt-1 size-4" />
+          <label className="flex min-h-11 items-start gap-2 text-[14px] text-[#6b6355]">
+            <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} className="mt-1 size-4 accent-[#100e0a]" />
             <span>Save this card with SquadTab Partner Venue for one-tap holds next time (stored as a Cybersource sandbox token)</span>
           </label>
-          <button className={btnCls} disabled={busy}>{busy ? "Holding…" : live ? `Hold ${p.amountLabel}` : "Mock hold (no card)"}</button>
+          <button className={btnCls} disabled={busy}>{busy ? "Holding…" : live ? `Hold ${p.amountLabel}` : "Mock hold (no card)"} {busy ? null : <span aria-hidden="true">→</span>}</button>
         </>
       )}
-      <p role="alert" className="min-h-5 text-sm text-red-700">{err}</p>
+      <p role="alert" className="min-h-5 text-sm font-semibold">{err}</p>
       {p.sandboxFallback ? <Fallback post={post} disabled={busy} /> : null}
     </form>
   );
@@ -161,7 +161,7 @@ export function PayForm(p: {
 
 function Fallback({ post, disabled }: { post: (b: Record<string, unknown>) => Promise<void>; disabled?: boolean }) {
   return (
-    <button type="button" disabled={disabled} className="mt-2 h-11 w-full text-sm text-neutral-500 underline"
+    <button type="button" disabled={disabled} className="mt-2 h-11 w-full text-sm text-[#6b6355] underline underline-offset-4"
       onClick={() => post({ save_card: false, sandbox_test_card: true, bill_to: { first_name: "Test", last_name: "Card", postal_code: "90024" } })}>
       Use sandbox test card (Visa 4111) — no card entry
     </button>
@@ -171,11 +171,11 @@ function Fallback({ post, disabled }: { post: (b: Record<string, unknown>) => Pr
 const label = (b: string | null | undefined) => (b ? b.charAt(0) + b.slice(1).toLowerCase() : "card");
 
 function Banner({ title, tone = "neutral", children }: { title: string; tone?: "neutral" | "good" | "bad"; children?: React.ReactNode }) {
-  const ring = tone === "good" ? "border-emerald-300 bg-emerald-50" : tone === "bad" ? "border-red-300 bg-red-50" : "border-neutral-200 bg-neutral-50";
+  const look = tone === "good" ? "bg-[#ffb224] text-[#100e0a]" : tone === "bad" ? "border-2 border-dashed border-[#100e0a] bg-[#ede6d6]" : "bg-[#ede6d6]";
   return (
-    <section aria-live="polite" className={`mt-6 rounded-2xl border p-5 ${ring}`}>
-      <h2 className="text-xl font-semibold text-balance">{title}</h2>
-      <div className="mt-2 text-neutral-700 text-pretty">{children}</div>
+    <section aria-live="polite" className={`mt-6 rounded-[14px] p-5 ${look}`}>
+      <h2 className="font-[family-name:var(--font-display)] text-[26px] font-extrabold leading-tight tracking-tight text-balance">{title}</h2>
+      <div className="mt-2 text-[17px] leading-snug text-pretty">{children}</div>
     </section>
   );
 }

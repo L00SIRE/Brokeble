@@ -22,13 +22,13 @@ const say = (s: string) => console.log(s);
 const step = (s: string) => say(`\n${c.b}▸ ${s}${c.x}`);
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const tail = (id: string | null) => (id ? `…${id.slice(-8)}` : "-");
-const FRIENDS = ["Alex", "Priya", "Sam"];
+const FRIENDS = ["Christian", "Dawson", "Suman"];
 
 async function newHeldOrder(): Promise<OrderStatus> {
   const bundle = {
     bundle_key: "bnd_" + randomBytes(5).toString("hex"), date: "2026-10-18",
-    dinner: { name: "Demo Dinner", address: "1 Demo St, Los Angeles", time: "18:30", est_high_pp_usd: 22 },
-    show: { name: "Demo Show", address: "2 Demo St, Los Angeles", time: "20:30", est_high_pp_usd: 8 },
+    dinner: { name: "Noodle Lab", address: "1 Demo St, Los Angeles", time: "18:30", est_high_pp_usd: 12 },
+    show: { name: "Open Mic at The Cellar", address: "2 Demo St, Los Angeles", time: "20:30", est_high_pp_usd: 12 },
   };
   const order = await venue.createOrder({
     plan_ref: crypto.randomUUID(), plan_version: 1, bundle, party_size: 3,
@@ -42,7 +42,7 @@ async function newHeldOrder(): Promise<OrderStatus> {
       body: JSON.stringify({ save_card: false, sandbox_test_card: true, bill_to: { first_name: FRIENDS[i], last_name: "Demo", postal_code: "90024" } }),
     });
     const j = (await r.json()) as { state: string; card?: { brand: string | null; last4: string | null } };
-    say(`  ${FRIENDS[i]!.padEnd(6)} ${j.state === "held" ? c.g + "HELD" : c.r + j.state.toUpperCase()}${c.x} ${usd(s.amount_cents)} on ${j.card?.brand ?? "card"} ••${j.card?.last4 ?? "????"}  ${c.d}(their own authorization, capture:false)${c.x}`);
+    say(`  ${FRIENDS[i]!.padEnd(9)} ${j.state === "held" ? c.g + "HELD" : c.r + j.state.toUpperCase()}${c.x} ${usd(s.amount_cents)} on ${j.card?.brand ?? "card"} ••${j.card?.last4 ?? "????"}  ${c.d}(their own authorization, capture:false)${c.x}`);
   }
   const o = await venue.getOrder(order.order_id);
   say(`  ${c.d}Cybersource auth ids: ${o.shares.map((s) => tail(s.cybs_payment_id)).join("  ")}${c.x}`);

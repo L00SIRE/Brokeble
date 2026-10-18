@@ -1,1 +1,68 @@
 @import "tailwindcss";
+
+/* SquadTab "Signal" tokens, mirrored from apps/web/app/globals.css (docs/design/design-system.md) so the pay page
+   looks like the rest of SquadTab. Fonts come from next/font in app/layout.tsx. */
+@theme inline {
+  --font-display: var(--font-funnel-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@theme static {
+  --color-sodium: #ffb224; --color-sodium-hi: #ffc65a; --color-on-sodium-2: #3a2a06;
+  --color-ink: #100e0a; --color-ink-2: #1a1813;
+  --color-paper: #f6f1e6; --color-paper-2: #ede6d6; --color-on-paper-2: #6b6355; --color-rule-paper: #d8cfbc;
+  --color-go: #3be38b; --color-go-ink: #0b6b3f;
+  --radius-control: 6px;
+}
+
+@utility mono {
+  font-family: var(--font-mono);
+  font-variation-settings: "wdth" 87.5;
+}
+
+@layer base {
+  body { font-family: var(--font-sans); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+}
+
+@layer components {
+  /* Wordmark: the ticket mark beside `squadtab` in Funnel Display 800 (same as apps/web). */
+  .wordmark {
+    display: inline-flex; align-items: center; gap: .41em;
+    font-family: var(--font-display); font-weight: 800; font-size: 22px; letter-spacing: -.045em; line-height: 1;
+    white-space: nowrap;
+  }
+  .wordmark svg { width: 1.364em; height: .909em; flex: none; }
+
+  /* The paper-page ticket: a sodium block with a scalloped bottom edge (same as apps/web .plan-ticket). */
+  .plan-ticket {
+    background: var(--color-sodium); color: var(--color-ink); border-radius: 16px 16px 0 0; padding: 20px 20px 26px; position: relative;
+    -webkit-mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 0 0 / 18px 100% repeat-x;
+    mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 0 0 / 18px 100% repeat-x;
+  }
+  .plan-ticket .eyebrow { font-size: 15px; font-weight: 600; margin: 0 0 6px; color: var(--color-on-sodium-2); }
+  .plan-ticket .title {
+    font-family: var(--font-display); font-weight: 780; font-size: 40px; letter-spacing: -.05em; line-height: .92;
+    margin: 0 0 10px; text-wrap: balance;
+  }
+  .plan-ticket .meta { font-family: var(--font-mono); font-variation-settings: "wdth" 87.5; font-size: 12.5px; }
+  .plan-ticket .count-row {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+    margin-top: 18px; padding-top: 14px; border-top: 2px dotted var(--color-ink);
+  }
+  .plan-ticket .price { font-family: var(--font-display); font-weight: 800; font-size: 44px; letter-spacing: -.04em; line-height: 1; }
+  .plan-ticket .note { font-weight: 700; font-size: 14px; text-align: right; }
+
+  /* Controls on paper: 2px ink outline, 6px radius (design-system controls). */
+  .field {
+    display: block; width: 100%; height: 48px; border: 2px solid var(--color-ink); border-radius: var(--radius-control);
+    background: #fff; color: var(--color-ink); padding: 0 14px; font-size: 16px;
+  }
+  .btn-ink {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px;
+    border-radius: var(--radius-control); background: var(--color-ink); color: var(--color-sodium);
+    font-family: var(--font-display); font-weight: 750; font-size: 19px; letter-spacing: -.02em;
+  }
+  .btn-ink:disabled { opacity: .55; }
+}
