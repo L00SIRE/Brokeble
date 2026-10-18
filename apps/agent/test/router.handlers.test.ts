@@ -11,7 +11,7 @@ const m = vi.hoisted(() => {
     releaseSeat: rec("releaseSeat"), fanout: rec("fanout"), stopPlanTyping: rec("stopPlanTyping"),
     cancel: rec("cancel"), transition: vi.fn(), onGo: rec("onGo"), onJoinText: rec("onJoinText"), onOut: rec("onOut"), onWait: rec("onWait"),
     getOrder: vi.fn(), getPlan: vi.fn(),
-    countByStage: vi.fn(), capturedPlanIdsForUser: vi.fn(),
+    countByStage: vi.fn(), capturedPlanIdsForUser: vi.fn(), joinWouldOverfill: vi.fn(async () => false),
     begin: vi.fn(),
     del: {
       privateConstraints: rec("pc"), prefs: rec("prefs"), ratings: rec("ratings"), ballots: rec("ballots"),
@@ -24,10 +24,11 @@ vi.mock("../src/creao/research", () => ({ cancelResearch: m.cancelResearch }));
 vi.mock("../src/delegates/awaiting", () => ({ setAwaiting: m.setAwaiting, clearAwaiting: m.clearAwaiting }));
 vi.mock("../src/db", () => ({ sql: { begin: m.begin } }));
 vi.mock("../src/join/seats", () => ({ releaseSeat: m.releaseSeat }));
+vi.mock("../src/join/capacity", () => ({ joinWouldOverfill: m.joinWouldOverfill }));
 vi.mock("../src/notify/fanout", () => ({ fanout: m.fanout }));
 vi.mock("../src/notify/notify", () => ({ notify: m.notify, replyKey: (id: string, n: number) => `reply:${id}:${n}` }));
 vi.mock("../src/notify/presence", () => ({ stopPlanTyping: m.stopPlanTyping }));
-vi.mock("../src/notify/render", () => ({ fmtDate: () => "Sat, Oct 17", usd2: (c: number) => `$${(c / 100).toFixed(2)}` }));
+vi.mock("../src/notify/render", () => ({ fmtDate: () => "Sat, Oct 17", usd2: (c: number) => (c / 100).toFixed(2) })); // like the real one: no "$"
 vi.mock("../src/plan/cancel", () => ({ cancel: m.cancel }));
 vi.mock("../src/plan/machine", () => {
   const order = ["INVITED", "JOINED", "BUDGET_LOCKED", "PREFS_DONE", "VOTED", "GATED", "LINK_SENT", "HELD", "CAPTURED"];
@@ -107,6 +108,23 @@ describe("handleCommand", () => {
     expect(m.onWait).toHaveBeenCalled();
   });
 
+  it("JOIN that would confirm a 9th lane replies T_PLAN_FULL and never reaches membership", async () => {
+    m.joinWouldOverfill.mockResolvedValueOnce(true);
+    await handleCommand(user, null, { kind: "join", code: "4821" }, ev);
+    expect(m.joinWouldOverfill).toHaveBeenCalledWith(user, "4821");
+    expect(m.onJoinText).not.toHaveBeenCalled();
+    expect(m.notify).toHaveBeenCalledWith("u1", "T_PLAN_FULL", {}, { key: "reply:msg1:1", replyTo: "msg1" });
+  });
+
+  it("after capture every plan command answers with T_STATUS: nothing can be undone", async () => {
+    m.countByStage.mockResolvedValue({ CAPTURED: 3 });
+    const c = ctx("CAPTURED", { state: "CONFIRMED", organizer_id: "u1" });
+    for (const k of ["status", "out", "go", "wait", "cancel_plan", "change_budget"]) await cmd(k, c);
+    expect(sentIds()).toEqual(Array(6).fill("T_STATUS"));
+    expect(m.notify.mock.calls[0]![2]).toEqual({ title: "Friday night", phase: "confirmed" });
+    for (const f of [m.onOut, m.onGo, m.onWait, m.cancel, m.transition, m.setAwaiting]) expect(f).not.toHaveBeenCalled();
+  });
+
   it("remove card is T_HELP (nothing can forget a payer at the venue)", async () => {
     await cmd("remove_card", ctx());
     expect(sentIds()).toEqual(["T_HELP"]);
@@ -125,8 +143,26 @@ describe("handleCommand", () => {
       await cmd("cancel_plan", ctx("PREFS_DONE", { organizer_id: "u1", state: "VOTING" }));
       expect(m.transition).toHaveBeenCalledWith("p1", ["COLLECTING", "RESEARCHING", "VOTING"], "CANCELLED");
       expect(m.cancelResearch).toHaveBeenCalledWith("p1");
-      expect(m.fanout).toHaveBeenCalledWith("p1", "T_CANCELLED", expect.any(Function), { version: 3 });
+      // No pay link exists before ORDERING, so the copy never mentions a released authorization.
+      expect(m.fanout).toHaveBeenCalledWith("p1", "T_PLAN_OFF", expect.any(Function), { version: 3 });
       expect(m.cancel).not.toHaveBeenCalled();
+    });
+
+    it("tells the organizer where it stands when cancel() can't finish (venue down → CANCELLING) or had nothing to do", async () => {
+      m.countByStage.mockResolvedValue({});
+      m.cancel.mockResolvedValueOnce(true as never);
+      m.getPlan.mockResolvedValueOnce({ id: "p1", title: "Friday night", state: "CANCELLING", party_target: 4 });
+      await cmd("cancel_plan", ctx("HELD", { organizer_id: "u1", state: "APPROVING" }));
+      expect(m.notify).toHaveBeenLastCalledWith("u1", "T_STATUS", { title: "Friday night", phase: "cancelling; any holds are released automatically" }, expect.anything());
+      m.notify.mockClear();
+      m.cancel.mockResolvedValueOnce(true as never);
+      m.getPlan.mockResolvedValueOnce({ id: "p1", title: "Friday night", state: "CANCELLED", party_target: 4 });
+      await cmd("cancel_plan", ctx("HELD", { organizer_id: "u1", state: "APPROVING" }));
+      expect(m.notify).not.toHaveBeenCalled(); // finished: T_CANCELLED came from cancel()'s fan-out
+      m.cancel.mockResolvedValueOnce(false as never);
+      m.getPlan.mockResolvedValueOnce({ id: "p1", title: "Friday night", state: "COMMITTING", party_target: 4 });
+      await cmd("cancel_plan", ctx("HELD", { organizer_id: "u1", state: "COMMITTING" }));
+      expect(sentIds()).toEqual(["T_STATUS"]);
     });
 
     it("hands an ordered plan, or a lost pre-order race, to cancel()", async () => {
@@ -143,7 +179,7 @@ describe("handleCommand", () => {
     it("sets the awaiting flag and asks, keeping the stage", async () => {
       await cmd("change_budget", ctx("VOTED"));
       expect(m.setAwaiting).toHaveBeenCalledWith("u1", "budget");
-      expect(sentIds()).toEqual(["T_BUDGET_ASK"]);
+      expect(sentIds()).toEqual(["T_BUDGET_REASK"]);
     });
 
     it("is closed once HELD, and before JOIN", async () => {

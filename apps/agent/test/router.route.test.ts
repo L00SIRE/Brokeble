@@ -13,13 +13,17 @@ const m = vi.hoisted(() => {
     getParticipant: f(), currentPlanForUser: f(),
     findUserByPhone: f(), findUserByPhotonId: f(), setPhotonUserId: f(),
     getPayLink: f(), handleCommand: f(), reply: f(),
+    mentionsOthersBudget: f(), otherFirstNames: f(), sendOnlyYours: f(), capturedPlanIdsForUser: f(), getPlan: f(),
+    converseReply: f(),
   };
 });
 
 vi.mock("../src/delegates/awaiting", () => ({ getAwaiting: m.getAwaiting, clearAwaiting: m.clearAwaiting }));
 vi.mock("../src/delegates/budget", () => ({ applyTier: m.applyTier, handleBudgetText: m.handleBudgetText }));
 vi.mock("../src/delegates/ballot", () => ({ handleBallotText: m.handleBallotText }));
-vi.mock("../src/delegates/free", () => ({ handleFreeText: m.handleFreeText }));
+vi.mock("../src/delegates/free", () => ({
+  converseReply: m.converseReply, handleFreeText: m.handleFreeText, mentionsOthersBudget: m.mentionsOthersBudget, otherFirstNames: m.otherFirstNames, sendOnlyYours: m.sendOnlyYours,
+}));
 vi.mock("../src/delegates/prefs", () => ({ handlePrefsText: m.handlePrefsText }));
 vi.mock("../src/events", () => ({ emit: m.emit }));
 vi.mock("../src/money/holdGate", () => ({ answer: m.answer }));
@@ -36,13 +40,13 @@ vi.mock("../src/plan/machine", () => {
 });
 vi.mock("../src/repo/dmRoutes", () => ({ upsertDmRoute: m.upsertDmRoute }));
 vi.mock("../src/repo/holdGates", () => ({ findPendingHoldGate: m.findPendingHoldGate, getHoldGate: m.getHoldGate }));
-vi.mock("../src/repo/participants", () => ({ getParticipant: m.getParticipant }));
-vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser }));
+vi.mock("../src/repo/participants", () => ({ getParticipant: m.getParticipant, capturedPlanIdsForUser: m.capturedPlanIdsForUser }));
+vi.mock("../src/repo/plans", () => ({ currentPlanForUser: m.currentPlanForUser, getPlan: m.getPlan }));
 vi.mock("../src/repo/users", () => ({ findUserByPhone: m.findUserByPhone, findUserByPhotonId: m.findUserByPhotonId, setPhotonUserId: m.setPhotonUserId }));
 vi.mock("../src/repo/payLinks", () => ({ getPayLink: m.getPayLink }));
 vi.mock("../src/router/handlers", () => ({ handleCommand: m.handleCommand, reply: m.reply }));
 
-import { route } from "../src/router/route";
+import { isQuestion, laDate, route } from "../src/router/route";
 
 const user = { id: "u1", first_name: "Ana", phone_e164: "+13105550001", photon_user_id: "pu1", payer_ref: "x" };
 const plan = (o: Record<string, unknown> = {}) => ({ id: "p1", state: "COLLECTING", version: 1, ...o });
@@ -60,6 +64,9 @@ const lane = (stage: string, planOverrides: Record<string, unknown> = {}) => {
 beforeEach(() => {
   for (const fn of Object.values(m)) fn.mockReset();
   m.findUserByPhotonId.mockResolvedValue(user);
+  m.capturedPlanIdsForUser.mockResolvedValue([]);
+  m.otherFirstNames.mockResolvedValue(["Sam"]);
+  m.mentionsOthersBudget.mockReturnValue(false);
   lane("PREFS_DONE");
 });
 
@@ -89,7 +96,7 @@ describe("route", () => {
     expect(m.markReadSafe).not.toHaveBeenCalled();
   });
 
-  it("unknown sender: marks read, shows typing, replies T_NOT_IN_PLAN", async () => {
+  it("unknown sender: marks read, replies T_NOT_IN_PLAN", async () => {
     m.findUserByPhotonId.mockResolvedValue(null);
     m.findUserByPhone.mockResolvedValue(null);
     await route(ev("hello"));
@@ -160,6 +167,46 @@ describe("route", () => {
     expect(m.handleBudgetText).toHaveBeenCalledOnce();
   });
 
+  it("awaiting tiers: a question goes to the budget parser with the delegate as the fallback for an unclear parse", async () => {
+    lane("LINK_SENT", { state: "APPROVING" });
+    m.getAwaiting.mockReturnValue("tiers");
+    m.converseReply.mockResolvedValue(true);
+    await route(ev("wait what does that mean"));
+    expect(m.handleBudgetText).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.any(Function));
+    expect(m.converseReply).not.toHaveBeenCalled(); // only once the parse is unclear
+    const unclear = m.handleBudgetText.mock.calls[0]![2] as () => Promise<boolean>;
+    expect(await unclear()).toBe(true);
+    expect(m.converseReply).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p1" }) }), expect.anything());
+    expect(m.clearAwaiting).not.toHaveBeenCalled();
+    m.handleBudgetText.mockClear();
+    await route(ev("my max is 15 now")); // not a question: unclear → tiers menu as before
+    expect(m.handleBudgetText).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+  });
+
+  it("awaiting tiers: yes/no drops the menu and re-reads the flag, so a pending hold gate gets its answer", async () => {
+    lane("GATED", { state: "APPROVING" });
+    m.getAwaiting.mockReturnValueOnce("tiers").mockReturnValue(null);
+    m.findPendingHoldGate.mockResolvedValue({ plan_id: "p1" });
+    await route(ev("yes"));
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.answer).toHaveBeenCalledWith(expect.anything(), true, expect.anything());
+    expect(m.handleBudgetText).not.toHaveBeenCalled();
+  });
+
+  it("awaiting tiers: yes/no with no gate falls through to the stage handler", async () => {
+    lane("LINK_SENT", { state: "APPROVING" });
+    m.getAwaiting.mockReturnValueOnce("tiers").mockReturnValue(null);
+    await route(ev("ok"));
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.handleBudgetText).not.toHaveBeenCalled();
+    expect(m.handleFreeText).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["wait what does that mean", true], ["huh", true], ["is 1 walkable?", true], ["what's that", true],
+    ["my max is 15 now", false], ["about forty", false], ["whatever", false], ["donut", false],
+  ])("isQuestion(%j) → %s", (t, q) => expect(isQuestion(t)).toBe(q));
+
   it("awaiting budget goes to the budget delegate regardless of stage", async () => {
     lane("VOTED", { state: "VOTING" });
     m.getAwaiting.mockReturnValue("budget");
@@ -194,6 +241,59 @@ describe("route", () => {
     await route(ev("1, 3"));
     expect(m.handleDigitsBallot).toHaveBeenCalledWith(expect.anything(), [1, 3], expect.anything());
     expect(m.handleBallotText).not.toHaveBeenCalled();
+  });
+
+  it("commands get no typing bubble (a fast template reply could land before it); LLM-backed text does", async () => {
+    await route(ev("status"));
+    expect(m.typingOn).not.toHaveBeenCalled();
+    await route(ev("ok thanks!"));
+    expect(m.typingOn).toHaveBeenCalledOnce();
+  });
+
+  it("after capture: no active plan falls back to today's CONFIRMED plan, so 'status' and questions keep their context", async () => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.capturedPlanIdsForUser.mockResolvedValue(["p9", "p8"]);
+    m.getPlan.mockResolvedValue({ id: "p9", state: "CONFIRMED", version: 3, event_date: laDate(0) });
+    m.getParticipant.mockResolvedValue({ stage: "CAPTURED", lane: 1 });
+    m.getAwaiting.mockReturnValue("budget"); // a leftover flag must not reopen the budget step
+    await route(ev("status"));
+    expect(m.handleCommand).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p9" }) }), { kind: "status" }, expect.anything());
+    await route(ev("what time is dinner?"));
+    expect(m.handleFreeText).toHaveBeenCalledWith(user, expect.objectContaining({ plan: expect.objectContaining({ id: "p9" }) }), expect.anything());
+    expect(m.handleBudgetText).not.toHaveBeenCalled();
+    expect(m.clearAwaiting).toHaveBeenCalledWith("u1");
+    expect(m.getPlan).toHaveBeenCalledWith("p9");
+  });
+
+  it.each([
+    ["an old CONFIRMED plan", { id: "p9", state: "CONFIRMED", event_date: "2020-01-01" }],
+    ["a CANCELLED plan", { id: "p9", state: "CANCELLED", event_date: laDate(0) }],
+  ])("no fallback context for %s", async (_name, p) => {
+    m.currentPlanForUser.mockResolvedValue(null);
+    m.capturedPlanIdsForUser.mockResolvedValue(["p9"]);
+    m.getPlan.mockResolvedValue(p);
+    await route(ev("hi"));
+    expect(m.handleFreeText).toHaveBeenCalledWith(user, null, expect.anything());
+  });
+
+  it("laDate: LA calendar date, shifted by days", () => {
+    expect(laDate(0, new Date("2026-10-18T06:30:00Z"))).toBe("2026-10-17"); // 11:30 PM Saturday in LA
+    expect(laDate(-1, new Date("2026-10-18T08:00:00Z"))).toBe("2026-10-17");
+    expect(laDate(-1, new Date("2026-03-01T20:00:00Z"))).toBe("2026-02-28");
+  });
+
+  it.each([
+    ["JOINED", null],
+    ["BUDGET_LOCKED", null],
+    ["VOTED", "budget"],
+  ] as const)("a question about another member's budget at %s (flag %s) gets T_ONLY_YOURS; the step stays open", async (stage, flag) => {
+    lane(stage, { state: flag ? "VOTING" : "COLLECTING" });
+    m.getAwaiting.mockReturnValue(flag);
+    m.mentionsOthersBudget.mockReturnValue(true);
+    await route(ev("what's Sam's budget?"));
+    expect(m.mentionsOthersBudget).toHaveBeenCalledWith("what's Sam's budget?", ["Sam"]);
+    expect(m.sendOnlyYours).toHaveBeenCalledWith("u1", "p1", expect.anything());
+    for (const f of [m.handleBudgetText, m.handlePrefsText, m.handleFreeText]) expect(f).not.toHaveBeenCalled();
   });
 
   it("no active lane: free text with a null context", async () => {

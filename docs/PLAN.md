@@ -98,7 +98,7 @@ Rubric: Innovation 25, UX 25, Technical 20, Commerce Impact 15, Trust 15.
 | Built on Photon 2.0 | `@photon-ai/api@0.5.0` against `https://api.photon.codes/v1` plus Socket.IO events with a persisted replay cursor. The brief's "SDK reference" link points at spectrum-ts (Stable), so ask the booth which counts. | Photon delivery lane; beta dashboard tab |
 | Live on ≥1 Photon channel | Live iMessage DMs. Judges join from **their own phones** via assignment-create (free tier: 25 seats, released after each judge). | QR → in a DM in about 60 s |
 | Vision: hybrid intelligence | A private delegate per friend, a code mechanism between them, humans keep the final yes | Context X-ray panel |
-| Craft: responsive | Typing within about 1 s, refreshed during runs. Mark-as-read on receipt. Threaded replies (`parentMessageId`). Agent profile "SquadTab" + avatar (visibility on shared lines **UNVERIFIED**). PNG cards are a stretch. | Judge's phone |
+| Craft: responsive | Typing within about 1 s, refreshed during runs. Mark-as-read on receipt. Plain replies only: threaded replies (`parentMessageId`) were removed because shared lines reject them (409 `SPACE_NOT_SENDABLE`, commit ed62641). Agent profile "SquadTab" + avatar (visibility on shared lines **UNVERIFIED**). PNG cards are a stretch. | Judge's phone |
 | Depth: edge cases | User texts first; the agent number can differ per user; `SHARED_LINE_*` errors handled; idempotent sends; Socket.IO replay; re-ping ladder; deadline releases all holds | Decline/deadline beat |
 | Traction | No app install, no group app, works with the friend group you already have | Judge onboarding |
 
@@ -891,7 +891,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 
 **Photon 2.0 beta** (`@photon-ai/api@0.5.0` source + local OpenAPI + beta docs):
 - Client: `new Photon({ headers: { Authorization: \`Bearer ${PHOTON_API_KEY}\` } })`. Base URL defaults to `https://api.photon.codes`.
-- Send: `photon.projects.sendMessage({ path:{id:PROJECT}, headers:{"idempotency-key":k}, body:{ spaceId, senderId, parentMessageId?, content:{ type:"text", format:"plain", text } } })` → 202 SentMessage. Reply with inbound `space.id`, `receivedBy.id` and `id`.
+- Send: `photon.projects.sendMessage({ path:{id:PROJECT}, headers:{"idempotency-key":k}, body:{ spaceId, senderId, content:{ type:"text", format:"plain", text } } })` → 202 SentMessage. Reply with inbound `space.id` and `receivedBy.id`. Never send `parentMessageId`: shared lines reject threaded replies (409 `SPACE_NOT_SENDABLE`).
 - Typing: `photon.projects.setSpaceTyping({ path:{id, spaceId}, body:{ senderId, typing:true } })`. `true` starts or refreshes typing.
 - Read: `photon.projects.markMessageRead({ path:{id, messageId}, headers:{"idempotency-key":k} })`.
 - Assign: `photon.projects.platforms.imessage.assignments.create({ path:{id}, headers:{ idempotencyKey:k }, body:{ handle, firstName? } })` → 201 `{assignmentId, assignedPhoneNumber, …}`. Release: `.assignments.release({ path:{id, assignmentId} })` (repeat-safe).
@@ -1075,7 +1075,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 **Rules:**
 - The phone is the hero; the console is the evidence.
 - Use cellular or a hotspot, never venue Wi-Fi.
-- Before each judge: Reset, pre-warm, 3 team phones in VOTING-ready state.
+- Before each judge: Reset, pre-warm, both team phones in VOTING-ready state (`DEMO_TEAM` has 2 entries, so the demo is 2 team phones plus the judge). Never press Reset while a judge is mid-flow: it retires every active plan.
 - The demo seed must contain cached bundles with at least 3 surviving at a $30 cap. Seeding is how the judge's cap changes the shortlist.
 
 ### Table version (4–5 min)
@@ -1084,8 +1084,8 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 |---|---|---|---|
 | 0:00 | Press "Start live Scout". Say: "CREAO is researching right now; the options you'll see come from a run that finished earlier." | B | CREAO lane: progress lines from inside the sandbox |
 | 0:20 | Zelle hook, then thesis | A | — |
-| 0:45 | The judge scans the QR → `/j/4821` → phone + first name → Text SquadTab → `JOIN 4821` → SquadTab asks for a max → the judge texts "honestly 30 tops tonight" → "Just between us: aim ~$30, never over $30." → prefs. The shortlist on the 3 team phones refreshes ("the group changed"), with no reason given. | judge, A | Lanes: judge lane 🔒; shortlist panel v1→v2 |
-| 1:45 | The judge replies "2, but not if it ends after 10" → everyone gets "4 of 4 voted" → `T_WINNER` | judge | vote.tally |
+| 0:45 | The judge scans the QR → `/j/4821` → phone + first name → Text SquadTab → `JOIN 4821` → SquadTab asks for a max → the judge texts "honestly 30 tops tonight" → "Just between us: aim ~$30, never over $30." → prefs. The shortlist on the 2 team phones refreshes ("the group changed"), with no reason given. | judge, A | Lanes: judge lane 🔒; shortlist panel v1→v2 |
+| 1:45 | The judge replies "2, but not if it ends after 10" → everyone gets "3 of 3 have voted so far" (2 team phones + the judge) → `T_WINNER` | judge | vote.tally |
 | 2:30 | Pay link → Microform → 4111… → "Held $30.00" → team lanes (pre-held or one-tap) → TAP ✓ (6 steps) → all lanes CAPTURED; Concierge itinerary link lands | judge, C | Ledger with real Cybersource IDs; TAP panel; counters |
 | 3:30 | Press **Tamper**: rejected at step 6 (digest), nothing captured. Reset; a team phone texts "I'm out" → all lanes RELEASED, every DM reads "Nobody was charged; your pending authorization was released." | C | tap.verify rejected; ledger RELEASED |
 | 4:15 | The judge texts "what's Sam's budget?" → "I only know yours." X-ray: Sam's delegate = 🔒. Open the [API] run thread to show the validate/fix loop. | judge, B | X-ray; CREAO tab |
@@ -1201,8 +1201,8 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 
 | Item | Smoke test | Owner | Result |
 |---|---|---|---|
-| Photon prize entry and which SDK counts | Booth | A | |
-| Agent name/avatar visible on a shared line | `agentProfile.update` + avatar; text from a team phone; look | A | |
+| Photon prize entry and which SDK counts | Booth (ask in the Photon Discord or at the booth before 11 AM Sun) | A | OPEN as of Sun 12:10 AM: Photon is not on Devpost, so no entry form is known. Record the booth's answer here. |
+| Agent name/avatar visible on a shared line | `agentProfile.update` + avatar; text from a team phone; look | A | OPEN: not verified. Do not claim it on stage or in the README. |
 | Typing refresh interval | Send typing every 5 s for 60 s; observe the indicator | A | |
 | iOS `sms:` prefilled body | Tap the link on 2 iPhones | B | |
 | Link rich previews to recipients | Send pay link after 3 exchanges | A | |

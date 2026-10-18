@@ -11,8 +11,9 @@ import { A_JOB_KINDS, aJobKeys } from "../jobs/kinds";
 import { errInfo, log } from "../log";
 import * as privateConstraints from "../repo/privateConstraints";
 import { getPlanByCode, insertPlan } from "../repo/plans";
-import { upsertParticipant } from "../repo/participants";
-import { upsertUserByPhone } from "../repo/users";
+import { getParticipant, upsertParticipant } from "../repo/participants";
+import { findUserByPhone, upsertUserByPhone } from "../repo/users";
+import { confirmedMembers, MAX_PARTY } from "./capacity";
 import { createRateLimiter } from "./rateLimit";
 import { CreatePlanBody, type CreatePlanResponse, JoinBody, type JoinError, type JoinResponse } from "./schemas";
 import { CapacityError, ensureSeat } from "./seats";
@@ -21,6 +22,7 @@ const MINUTE = 60_000;
 const joinLimiter = createRateLimiter({ limit: 10, windowMs: MINUTE });
 const plansLimiter = createRateLimiter({ limit: 5, windowMs: MINUTE });
 const JOINABLE = new Set(["COLLECTING", "RESEARCHING", "VOTING"]);
+export { MAX_PARTY };
 const ORG_JOIN_STATUS_DELAY_MS = (env.DEMO_TIMERS ? 3 : 20) * MINUTE;
 
 /** Mounts POST /join → handleJoinRoute and POST /plans → handlePlansRoute. */
@@ -59,9 +61,14 @@ export type JoinOutcome = { status: 200; body: JoinResponse } | { status: 404 | 
 const toCents = (usd: number): number => Math.round(usd * 100);
 
 /**
- * Plan by code: none → 404; state ∉ {COLLECTING, RESEARCHING, VOTING} → 409. A bad budget is rejected (422) before
- * any write; then upsertUserByPhone → ensureSeat (CapacityError → 503, no participant left behind) →
- * upsertParticipant (INVITED; emit `lane` if created) → privateConstraints.upsert (source 'form', confidence 'high').
+ * Plan by code: none → 404; state ∉ {COLLECTING, RESEARCHING, VOTING} → 409; already MAX_PARTY confirmed members (lanes
+ * that texted JOIN; form-only INVITED rows don't count, so made-up phones can't lock the plan) and this phone isn't
+ * one of them → 409 plan_closed (before any seat or row is created). The JOIN text enforces the same cap
+ * (router/handlers.ts → joinWouldOverfill). A bad budget is rejected (422) before
+ * any write; then the user (an existing user who has texted us keeps their name: the form can't prove phone
+ * ownership) → ensureSeat (CapacityError → 503, no participant left behind) → upsertParticipant (INVITED; emit `lane`
+ * if created) → privateConstraints.upsert (source 'form', confidence 'high') only while the lane is still unconfirmed
+ * (INVITED), so a form submitted with someone's phone can't overwrite a budget they already confirmed by text.
  */
 export async function join(body: JoinBody): Promise<JoinOutcome> {
   const plan = await getPlanByCode(body.code);
@@ -75,7 +82,11 @@ export async function join(body: JoinBody): Promise<JoinOutcome> {
     budget = parse;
   }
 
-  const user = await upsertUserByPhone({ phone_e164: body.phone_e164, first_name: body.first_name });
+  const existing = await findUserByPhone(body.phone_e164);
+  if (!(existing && (await getParticipant(plan.id, existing.id))) && (await confirmedMembers(plan.id)) >= MAX_PARTY) {
+    return { status: 409, body: { error: "plan_closed" } };
+  }
+  const user = existing?.photon_user_id ? existing : await upsertUserByPhone({ phone_e164: body.phone_e164, first_name: body.first_name });
   let seat;
   try {
     seat = await ensureSeat(user, plan.id);
@@ -86,7 +97,7 @@ export async function join(body: JoinBody): Promise<JoinOutcome> {
 
   const { row, created } = await upsertParticipant(plan.id, user.id);
   if (created) await emit({ type: "lane", plan_id: plan.id, lane: row.lane, first_name: user.first_name, stage: row.stage, amount_cents: null, cybs_id_short: null });
-  if (budget) {
+  if (budget && (created || row.stage === "INVITED")) {
     await privateConstraints.upsert({ plan_id: plan.id, user_id: user.id, ...budget, source: "form", confidence: "high" });
   }
 
@@ -104,7 +115,8 @@ const isUniqueViolation = (e: unknown): boolean => typeof e === "object" && e !=
  * join_url = `${WEB_ORIGIN}/j/${code}`, qr_svg = await QRCode.toString(join_url, {type:"svg", margin:1, width:256}).
  */
 export async function createPlan(body: CreatePlanBody): Promise<CreatePlanResponse> {
-  const organizer = await upsertUserByPhone(body.organizer);
+  const known = await findUserByPhone(body.organizer.phone_e164);
+  const organizer = known?.photon_user_id ? known : await upsertUserByPhone(body.organizer); // same rename rule as join()
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = String(randomInt(10_000)).padStart(4, "0");
     if (code === env.DEMO_CODE) continue; // reserved for the seeded demo plan

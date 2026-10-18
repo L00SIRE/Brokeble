@@ -5,8 +5,8 @@ import { VARS, type TemplateId, type TemplateVars } from "@tab/shared";
 import { emit } from "../events";
 import { errInfo, log } from "../log";
 import { ports, type DmAddress } from "../ports";
-import { problemAction, problemCode } from "../photon/errors";
-import { deleteDmRoute, getDmRoute } from "../repo/dmRoutes";
+import { problemAction, problemCode, retryAfterMs } from "../photon/errors";
+import { getDmRoute } from "../repo/dmRoutes";
 import { claimOutbound, markOutboundAccepted, markOutboundBlocked, markOutboundFailed, type OutboundClaim } from "../repo/outbound";
 import { render } from "./render";
 
@@ -33,9 +33,25 @@ export async function notify<T extends TemplateId>(userId: string, id: T, vars: 
   if (!to) {
     await markOutboundBlocked(claim);
     log.info({ template_id: id, plan_id: claim.plan_id }, "notify: no dm route, not sending first");
+    await warnNoRoute(userId, claim);
     return "blocked_inbound";
   }
   return deliver(to, text, claim, o.replyTo);
+}
+
+// (userId, planId) pairs already reported on the console. In memory: a restart re-warns once, which is fine.
+const warnedNoRoute = new Set<string>();
+
+/**
+ * Once per member per plan, tells the operator console that a member's messages are being held because they never
+ * texted SquadTab (shared lines cannot message first). Carries the template id only: no name, phone or text.
+ */
+async function warnNoRoute(userId: string, claim: OutboundClaim): Promise<void> {
+  if (!claim.plan_id) return;
+  const k = `${userId}:${claim.plan_id}`;
+  if (warnedNoRoute.has(k)) return;
+  warnedNoRoute.add(k);
+  await quiet("notify.systemEvent", emit({ type: "system", level: "warn", msg: `A member hasn't texted SquadTab yet; ${claim.template_id} is held` }));
 }
 
 /** Unknown senders only (router step 4): replies to the inbound address directly; no user row, no plan. */
@@ -65,14 +81,28 @@ function renderChecked<T extends TemplateId>(id: T, vars: TemplateVars<T>): stri
   return render(id, parsed.data as TemplateVars<T>);
 }
 
+/** Longest wait before the single notify-level retry of a rate-limited send (keeps a handler well inside 45 s). */
+const RATE_LIMIT_RETRY_MAX_MS = 5_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function deliver(to: DmAddress, text: string, claim: OutboundClaim, replyTo?: string): Promise<NotifyOutcome> {
   if (!(await claimOutbound(claim))) return "duplicate";
   const ctx = { template_id: claim.template_id, plan_id: claim.plan_id };
+  const send = () => ports.messaging.sendText(to, text, { idempotencyKey: claim.idempotency_key, ...(replyTo ? { replyTo } : {}) });
   let messageId: string;
   try {
-    ({ messageId } = await ports.messaging.sendText(to, text, { idempotencyKey: claim.idempotency_key, ...(replyTo ? { replyTo } : {}) }));
-  } catch (e) {
-    return onSendError(e, claim, ctx);
+    ({ messageId } = await send());
+  } catch (first) {
+    // A 429 the SDK gave up on (Retry-After above its cap, or attempts used) gets one more try with the SAME key:
+    // Photon replays a key it already accepted, so this can never duplicate a text. Transport errors and 5xx are not
+    // retried here: the SDK already retried them, and another round could outlast the consumer's handler timeout.
+    if (problemAction(problemCode(first)) !== "rate_limited") return onSendError(first, claim, ctx);
+    await sleep(Math.min(retryAfterMs(first) ?? 1_500, RATE_LIMIT_RETRY_MAX_MS));
+    try {
+      ({ messageId } = await send());
+    } catch (e) {
+      return onSendError(e, claim, ctx);
+    }
   }
   // The text is out; a ledger write failure must not report the send as failed. The row stays 'pending', so a
   // retry re-sends with the same key and Photon dedupes it.
@@ -94,9 +124,10 @@ async function onSendError(e: unknown, claim: OutboundClaim, ctx: { template_id:
       log.error({ ...ctx, code }, "notify: send rejected (template/key bug)");
       break;
     case "stale_route":
-      // The stored space can no longer receive; drop it so later sends wait for the user's next text (which re-adds it).
-      if (claim.user_id) await quiet("notify.deleteStaleRoute", deleteDmRoute(claim.user_id));
-      log.warn({ ...ctx, code }, "notify: stale dm route dropped");
+      // The route is kept: the space id is stable per person and line, so deleting it only turned one bad request
+      // into silence for every later message (and blocked_inbound rows are never re-claimed).
+      log.warn({ ...ctx, code }, "notify: space not sendable");
+      await quiet("notify.systemEvent", emit({ type: "system", level: "warn", msg: `Message not delivered (${code})` }));
       break;
     case "not_assigned":
       log.warn({ ...ctx, code }, "notify: shared-line seat released");

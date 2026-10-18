@@ -155,6 +155,17 @@ describe("reconcile", () => {
     expect(m.emit).toHaveBeenCalledWith(expect.objectContaining({ type: "creao.run", run_id: "cr-1", status: "running", source: "live" }));
   });
 
+  it("emits creao.run only on the pending → running change, not on every 15 s poll", async () => {
+    m.getResearchRun.mockResolvedValue(row({ status: "running" }));
+    m.getRun.mockResolvedValue({ id: "cr-1", status: "running" });
+    await reconcile("run-1");
+    m.getResearchRun.mockResolvedValue(row({ status: "pending" }));
+    m.getRun.mockResolvedValue({ id: "cr-1", status: "pending" });
+    await reconcile("run-1");
+    expect(m.emit).not.toHaveBeenCalled();
+    expect(m.finishRun).not.toHaveBeenCalled();
+  });
+
   it("stores sanitized live options from result.text and announces readiness once", async () => {
     m.getRun.mockResolvedValue(completed(fenced({ ...submission, plan_ref: "ignored" })));
     await reconcile("run-1");
@@ -178,20 +189,23 @@ describe("reconcile", () => {
     expect(m.finishRun).toHaveBeenCalledWith("run-1", "completed");
   });
 
-  it("repairs unparseable text once, then validates the repaired value", async () => {
-    m.getRun.mockResolvedValue(completed("garbled output"));
-    m.repairScoutJson.mockResolvedValue(submission);
+  it("never asks an LLM to invent options: unparseable text goes straight to cached", async () => {
+    // The real saved Scout's result.text is a session echo; a forced-schema "repair" fabricated 6 placeholder venues.
+    m.getRun.mockResolvedValue({
+      id: "cr-1", status: "completed",
+      result: { text: JSON.stringify({ plan_ref: REF, category: "dinner", brief: "{}", option_count: "12" }), chatText: "## Dinner options - Marugame Udon" },
+    });
     await reconcile("run-1");
-    expect(m.repairScoutJson).toHaveBeenCalledOnce();
-    expect(m.repairScoutJson).toHaveBeenCalledWith("garbled output", "dinner");
+    expect(m.repairScoutJson).not.toHaveBeenCalled();
     expect(m.upsertOptions).toHaveBeenCalledTimes(1);
-    expect(m.markRunCached).not.toHaveBeenCalled();
+    expect(m.markRunCached).toHaveBeenCalledWith("run-1");
+    expect(m.finishRun).toHaveBeenCalledWith("run-1", "completed");
   });
 
-  it("uses cached options when repair fails or the submission is invalid", async () => {
+  it("uses cached options when the submission is invalid", async () => {
     m.getRun.mockResolvedValue(completed(fenced({ ...submission, options: submission.options.slice(0, 2) })));
-    m.repairScoutJson.mockRejectedValue(new Error("llm down"));
     await reconcile("run-1");
+    expect(m.repairScoutJson).not.toHaveBeenCalled();
     expect(m.markRunCached).toHaveBeenCalledWith("run-1");
     expect(m.mergeRunResult).toHaveBeenCalledWith("run-1", expect.objectContaining({ cached_from_run_id: expect.any(String) }));
     expect(m.finishRun).toHaveBeenCalledWith("run-1", "completed");
@@ -200,7 +214,6 @@ describe("reconcile", () => {
   it("rejects options for the wrong area", async () => {
     const wrongArea = { ...submission, options: submission.options.map((o) => ({ ...o, area: "Elsewhere" })) };
     m.getRun.mockResolvedValue(completed(fenced(wrongArea)));
-    m.repairScoutJson.mockResolvedValue(null);
     await reconcile("run-1");
     expect(m.markRunCached).toHaveBeenCalled();
   });

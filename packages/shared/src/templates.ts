@@ -44,6 +44,11 @@ export const TemplateId = z.enum([
   "T_VOICE_RECAP_LATER",
   // Free-form reply written by the person's private delegate (LLM over their own data only). Never money/privacy-critical.
   "T_DELEGATE_REPLY",
+  // A-additive after the 11 PM freeze (additive only): accurate copy where the older templates over-promised.
+  "T_BUDGET_REASK", // 'change budget' mid-plan (T_BUDGET_ASK opens with "First up:")
+  "T_PLAN_OFF", // cancelled before any pay link existed (T_CANCELLED mentions a released authorization)
+  "T_HOLD_RELEASED_RETRY", // a hold that timed out and was reversed (the card itself was fine)
+  "T_PLAN_FULL", // JOIN text when 8 lanes are already confirmed (the venue caps party_size at 8)
 ]);
 export type TemplateId = z.infer<typeof TemplateId>;
 
@@ -91,6 +96,10 @@ export const COPY = {
   T_VOICE_RECAP_OUT: "Thanks for the call! If you're sitting this one out, just text 'I'm out'. Nobody's told why.",
   T_VOICE_RECAP_LATER: "Thanks for the call! No rush, your hold link for {title} works until {deadline}.",
   T_DELEGATE_REPLY: "{text}",
+  T_BUDGET_REASK: "Sure! What's the most you'd want to spend tonight, all-in? Still just between us.",
+  T_PLAN_OFF: "Plan's off. Nobody was charged.",
+  T_HOLD_RELEASED_RETRY: "I couldn't confirm your hold, so I released it. Nothing was charged. Here's a fresh link: {url}",
+  T_PLAN_FULL: "Sorry, this plan is already full (8 people max), so I can't add you. If a spot opens up, send the same JOIN message again.",
 } as const satisfies Record<TemplateId, string>;
 
 const s = z.string().min(1);
@@ -136,6 +145,10 @@ export const VARS = {
   T_VOICE_RECAP_OUT: none,
   T_VOICE_RECAP_LATER: z.strictObject({ title: s, deadline: s }),
   T_DELEGATE_REPLY: z.strictObject({ text: z.string().min(1).max(600) }),
+  T_BUDGET_REASK: none,
+  T_PLAN_OFF: none,
+  T_HOLD_RELEASED_RETRY: z.strictObject({ url: z.url() }),
+  T_PLAN_FULL: none,
 } as const satisfies Record<TemplateId, z.ZodObject>;
 
 export type TemplateVars<T extends TemplateId> = z.infer<(typeof VARS)[T]>;

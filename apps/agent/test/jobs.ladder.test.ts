@@ -14,6 +14,11 @@ const m = vi.hoisted(() => ({
   cancel: vi.fn(async () => {}),
   enqueue: vi.fn(async () => true),
   callVenueSweep: vi.fn(async () => ({})),
+  getOrder: vi.fn(),
+  commitJob: vi.fn(async () => {}),
+  researchReady: vi.fn(async () => false),
+  startResearch: vi.fn(async () => {}),
+  listRunsForPlan: vi.fn(async () => [] as unknown[]),
 }));
 vi.mock("../src/env", () => ({ env: m.env }));
 vi.mock("../src/repo/plans", () => ({ getPlan: m.getPlan }));
@@ -26,6 +31,10 @@ vi.mock("../src/notify/render", () => ({ fmtDeadline: (d: Date | string) => `DL(
 vi.mock("../src/plan/decision", () => ({ bundleTitle: () => "Dinner at A → Show at B" }));
 vi.mock("../src/plan/cancel", () => ({ cancel: m.cancel }));
 vi.mock("../src/dueJobs", async (orig) => ({ ...(await orig<typeof import("../src/dueJobs")>()), enqueue: m.enqueue }));
+vi.mock("../src/ports", () => ({ ports: { venue: { getOrder: m.getOrder } } }));
+vi.mock("../src/plan/commit", () => ({ commitJob: m.commitJob }));
+vi.mock("../src/creao/research", () => ({ researchReady: m.researchReady, startResearch: m.startResearch }));
+vi.mock("../src/repo/researchRuns", () => ({ listRunsForPlan: m.listRunsForPlan }));
 
 import { approveDeadlineJob, approveRepingJob, bootstrapVenueSweep, orgJoinStatusJob, stillLookingJob, venueSweepJob } from "../src/jobs/ladder";
 
@@ -51,6 +60,40 @@ describe("stillLookingJob", () => {
     m.getPlan.mockResolvedValue(plan({ state: "VOTING" }));
     await stillLookingJob(job());
     expect(m.fanout).not.toHaveBeenCalled();
+  });
+
+  const run = (status: string, creao_run_id: string | null) => ({ kind: "scout", status, creao_run_id });
+
+  it("watchdog: healthy research (every Scout run has a CREAO id or finished) is left alone", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING" }));
+    m.listRunsForPlan.mockResolvedValue([run("running", "crun_1"), run("failed", null)]);
+    await stillLookingJob(job());
+    expect(m.startResearch).not.toHaveBeenCalled();
+    expect(m.enqueue).not.toHaveBeenCalled();
+  });
+
+  it.each([[[]], [[run("pending", null), run("running", "crun_2")]]])("watchdog: stranded research (%j) is restarted, then the fan-out still goes", async (runs) => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING" }));
+    m.listRunsForPlan.mockResolvedValue(runs);
+    await stillLookingJob(job());
+    expect(m.listRunsForPlan).toHaveBeenCalledWith("p1", { kind: "scout" });
+    expect(m.startResearch).toHaveBeenCalledWith("p1");
+    expect(m.fanout).toHaveBeenCalledWith("p1", "T_STILL_LOOKING", expect.any(Function), { version: 2 });
+  });
+
+  it("watchdog: options for both categories already stored → a fresh recompute (the options one may have run already)", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING" }));
+    m.researchReady.mockResolvedValueOnce(true);
+    await stillLookingJob(job());
+    expect(m.enqueue).toHaveBeenCalledWith("recompute", "recompute:p1:still", expect.any(Date), {}, { planId: "p1" });
+    expect(m.startResearch).not.toHaveBeenCalled();
+  });
+
+  it("watchdog failure never blocks the still-looking message", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING" }));
+    m.listRunsForPlan.mockRejectedValueOnce(new Error("db down"));
+    await stillLookingJob(job());
+    expect(m.fanout).toHaveBeenCalledOnce();
   });
 });
 
@@ -120,6 +163,37 @@ describe("approveDeadlineJob", () => {
       m.getPlan.mockResolvedValue(p);
       await approveDeadlineJob(job());
     }
+    expect(m.cancel).not.toHaveBeenCalled();
+  });
+
+  const order = (status: string, shares: string[]) => ({ order_id: "ord_1", status, shares: shares.map((st, i) => ({ share_id: `s${i}`, status: st })) });
+
+  it("every share already AUTHORIZED at the deadline → commit instead of cancelling (late hold or lost hook)", async () => {
+    m.getPlan.mockResolvedValue(plan({ venue_order_id: "ord_1" }));
+    m.getOrder.mockResolvedValue(order("OPEN", ["AUTHORIZED", "AUTHORIZED"]));
+    await approveDeadlineJob(job());
+    expect(m.commitJob).toHaveBeenCalledWith(expect.objectContaining({ plan_id: "p1", kind: "commit", payload: { version: 2, share_id: "deadline" } }));
+    expect(m.cancel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a share still pending", () => m.getOrder.mockResolvedValue(order("OPEN", ["AUTHORIZED", "PENDING"]))],
+    ["no shares", () => m.getOrder.mockResolvedValue(order("OPEN", []))],
+    ["the venue unreachable", () => m.getOrder.mockRejectedValue(new Error("fetch failed"))],
+  ])("cancels when %s", async (_why, arrange) => {
+    m.getPlan.mockResolvedValue(plan({ venue_order_id: "ord_1" }));
+    arrange();
+    await approveDeadlineJob(job());
+    expect(m.cancel).toHaveBeenCalledWith("p1", "deadline");
+    expect(m.commitJob).not.toHaveBeenCalled();
+  });
+
+  it("a retry that finds COMMITTING re-runs the commit (idempotent at the venue); a first attempt does not", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "COMMITTING", venue_order_id: "ord_1" }));
+    await approveDeadlineJob(job({ attempts: 1 }));
+    expect(m.commitJob).not.toHaveBeenCalled();
+    await approveDeadlineJob(job({ attempts: 2 }));
+    expect(m.commitJob).toHaveBeenCalledWith(expect.objectContaining({ attempts: 2, kind: "commit" }));
     expect(m.cancel).not.toHaveBeenCalled();
   });
 });

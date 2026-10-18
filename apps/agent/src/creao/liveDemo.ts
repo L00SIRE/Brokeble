@@ -8,6 +8,7 @@ import { insertResearchRun, latestLiveDemoStartedAt, listRunsForPlan } from "../
 import type { PlanRow } from "../repo/types";
 import { buildResearchBrief } from "./brief";
 import { launchScout } from "./research";
+import { emitScoutXray } from "./xray";
 
 export const LIVE_DEMO_DEBOUNCE_MS = 3 * 60_000;
 
@@ -51,6 +52,10 @@ export async function startLiveScoutDemo(): Promise<LiveScoutResult> {
     attempt,
     idempotency_key: `live-${plan.ref}-dinner-${Math.floor(Date.now() / 60_000)}`,
   });
-  await launchScout(plan, row, brief).catch((e) => log.error({ run_id: row.id, ...errInfo(e) }, "creao.live_demo"));
+  // The X-ray shows exactly what CREAO receives (P6). The seeded demo plan never starts a Scout, so this is the beat.
+  await Promise.all([
+    emitScoutXray(plan.id, [brief]).catch((e) => log.warn(errInfo(e), "creao.xray")),
+    launchScout(plan, row, brief).catch((e) => log.error({ run_id: row.id, ...errInfo(e) }, "creao.live_demo")),
+  ]);
   return { ok: true, research_run_id: row.id };
 }

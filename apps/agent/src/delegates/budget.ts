@@ -33,6 +33,27 @@ export function acceptBudget(p: BudgetParse | null): p is BudgetParse {
   return t >= 500 && t <= 100_000 && (m === null || (m >= t && m <= 100_000));
 }
 
+const CAP_WORD = /\b(?:max|maximum|tops|limit|most|only|cap)\b/i;
+const NEGATION_OR_QUESTION = /\?|\b(?:not|no|never)\b|n't\b/i;
+
+/**
+ * acceptBudget, plus a deterministic safety net for one exact phrasing the LLM sometimes rates low: a single number
+ * stated as a ceiling ("my max is 15 now"). A low-confidence parse is taken only when the text holds exactly one
+ * number, it equals the parsed target in dollars, the parsed max is null or equal to it, the text carries a cap word
+ * and no question or negation. The cap word makes that number the hard max too. Anything else still gets the tiers.
+ */
+export function acceptedBudget(p: BudgetParse | null, text: string): Budget | null {
+  if (!p) return null;
+  const { target_pp_cents: pt, hard_max_pp_cents: pm } = p; // read before acceptBudget's guard narrows `p` away
+  if (acceptBudget(p)) return { target_pp_cents: pt, hard_max_pp_cents: pm };
+  const numbers = text.match(/\d+(?:\.\d+)?/g) ?? [];
+  if (numbers.length !== 1 || !CAP_WORD.test(text) || NEGATION_OR_QUESTION.test(text)) return null;
+  const t = Math.round(Number(numbers[0]) * 100);
+  if (pt !== t || (pm !== null && pm !== t)) return null;
+  const capped = { target_pp_cents: t, hard_max_pp_cents: t, confidence: "high" as const };
+  return acceptBudget(capped) ? { target_pp_cents: t, hard_max_pp_cents: t } : null;
+}
+
 /** "No cap" is the tier-4 sentinel; an ordinary DM budget without a ceiling still gets the slack-derived max. */
 const isNoCap = (c: Budget): boolean => c.hard_max_pp_cents === null && c.target_pp_cents >= TIER_MAP[4].target_pp_cents;
 
@@ -44,14 +65,20 @@ function sendConfirm(ctx: MemberContext, c: Budget, key: string) {
     : notify(ctx.user.id, "T_BUDGET_CONFIRM", { target: usd0(c.target_pp_cents), max: usd0(effectiveHardMax(c)) }, o);
 }
 
-/** Budget-stage text: parseBudget(buildDelegateInput(…,"budget",text)) → accepted ? confirmBudget(…,"dm") : T_BUDGET_TIERS + awaiting 'tiers'. */
-export async function handleBudgetText(ctx: MemberContext, e: InboundEvent): Promise<void> {
+/**
+ * Budget-stage text: parseBudget(buildDelegateInput(…,"budget",text)) → acceptedBudget ? confirmBudget(…,"dm") :
+ * `unclear` if given and it replied (the router passes the delegate's answer for questions; the awaiting flag is left
+ * as is), else T_BUDGET_TIERS + awaiting 'tiers'.
+ */
+export async function handleBudgetText(ctx: MemberContext, e: InboundEvent, unclear?: () => Promise<boolean>): Promise<void> {
   void emitDelegateXray(ctx.participant.lane);
-  const parse = await ports.llm.parseBudget(buildDelegateInput(ctx.user.first_name, "budget", e.text ?? ""));
-  if (acceptBudget(parse)) {
-    await confirmBudget(ctx, { target_pp_cents: parse.target_pp_cents, hard_max_pp_cents: parse.hard_max_pp_cents }, "dm", e);
+  const text = e.text ?? "";
+  const budget = acceptedBudget(await ports.llm.parseBudget(buildDelegateInput(ctx.user.first_name, "budget", text)), text);
+  if (budget) {
+    await confirmBudget(ctx, budget, "dm", e);
     return;
   }
+  if (unclear && (await unclear())) return;
   setAwaiting(ctx.user.id, "tiers");
   await notify(ctx.user.id, "T_BUDGET_TIERS", {}, { key: replyKey(e.message_id, 1), planId: ctx.plan.id });
 }

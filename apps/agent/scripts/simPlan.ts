@@ -461,6 +461,7 @@ async function happyPath(): Promise<void> {
   check(await waitStage(planId, D, "LINK_SENT"), `${D.name}: back to LINK_SENT`);
   check((await getHoldGate(planId, D.userId, vPlan.version))?.status === "approved", "hold gate row approved");
   check(textsTo(A, "T_HOLD_GATE").length === 0, "nobody else was asked anything about money");
+  check(!planEvents(planId).some((e) => e.type === "lane" && e.stage === "GATED"), "the console never sees GATED (P8: a share above someone's max stays private)");
 
   // The mock venue authorizes every hold. Nothing is captured until the last one lands.
   for (const [i, m] of team.entries()) {

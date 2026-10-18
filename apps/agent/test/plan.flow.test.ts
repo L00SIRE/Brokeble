@@ -126,9 +126,9 @@ describe("recompute", () => {
     expect(m.computeShortlist).not.toHaveBeenCalled();
   });
 
-  it("top3 < 3 → CANCELLED + T_NO_FIT, nothing written", async () => {
+  it("no pick at all → CANCELLED + T_NO_FIT, nothing written", async () => {
     m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
-    m.computeShortlist.mockResolvedValue(shortlistOf(["a", "b"]));
+    m.computeShortlist.mockResolvedValue(shortlistOf([]));
     win(1, "RESEARCHING");
     await recompute(PLAN);
     expect(m.transition).toHaveBeenCalledWith(PLAN, ["RESEARCHING", "VOTING"], "CANCELLED", { version: 1 });
@@ -137,8 +137,39 @@ describe("recompute", () => {
     expect(m.stopPlanTyping).toHaveBeenCalledWith(PLAN);
   });
 
+  it("one or two picks still go to a vote (VOTING + T_PICKS), never T_NO_FIT", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+    m.computeShortlist.mockResolvedValue(shortlistOf(["a", "b"]));
+    m.listMembers.mockResolvedValue([member("x", "PREFS_DONE")]);
+    win(1, "RESEARCHING");
+    await recompute(PLAN);
+    expect(m.transition).toHaveBeenCalledWith(PLAN, "RESEARCHING", "VOTING", expect.objectContaining({ version: 1 }));
+    expect(m.writeBundles).toHaveBeenCalledWith(PLAN, 1, expect.any(Array), ["a", "b"], m.tx);
+    expect(m.fanout.mock.calls.map((c) => (c as unknown[])[1])).toEqual(["T_PICKS"]);
+    expect(((m.fanout.mock.calls[0] as unknown[])[2] as () => { lines: string })().lines).toBe("1.\n2.");
+  });
+
+  it("members changed mid-compute → nothing published; RESEARCHING queues one recompute per member set, VOTING relies on the joiner's", async () => {
+    m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+    m.computeShortlist.mockResolvedValue(shortlistOf(["a", "b", "c"]));
+    m.listMembers.mockResolvedValueOnce([member("x", "PREFS_DONE")]).mockResolvedValueOnce([member("x", "PREFS_DONE"), member("judge", "PREFS_DONE", 2)]);
+    await recompute(PLAN);
+    expect(m.transition).not.toHaveBeenCalled();
+    expect(m.fanout).not.toHaveBeenCalled();
+    expect(m.enqueue).toHaveBeenCalledWith("recompute", expect.stringMatching(new RegExp(`^recompute:${PLAN}:members:[0-9a-f]{12}$`)), expect.any(Date), {}, { planId: PLAN });
+
+    m.enqueue.mockClear();
+    m.getPlan.mockResolvedValue(plan({ state: "VOTING", version: 2 }));
+    m.listMembers.mockResolvedValueOnce([member("x", "PREFS_DONE")]).mockResolvedValueOnce([member("x", "PREFS_DONE"), member("judge", "PREFS_DONE", 2)]);
+    await recompute(PLAN);
+    expect(m.transition).not.toHaveBeenCalled();
+    expect(m.fanout).not.toHaveBeenCalled();
+    expect(m.enqueue).not.toHaveBeenCalled();
+  });
+
   it("RESEARCHING → VOTING: bundles, shortlist event and vote deadline in the winning tx, then T_PICKS to active members", async () => {
     m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+    m.listMembers.mockResolvedValue([member("x", "PREFS_DONE")]);
     m.computeShortlist.mockResolvedValue(shortlistOf(["a", "b", "c"]));
     win(1, "RESEARCHING");
     await recompute(PLAN);
@@ -160,6 +191,8 @@ describe("recompute", () => {
     expect(o.only(member("x", "PREFS_DONE"))).toBe(true);
     expect(o.only(member("y", "BUDGET_LOCKED"))).toBe(false);
     expect(o.only(member("z", "DECLINED"))).toBe(false);
+    // Reached PREFS_DONE after the computation read the member set: their own recompute sends them picks.
+    expect(o.only(member("late", "PREFS_DONE"))).toBe(false);
   });
 
   it("lost RESEARCHING race → no fan-out", async () => {
@@ -175,6 +208,7 @@ describe("recompute", () => {
     m.computeShortlist.mockResolvedValue(shortlistOf(["a", "b", "c"]));
     m.getShortlist.mockResolvedValue(["a", "b", "c"].map(bundle));
     m.holders = [{ user_id: "old" }];
+    m.listMembers.mockResolvedValue([member("old", "VOTED", 1), member("new", "PREFS_DONE", 2)]);
     await recompute(PLAN);
     expect(m.transition).not.toHaveBeenCalled();
     expect(m.fanout).toHaveBeenCalledTimes(1);
@@ -228,12 +262,24 @@ describe("recompute", () => {
 describe("membership", () => {
   it("setStage writes the stage and emits `lane` (public fields only) in one transaction", async () => {
     m.updateStage.mockResolvedValueOnce({ lane: 2 });
-    await setStage(PLAN, "u2", "GATED", { amountCents: 5400 });
-    expect(m.updateStage).toHaveBeenCalledWith(PLAN, "u2", "GATED", m.tx);
+    await setStage(PLAN, "u2", "HELD", { amountCents: 5400, cybsIdShort: "7a1c" });
+    expect(m.updateStage).toHaveBeenCalledWith(PLAN, "u2", "HELD", m.tx);
     expect(m.emit).toHaveBeenCalledWith(
-      { type: "lane", plan_id: PLAN, lane: 2, first_name: "Ana", stage: "GATED", amount_cents: 5400, cybs_id_short: null },
+      { type: "lane", plan_id: PLAN, lane: 2, first_name: "Ana", stage: "HELD", amount_cents: 5400, cybs_id_short: "7a1c" },
       m.tx,
     );
+  });
+
+  it("setStage GATED keeps GATED in the DB but the lane event reads LINK_SENT with the share (P8: max never implied)", async () => {
+    m.updateStage.mockResolvedValueOnce({ lane: 2 });
+    await setStage(PLAN, "u2", "GATED", { amountCents: 5400 });
+    expect(m.updateStage).toHaveBeenCalledWith(PLAN, "u2", "GATED", m.tx);
+    // Byte-identical to the LINK_SENT event of a member whose share fits: the console cannot tell them apart.
+    expect(m.emit).toHaveBeenCalledWith(
+      { type: "lane", plan_id: PLAN, lane: 2, first_name: "Ana", stage: "LINK_SENT", amount_cents: 5400, cybs_id_short: null },
+      m.tx,
+    );
+    expect(JSON.stringify(m.emit.mock.calls)).not.toContain("GATED");
   });
 
   it("setStage on a missing participant emits nothing", async () => {

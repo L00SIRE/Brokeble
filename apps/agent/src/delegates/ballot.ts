@@ -30,7 +30,10 @@ export async function handleBallotText(ctx: MemberContext, e: InboundEvent): Pro
   }
   const decided = parse.none_of_these || parse.approvals.length > 0 || parse.constraints.length > 0;
   if (parse.confidence === "low" || parse.intent === "other" || !decided) {
-    if (parse.intent === "other" && (await converseReply(user, ctx, e, { shortlist }))) return;
+    // A question about the picks that chooses none ("is 1 walkable from campus?") deserves an answer, not the
+    // ballot menu, whichever label the parser gave it.
+    const question = !decided && /\?\s*$/.test(text);
+    if ((parse.intent === "other" || question) && (await converseReply(user, ctx, e, { shortlist }))) return;
     // The tplKey makes the clarification once-per-version: a second unclear reply comes back "duplicate" → T_HELP.
     const outcome = await notify(user.id, "T_BALLOT_CLARIFY", {}, { key: tplKey(plan.id, user.id, "T_BALLOT_CLARIFY", plan.version), planId: plan.id });
     if (outcome === "duplicate") await notify(user.id, "T_HELP", {}, { key: replyKey(e.message_id, 1), planId: plan.id });

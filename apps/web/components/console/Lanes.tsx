@@ -41,11 +41,11 @@ function Lane({ lane }: { lane: LaneView }) {
           <span className={`rounded-md px-3 py-0.5 font-mono text-(length:--text-console-label) ${badgeTone(lane.stage)}`}>{lane.stage}</span>
         </span>
       </div>
-      <ol aria-label={`${lane.first_name} progress`} className="grid grid-cols-6 gap-1.5">
+      <ol aria-label={`${lane.first_name} progress`} className="grid grid-cols-[repeat(6,minmax(0,1fr))] gap-1.5">
         {SEGMENTS.map((label, i) => (
-          <li key={label} className="grid gap-1">
+          <li key={label} className="grid min-w-0 gap-1">
             <span className={`h-2 rounded-full ${ended ? "bg-border" : i < at ? "bg-ok" : i === at ? (lane.stage === "CAPTURED" ? "bg-ok" : "bg-accent") : "bg-border"}`} />
-            <span className={`text-center text-(length:--text-console-label) leading-none ${!ended && i === at ? "text-fg" : "text-muted"}`}>{label}</span>
+            <span className={`min-w-0 text-center text-[0.65rem] leading-none sm:text-sm 2xl:text-(length:--text-console-label) ${!ended && i === at ? "text-fg" : "text-muted"}`}>{label}</span>
           </li>
         ))}
       </ol>
@@ -76,7 +76,7 @@ export function LanesPanel({ lanes, tally }: { lanes: readonly LaneView[]; tally
               voted
             </p>
           ) : null}
-          <ul className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
+          <ul tabIndex={0} aria-label="People" className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
             {ordered.map((lane) => (
               <Lane key={lane.lane} lane={lane} />
             ))}

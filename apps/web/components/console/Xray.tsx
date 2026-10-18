@@ -43,7 +43,7 @@ function Tile({ context }: { context: XrayContext }) {
 
 export function XrayPanel({ contexts }: { contexts: readonly XrayContext[] }) {
   return (
-    <Panel title="Context X-ray">
+    <Panel title="Context X-ray" className="min-h-48">
       {contexts.length === 0 ? (
         <Waiting />
       ) : (

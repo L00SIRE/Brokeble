@@ -69,6 +69,18 @@ describe("TAP verifier (M8)", () => {
     const r = await verifyTap({ ...req, path: "/orders/b" }, deps());
     expect(failedStep(r)).toBe(6);
   });
+  it("rejects expires <= created at step 3, even inside the clock skew", async () => {
+    const r = await verifyTap(signedRequest("POST", "/checkout/x", "{}", NOW, { created: NOW + 4, expires: NOW + 2 }), deps());
+    expect(failedStep(r)).toBe(3);
+    expect(r.reason).toBe("expires must be after created");
+  });
+  it("rejects a repeated component identifier at step 2", async () => {
+    const req = signedRequest("GET", "/orders/x", null, NOW);
+    req.headers.set("signature-input", req.headers.get("signature-input")!.replace('"@path")', '"@path" "@path")'));
+    const r = await verifyTap(req, deps());
+    expect(failedStep(r)).toBe(2);
+    expect(r.reason).toBe("duplicate component");
+  });
   it('accepts alg="Ed25519" (case-insensitive)', async () => {
     const r = await verifyTap(signedRequest("GET", "/orders/x", null, NOW, { alg: "Ed25519" }), deps());
     expect(r.accepted).toBe(true);

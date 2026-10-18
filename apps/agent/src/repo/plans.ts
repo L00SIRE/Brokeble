@@ -46,11 +46,16 @@ export async function insertPlan(p: NewPlanInput, tx: Db = sql): Promise<PlanRow
   return row!;
 }
 
-/** The user's most recent plan in ACTIVE_STATES where they have a participant row, or null (router step 7). */
+/**
+ * The user's most recent plan in ACTIVE_STATES where they have a participant row past INVITED, or null (router step 7).
+ * INVITED rows are skipped: /join creates one from a phone number nobody has proven, and only the phone itself texting
+ * "JOIN <code>" (onJoinText, which looks the plan up by code) moves it to JOINED. Otherwise a web join with someone
+ * else's number to a newer plan would take over which plan that person's texts go to and show them its title.
+ */
 export async function currentPlanForUser(userId: string, tx: Db = sql): Promise<PlanRow | null> {
   const [row] = await tx<PlanRow[]>`
     select ${planCols(tx)} from app.plans p join app.participants pt on pt.plan_id = p.id
-    where pt.user_id = ${userId} and p.state = any(${activeStates(tx)}::text[])
+    where pt.user_id = ${userId} and pt.stage <> 'INVITED' and p.state = any(${activeStates(tx)}::text[])
     order by p.created_at desc, p.id limit 1`;
   return row ?? null;
 }

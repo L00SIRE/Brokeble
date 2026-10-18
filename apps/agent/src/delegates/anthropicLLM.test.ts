@@ -98,7 +98,7 @@ describe("AnthropicLLM request shape (P5)", () => {
     const { llm, parse } = fakeClient({ parsed_output: out });
     const ci: ConverseInput = {
       user_first_name: "Sam", mode: "prefs_ack", message_text: "sushi", plan: null, is_organizer: false, where_things_stand: "x",
-      my_preferences: EMPTY_PREFERENCES, my_budget_set: true, commands: ["status"], picks: [],
+      my_preferences: EMPTY_PREFERENCES, my_budget_set: true, commands: ["status"], picks: [], chosen_plan: null,
     };
     expect(await llm.converse(ci)).toEqual(out);
     const { method, body } = bodies[0]!;
@@ -117,7 +117,7 @@ describe("AnthropicLLM request shape (P5)", () => {
       const { llm } = fakeClient(reply);
       expect(await llm.converse(ConverseInput.parse({
         user_first_name: "Sam", mode: "chat", message_text: "hi", plan: null, is_organizer: false, where_things_stand: "x",
-        my_preferences: null, my_budget_set: false, commands: [], picks: [],
+        my_preferences: null, my_budget_set: false, commands: [], picks: [], chosen_plan: null,
       }))).toBeNull();
     }
   });

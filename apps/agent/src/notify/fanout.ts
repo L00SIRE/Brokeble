@@ -12,7 +12,7 @@ import { render } from "./render";
 
 /** Templates whose fan-out is previewed on the X-ray (A plan T5). */
 export const XRAY_FANOUT_TEMPLATES: ReadonlySet<TemplateId> = new Set<TemplateId>([
-  "T_PICKS", "T_PICKS_REFRESH", "T_VOTE_TALLY", "T_WINNER", "T_IN_COUNT", "T_CAPTURED", "T_CANCELLED", "T_NO_FIT",
+  "T_PICKS", "T_PICKS_REFRESH", "T_VOTE_TALLY", "T_WINNER", "T_IN_COUNT", "T_CAPTURED", "T_CANCELLED", "T_PLAN_OFF", "T_NO_FIT",
 ]);
 
 export type FanoutOptions = {

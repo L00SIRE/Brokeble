@@ -5,7 +5,8 @@ import type { Bundle, CreateOrderRequest } from "@tab/shared";
 import { enqueue, jobKeys, type DueJob } from "../dueJobs";
 import { setAwaiting } from "../delegates/awaiting";
 import { env } from "../env";
-import { A_JOB_KINDS, aJobKeys, type APayloads } from "../jobs/kinds";
+import { emit } from "../events";
+import { A_JOB_KINDS, aJobKeys, CREATE_ORDER_MAX_ATTEMPTS, type APayloads } from "../jobs/kinds";
 import { errInfo, log } from "../log";
 import * as holdGate from "../money/holdGate";
 import { fanout } from "../notify/fanout";
@@ -17,7 +18,9 @@ import { getPayLink, upsertPayLink } from "../repo/payLinks";
 import { listMembers } from "../repo/participants";
 import { getPlan, setVenueOrder } from "../repo/plans";
 import type { MemberRow, PlanRow } from "../repo/types";
+import { VenueHttpError } from "../venueClient";
 import { VOICE_NUDGE_KIND } from "../voice/call";
+import { finishCancel } from "./cancel";
 import { bundleTitle } from "./decision";
 import { stageAtLeast, transition } from "./machine";
 import { setStage } from "./membership";
@@ -61,6 +64,40 @@ export function buildCreateOrderRequest(plan: PlanRow, bundle: Bundle, members: 
 
 type Link = { member: MemberRow; amount_cents: number; pay_url: string };
 
+/** A 4xx from the venue will not change on retry (409 = order conflict, 429 = rate limit are worth retrying). */
+const isPermanentVenueError = (e: unknown): boolean => e instanceof VenueHttpError && e.status >= 400 && e.status < 500 && e.status !== 409 && e.status !== 429;
+
+type Opened = { orderId: string; approveAt: Date; links: Link[] };
+
+/**
+ * First attempt (no venue order yet): too few members → CANCELLED + T_CANCELLED; bundle unavailable → CANCELLED +
+ * T_NO_FIT (both null). Else createOrder, persist every pay link, then setVenueOrder. Venue/DB errors propagate.
+ */
+async function openOrder(plan: PlanRow, bundle: Bundle, members: readonly MemberRow[], byPayerRef: ReadonlyMap<string, MemberRow>): Promise<Opened | null> {
+  const { id: planId, version } = plan;
+  if (members.length < 2) {
+    const t = await transition(planId, "ORDERING", "CANCELLED", { version });
+    if (t) await fanout(planId, "T_CANCELLED", () => ({}), { version });
+    return null;
+  }
+  if (!(await ports.venue.checkAvailability(bundle.id)).available) {
+    const t = await transition(planId, "ORDERING", "CANCELLED", { version });
+    if (t) await fanout(planId, "T_NO_FIT", () => ({}), { version });
+    return null;
+  }
+  const approveAt = new Date(Date.now() + windows().approveMs);
+  const res = await ports.venue.createOrder(buildCreateOrderRequest(plan, bundle, members, approveAt));
+  const links: Link[] = [];
+  for (const s of res.shares) {
+    const member = byPayerRef.get(s.payer_ref);
+    if (!member) throw new Error("create_order: venue share has an unknown payer_ref");
+    await upsertPayLink({ plan_id: planId, user_id: member.user_id, plan_version: version, share_id: s.share_id, amount_cents: s.amount_cents, pay_url: s.pay_url, expires_at: new Date(s.expires_at) });
+    links.push({ member, amount_cents: s.amount_cents, pay_url: s.pay_url });
+  }
+  await setVenueOrder(planId, res.order_id, approveAt);
+  return { orderId: res.order_id, approveAt, links };
+}
+
 /**
  * due_jobs kind `create_order` (payload {version}): checkAvailability (no → ORDERING→CANCELLED + T_NO_FIT) →
  * createOrder → pay_links + setVenueOrder → transition(ORDERING→APPROVING, {version}) (null → venue.cancel(orphan,
@@ -70,6 +107,10 @@ type Link = { member: MemberRow; amount_cents: number; pay_url: string };
  * Retry-safe: the venue allows one order per (plan_ref, version), so pay links are persisted before the transition and
  * a retry with venue_order_id already set resumes from them instead of creating a second order. Members already at
  * ≥ GATED were handled by an earlier attempt and are skipped (never downgraded).
+ *
+ * Giving up: a permanent venue rejection (4xx other than 409/429), or the last of CREATE_ORDER_MAX_ATTEMPTS, calls the
+ * plan off (ORDERING→CANCELLED + T_CANCELLED) instead of leaving it in ORDERING forever. No money is at risk: no pay
+ * link exists before the order does, and an orphan OPEN order with PENDING shares expires in the venue's sweep.
  */
 export async function createOrderJob(job: DueJob): Promise<void> {
   const planId = job.plan_id;
@@ -87,27 +128,18 @@ export async function createOrderJob(job: DueJob): Promise<void> {
   let approveAt: Date;
   let links: Link[];
   if (!orderId) {
-    if (members.length < 2) {
-      const t = await transition(planId, "ORDERING", "CANCELLED", { version });
-      if (t) await fanout(planId, "T_CANCELLED", () => ({}), { version });
+    let opened: Opened | null;
+    try {
+      opened = await openOrder(plan, bundle, members, byPayerRef);
+    } catch (e) {
+      if (!isPermanentVenueError(e) && job.attempts < CREATE_ORDER_MAX_ATTEMPTS) throw e;
+      log.error({ ...errInfo(e), plan_id: planId, attempts: job.attempts }, "create_order: giving up, calling the plan off");
+      await emit({ type: "system", level: "error", msg: "create_order failed; plan called off" }).catch(() => {});
+      await finishCancel(planId, "ORDERING", { version });
       return;
     }
-    if (!(await ports.venue.checkAvailability(bundle.id)).available) {
-      const t = await transition(planId, "ORDERING", "CANCELLED", { version });
-      if (t) await fanout(planId, "T_NO_FIT", () => ({}), { version });
-      return;
-    }
-    approveAt = new Date(Date.now() + windows().approveMs);
-    const res = await ports.venue.createOrder(buildCreateOrderRequest(plan, bundle, members, approveAt));
-    orderId = res.order_id;
-    links = [];
-    for (const s of res.shares) {
-      const member = byPayerRef.get(s.payer_ref);
-      if (!member) throw new Error("create_order: venue share has an unknown payer_ref");
-      await upsertPayLink({ plan_id: planId, user_id: member.user_id, plan_version: version, share_id: s.share_id, amount_cents: s.amount_cents, pay_url: s.pay_url, expires_at: new Date(s.expires_at) });
-      links.push({ member, amount_cents: s.amount_cents, pay_url: s.pay_url });
-    }
-    await setVenueOrder(planId, orderId, approveAt);
+    if (!opened) return;
+    ({ orderId, approveAt, links } = opened);
   } else {
     if (!plan.deadlines.approve_at) throw new Error("create_order: order without approve_at");
     approveAt = new Date(plan.deadlines.approve_at);

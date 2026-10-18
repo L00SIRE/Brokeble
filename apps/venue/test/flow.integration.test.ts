@@ -26,6 +26,7 @@ describe.skipIf(!DB)("venue money flow", () => {
     authorize: typeof import("../src/orders/authorize").authorize;
     checkout: typeof import("../src/orders/checkout").checkout;
     cancelOrder: typeof import("../src/orders/cancel").cancelOrder;
+    reverseShare: typeof import("../src/orders/cancel").reverseShare;
     loadOrderView: typeof import("../src/orders/store").loadOrderView;
     sweep: typeof import("../src/sweep").sweep;
     sql: typeof import("../src/db").sql;
@@ -178,6 +179,49 @@ describe.skipIf(!DB)("venue money flow", () => {
     const o = await newOrder();
     const [c] = await M.sql()<{ n: number }[]>`select count(*)::int n from venue.customers where payer_ref = ${o.shares[0]!.payer_ref}`;
     expect(c!.n).toBe(0);
+  });
+
+  it("a reversal rejected 5 times stops retrying: order → NEEDS_ATTENTION + order.needs_attention, never 'released'", async () => {
+    const o = await newOrder();
+    const s = o.shares[0]!;
+    expect((await hold(s.pay_url)).state).toBe("held");
+    await M.sql()`update venue.orders set status = 'CANCELLING' where id = ${o.order_id}`;
+    await M.sql()`update venue.shares set status = 'VOID' where order_id = ${o.order_id} and id <> ${s.share_id}`;
+    await M.sql()`update venue.shares set status = 'REVERSING', updated_at = now() - interval '5 minutes' where id = ${s.share_id}`;
+    for (let a = 1; a <= 5; a++) {
+      await M.sql()`
+        insert into venue.payment_ops (share_id, op, attempt, client_ref_code, transaction_id, status, http_status)
+        values (${s.share_id}, 'reverse', ${a}, ${`${s.share_id}-reverse-${a}`}, ${randomBytes(15).toString("hex")}, 'rejected', 400)`;
+    }
+    const out = await M.sweep();
+    expect(out.ok).toBe(true);
+    expect(out.needs_attention).toBeGreaterThanOrEqual(1);
+    const [ops] = await M.sql()<{ n: number }[]>`select count(*)::int n from venue.payment_ops where share_id = ${s.share_id} and op = 'reverse'`;
+    expect(ops!.n).toBe(5); // no 6th call to Cybersource
+    expect(await M.reverseShare(s.share_id)).toBe("pending"); // direct callers are capped too
+    const v = (await M.loadOrderView(M.sql(), o.order_id))!;
+    expect(v.status).toBe("NEEDS_ATTENTION");
+    expect(v.shares.find((x) => x.share_id === s.share_id)!.status).toBe("REVERSING");
+    await wait();
+    const na = events.filter((e) => e.ev.type === "order.needs_attention" && e.ev.order_id === o.order_id);
+    expect(na).toHaveLength(1);
+    expect(na[0]!.ev.data.share_ids).toEqual([s.share_id]);
+    expect(events.some((e) => e.ev.type === "share.released" && e.ev.share_id === s.share_id)).toBe(false);
+    await M.sweep(); // idempotent: no second event
+    await wait();
+    expect(events.filter((e) => e.ev.type === "order.needs_attention" && e.ev.order_id === o.order_id)).toHaveLength(1);
+  });
+
+  it("the sweep redelivers an undelivered outbox event", async () => {
+    const o = await newOrder();
+    const [row] = await M.sql()<{ id: string }[]>`
+      insert into venue.outbox (event) values (${M.sql().json({ event_id: "evt_redeliverytestab", at: new Date().toISOString(), order_id: o.order_id, plan_ref: crypto.randomUUID(), type: "order.cancelled", share_id: null, payer_ref: null, data: { reason: "test" } } as never)})
+      returning id::text`;
+    const out = await M.sweep();
+    expect(out.outbox_delivered).toBeGreaterThanOrEqual(1);
+    const [d] = await M.sql()<{ delivered: boolean }[]>`select delivered_at is not null as delivered from venue.outbox where id = ${Number(row!.id)}`;
+    expect(d!.delivered).toBe(true);
+    await M.sql()`delete from venue.outbox where id = ${Number(row!.id)}`;
   });
 
   it("hook events carry a valid HMAC and never a pay token for authorized shares", async () => {

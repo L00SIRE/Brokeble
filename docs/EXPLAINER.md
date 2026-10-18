@@ -33,7 +33,7 @@ Imagine you are a judge (or a friend invited to "dinner + show").
 3. **Preferences.** SquadTab asks about diet and vibe. These never include money.
 4. **Research (CREAO).** Once enough people have joined, SquadTab's research agent on CREAO, called **Scout**, searches the open web for real dinner spots and shows that fit the area, date, time and dietary needs. It never sees names, phone numbers or budgets. This takes minutes; meanwhile you see a typing indicator, and at most one "still looking" text.
 5. **Fair shortlist.** Plain code pairs dinners with shows that line up in time and place, throws out anything over **anyone's** budget, and picks 3 diverse options that are fair to the whole group. When you joined with a $30 cap, the shortlist on everyone else's phone quietly changed, with no reason given.
-6. **Private vote.** You reply "2", or even "2, but not if it ends after 10". Everyone sees only a count ("4 of 4 voted"), never who voted for what. The winner is announced.
+6. **Private vote.** You reply "2", or even "2, but not if it ends after 10". Everyone sees only a count ("3 of 3 have voted so far" with 2 team phones plus the judge), never who voted for what. The winner is announced.
 7. **Hold.** You get a pay link to the merchant's page. You enter a card once (the test card in the demo). Your card is **held** for your share, not charged. SquadTab texts *"Held $30.00 on Visa ••1111. Not charged yet."* and everyone sees "3 of 4 are in".
 8. **Everyone in → booked.** When the last person's hold lands, SquadTab's agent sends a signed request to the merchant to commit exactly the set of holds everyone agreed to. The merchant checks it and charges everyone at once. Then **Concierge**, the second CREAO agent, sends an itinerary link (plus calendar file and Notion page) to each DM.
 
@@ -143,7 +143,7 @@ A safety check before any pay link is sent. If your share ends up above your pri
 **How SquadTab uses it.**
 - Live iMessage DMs through Photon 2.0's API, with a real-time event stream that resumes where it left off after a reconnect.
 - Judges join from **their own phones**: our backend assigns them a Photon line on the fly (the free tier has 25 seats, released after each judge).
-- Craft: typing indicator within about 1 s and refreshed during long research runs, mark-as-read, threaded replies, agent profile "SquadTab" (whether the name and avatar show on shared lines is UNVERIFIED).
+- Craft: typing indicator within about 1 s and refreshed during long research runs, mark-as-read, agent profile "SquadTab" (whether the name and avatar show on shared lines is UNVERIFIED).
 - Depth: handles shared-line rules (the user must text first; the number can differ per person; capacity errors), never sends a message twice, a reminder ladder before the deadline, and auto-release at the deadline.
 - Vision: a private delegate per friend, a code mechanism between them, humans keep the final yes.
 
@@ -226,7 +226,7 @@ Keep the console as backup evidence. Judges remember the phone.
 
 ## 7. Demo cheat sheet
 
-**Rules:** the phone is the hero, the console is the evidence. Cellular or hotspot only, never venue Wi-Fi. Before each judge: Reset, pre-warm, 3 team phones ready to vote.
+**Rules:** the phone is the hero, the console is the evidence. Cellular or hotspot only, never venue Wi-Fi. Before each judge: Reset, pre-warm, both team phones (`DEMO_TEAM` has 2 entries: the demo is 2 team phones plus the judge) ready to vote. Never press Reset while a judge is mid-flow: it retires every active plan, not only the demo plan.
 
 ### Table version (4–5 min)
 
@@ -234,8 +234,8 @@ Keep the console as backup evidence. Judges remember the phone.
 |---|---|---|
 | 0:00 | Press "Start live Scout". | "CREAO is researching right now; the options you'll see come from a run that finished earlier." Point at progress lines. |
 | 0:20 | Hook. | Zelle line, then the thesis. |
-| 0:45 | Judge scans QR, joins, texts "honestly 30 tops tonight". | SquadTab: "Just between us: aim ~$30, never over $30." The 3 team phones get fresh picks with no reason given. |
-| 1:45 | Judge replies "2, but not if it ends after 10". | Everyone gets "4 of 4 voted", then the winner. |
+| 0:45 | Judge scans QR, joins, texts "honestly 30 tops tonight". | SquadTab: "Just between us: aim ~$30, never over $30." The 2 team phones get fresh picks with no reason given. |
+| 1:45 | Judge replies "2, but not if it ends after 10". | Everyone gets "3 of 3 have voted so far", then the winner. |
 | 2:30 | Pay link → Microform → test card. | "Held $30.00". Team lanes follow, TAP ✓ (six checks), all CAPTURED with real IDs. Concierge itinerary link lands. |
 | 3:30 | Press **Tamper**, then Reset; a team phone texts "I'm out". | Rejected, nothing captured. All lanes RELEASED: "Nobody was charged; your pending authorization was released." |
 | 4:15 | Judge texts "what's Sam's budget?" | "I only know yours." X-ray shows Sam as 🔒. Open the CREAO run thread to show the validate/fix loop. |

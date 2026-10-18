@@ -2,7 +2,7 @@
   "plan": {
     "title": "Dinner + show",
     "area": "Westwood / Sawtelle",
-    "time_start": "18:30",
+    "time_start": "17:30",
     "time_end": "23:00",
     "party_target": 4
   },
@@ -20,7 +20,7 @@
     {
       "target_pp_cents": 4000,
       "hard_max_pp_cents": 5000,
-      "prefs": { "cuisines_like": ["mexican", "tacos"], "cuisines_avoid": [], "dietary": [], "vibe": ["casual"], "earliest_start": "18:00", "latest_end": null, "dealbreakers": [] }
+      "prefs": { "cuisines_like": ["mexican", "tacos"], "cuisines_avoid": [], "dietary": [], "vibe": ["casual"], "earliest_start": "17:30", "latest_end": null, "dealbreakers": [] }
     }
   ]
 }

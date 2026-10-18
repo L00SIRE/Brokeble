@@ -4,118 +4,229 @@
   "options": [
     {
       "category": "dinner",
-      "name": "Placeholder Dinner A",
-      "address": "100 Placeholder Way, Los Angeles, CA 90024",
+      "name": "Marugame Udon",
+      "address": "2029 Sawtelle Blvd, Los Angeles, CA 90025",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-a",
+      "url": "https://www.marugameudon.com/locations/sawtelle",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 9,
+      "est_high_pp_usd": 18,
+      "price_evidence_url": "https://www.grubhub.com/restaurant/marugame-udon-2029-sawtelle-blvd-los-angeles/2322097",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Handmade udon cafeteria; pick your bowl and tempura, quick and budget-friendly.",
+      "opens": "11:00",
+      "closes": "21:00",
+      "hours_evidence_url": "https://www.marugameudon.com/locations/sawtelle"
+    },
+    {
+      "category": "dinner",
+      "name": "Tatsu Ramen Sawtelle",
+      "address": "2123 Sawtelle Blvd, Los Angeles, CA 90025",
+      "area": "Westwood / Sawtelle",
+      "url": "https://www.tatsuramen.com/locations/sawtelle",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 15,
+      "est_high_pp_usd": 22,
+      "price_evidence_url": "https://www.toasttab.com/tatsu-ramen-sawtelle-2123-sawtelle-blvd",
+      "dietary_fit": [
+        "vegetarian",
+        "vegan"
+      ],
+      "pitch": "Tonkotsu ramen with vegan and vegetarian bowls; open till 1am, no early close.",
+      "opens": "11:00",
+      "closes": "01:00",
+      "hours_evidence_url": "https://www.tatsuramen.com/locations/sawtelle"
+    },
+    {
+      "category": "dinner",
+      "name": "In-N-Out Burger Westwood",
+      "address": "922 Gayley Ave, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://locations.in-n-out.com/119",
       "price_tier": "<$25",
       "est_low_pp_usd": 10,
-      "est_high_pp_usd": 14,
-      "price_evidence_url": "https://example.com/placeholder/dinner-a/prices",
-      "dietary_fit": [
-        "vegetarian",
-        "gluten_free"
-      ],
-      "pitch": "Placeholder dinner option A: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
-      "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-a/hours"
+      "est_high_pp_usd": 16,
+      "price_evidence_url": "https://locations.in-n-out.com/119",
+      "dietary_fit": [],
+      "pitch": "Iconic UCLA-adjacent burger stand; cheap, fast, and open past midnight.",
+      "opens": "10:30",
+      "closes": "01:00",
+      "hours_evidence_url": "https://locations.in-n-out.com/119"
     },
     {
       "category": "dinner",
-      "name": "Placeholder Dinner B",
-      "address": "101 Placeholder Way, Los Angeles, CA 90024",
+      "name": "Chinchikurin Sawtelle",
+      "address": "2119 Sawtelle Blvd, Los Angeles, CA 90025",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-b",
+      "url": "https://www.chinchikurin-usa.com/l-sawtelle.html",
       "price_tier": "<$25",
       "est_low_pp_usd": 14,
-      "est_high_pp_usd": 18,
-      "price_evidence_url": "https://example.com/placeholder/dinner-b/prices",
+      "est_high_pp_usd": 22,
+      "price_evidence_url": "https://www.grubhub.com/restaurant/chinchikurin-sawtelle-2119-sawtelle-blvd-los-angeles/2033725",
       "dietary_fit": [
         "vegetarian"
       ],
-      "pitch": "Placeholder dinner option B: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "pitch": "Hiroshima-style okonomiyaki on a hotplate; layered noodles, cabbage, and sauce.",
       "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-b/hours"
+      "closes": "21:00",
+      "hours_evidence_url": "https://www.yelp.com/biz/chinchikurin-sawtelle-los-angeles-2"
     },
     {
       "category": "dinner",
-      "name": "Placeholder Dinner C",
-      "address": "102 Placeholder Way, Los Angeles, CA 90024",
+      "name": "Tsujita LA Artisan Noodle",
+      "address": "2057 Sawtelle Blvd, Los Angeles, CA 90025",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-c",
+      "url": "https://www.tsujita.com/sawtelle-la",
       "price_tier": "$25-50",
-      "est_low_pp_usd": 26,
-      "est_high_pp_usd": 32,
-      "price_evidence_url": "https://example.com/placeholder/dinner-c/prices",
+      "est_low_pp_usd": 25,
+      "est_high_pp_usd": 45,
+      "price_evidence_url": "https://www.grubhub.com/restaurant/tsujita-la-artisan-noodle-2057-sawtelle-blvd-los-angeles/11142312",
+      "dietary_fit": [],
+      "pitch": "Sawtelle's tsukemen star; thick dipping broth and generous chashu, expect a line.",
+      "opens": "11:00",
+      "closes": "22:00",
+      "hours_evidence_url": "https://www.tsujita.com/sawtelle-la"
+    },
+    {
+      "category": "dinner",
+      "name": "KazuNori Westwood",
+      "address": "1110 Gayley Ave, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://www.handrollbar.com/locations/westwood",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 25,
+      "est_high_pp_usd": 45,
+      "price_evidence_url": "https://www.discoverlosangeles.com/eat-drink/great-places-to-eat-near-ucla",
+      "dietary_fit": [
+        "pescatarian"
+      ],
+      "pitch": "Original hand-roll bar; crisp nori, warm rice, counter seats for a quick proper dinner.",
+      "opens": "11:30",
+      "closes": "23:00",
+      "hours_evidence_url": "https://www.handrollbar.com/locations/westwood"
+    },
+    {
+      "category": "dinner",
+      "name": "Emporium Thai",
+      "address": "1275 Westwood Blvd, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://www.ethaicuisine.com/",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 25,
+      "est_high_pp_usd": 45,
+      "price_evidence_url": "https://menupages.com/emporium-thai/1275-westwood-blvd-los-angeles",
       "dietary_fit": [
         "vegetarian",
+        "vegan",
         "gluten_free"
       ],
-      "pitch": "Placeholder dinner option C: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
-      "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-c/hours"
+      "pitch": "Top Thai kitchen with a huge vegan and gluten-free menu; Southern curries shine.",
+      "opens": "11:00",
+      "closes": "23:00",
+      "hours_evidence_url": "https://www.yelp.com/biz/emporium-thai-los-angeles-5"
     },
     {
       "category": "dinner",
-      "name": "Placeholder Dinner D",
-      "address": "103 Placeholder Way, Los Angeles, CA 90024",
+      "name": "Shin-Sen-Gumi Yakitori Izakaya West LA",
+      "address": "1601 Sawtelle Blvd #101, Los Angeles, CA 90025",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-d",
+      "url": "https://shinsengumigroup.com/restaurants/shin-sen-gumi-yakitori-west-l-a",
       "price_tier": "$25-50",
-      "est_low_pp_usd": 34,
-      "est_high_pp_usd": 42,
-      "price_evidence_url": "https://example.com/placeholder/dinner-d/prices",
-      "dietary_fit": [
-        "vegetarian"
-      ],
-      "pitch": "Placeholder dinner option D: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
-      "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-d/hours"
+      "est_low_pp_usd": 30,
+      "est_high_pp_usd": 50,
+      "price_evidence_url": "https://shinsengumigroup.com/restaurants/shin-sen-gumi-yakitori-west-l-a",
+      "dietary_fit": [],
+      "pitch": "Lively yakitori izakaya; grilled skewers and drinks at the counter till 11pm.",
+      "opens": "12:00",
+      "closes": "23:00",
+      "hours_evidence_url": "https://shinsengumigroup.com/restaurants/shin-sen-gumi-yakitori-west-l-a"
     },
     {
       "category": "dinner",
-      "name": "Placeholder Dinner E",
-      "address": "104 Placeholder Way, Los Angeles, CA 90024",
+      "name": "The Mulberry",
+      "address": "1800 Sawtelle Blvd, Los Angeles, CA 90025",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-e",
+      "url": "https://www.themulberrylosangeles.com/",
       "price_tier": "$50+",
-      "est_low_pp_usd": 52,
-      "est_high_pp_usd": 60,
-      "price_evidence_url": "https://example.com/placeholder/dinner-e/prices",
-      "dietary_fit": [
-        "vegetarian",
-        "gluten_free"
-      ],
-      "pitch": "Placeholder dinner option E: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "est_low_pp_usd": 60,
+      "est_high_pp_usd": 95,
+      "price_evidence_url": "https://www.themulberrylosangeles.com/contact-1",
+      "dietary_fit": [],
+      "pitch": "Korean-American bistro from a Benu alum; kimchi pancakes, short rib ssam, cocktails.",
       "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-e/hours"
+      "closes": "22:00",
+      "hours_evidence_url": "https://www.yelp.com/biz/the-mulberry-los-angeles"
     },
     {
       "category": "dinner",
-      "name": "Placeholder Dinner F",
-      "address": "105 Placeholder Way, Los Angeles, CA 90024",
+      "name": "STK Los Angeles",
+      "address": "1100 Glendon Ave, Los Angeles, CA 90024",
       "area": "Westwood / Sawtelle",
-      "url": "https://example.com/placeholder/dinner-f",
+      "url": "https://stksteakhouse.com/en-us/location/los-angeles",
       "price_tier": "$50+",
-      "est_low_pp_usd": 65,
+      "est_low_pp_usd": 75,
+      "est_high_pp_usd": 150,
+      "price_evidence_url": "https://stksteakhouse.com/en-us/location/los-angeles",
+      "dietary_fit": [],
+      "pitch": "High-energy Westwood steakhouse; prime cuts, cocktails, and a buzzing lounge vibe.",
+      "opens": "11:00",
+      "closes": "23:00",
+      "hours_evidence_url": "https://stksteakhouse.com/en-us/location/los-angeles"
+    },
+    {
+      "category": "dinner",
+      "name": "Kojima",
+      "address": "2130 Sawtelle Blvd Ste 211, Los Angeles, CA 90025",
+      "area": "Westwood / Sawtelle",
+      "url": "https://kojima-2130.square.site/",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 80,
+      "est_high_pp_usd": 200,
+      "price_evidence_url": "https://www.timeout.com/los-angeles/restaurants/kojima",
+      "dietary_fit": [],
+      "pitch": "Eight-seat kappo omakase; $80 mini or $200 chef's-choice tasting, reserve ahead.",
+      "opens": "17:00",
+      "closes": "23:00",
+      "hours_evidence_url": "https://www.timeout.com/los-angeles/restaurants/kojima"
+    },
+    {
+      "category": "dinner",
+      "name": "Kyoto Wagyu Tonkatsu Ten No Meshi",
+      "address": "2006 Sawtelle Blvd, Los Angeles, CA 90025",
+      "area": "Westwood / Sawtelle",
+      "url": "https://tonkatsu-la.tennomeshi.com/",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 45,
       "est_high_pp_usd": 75,
-      "price_evidence_url": "https://example.com/placeholder/dinner-f/prices",
-      "dietary_fit": [
-        "vegetarian"
-      ],
-      "pitch": "Placeholder dinner option F: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
-      "opens": "17:00",
-      "closes": "22:30",
-      "hours_evidence_url": "https://example.com/placeholder/dinner-f/hours"
+      "price_evidence_url": "https://tonkatsu-la.tennomeshi.com/",
+      "dietary_fit": [],
+      "pitch": "Kyoto wagyu tonkatsu sets; A5 katsu curry and Berkshire pork, crisp and tender.",
+      "opens": "11:30",
+      "closes": "22:00",
+      "hours_evidence_url": "https://tonkatsu-la.tennomeshi.com/"
     }
   ],
-  "run_id": "placeholder-not-a-real-run",
+  "run_id": "ea61eeb8-d82c-4a2d-841d-7402d0c4c46f",
   "share_url": null,
-  "captured_at": "2026-10-17T00:00:00.000Z",
-  "brief": null
+  "captured_at": "2026-10-18T07:58:26.324Z",
+  "brief": {
+    "category": "dinner",
+    "area": "Westwood / Sawtelle",
+    "date": "2026-10-18",
+    "time_window": {
+      "start": "18:30",
+      "end": "23:00"
+    },
+    "party_size": 4,
+    "dietary_tags": [],
+    "vibe": [],
+    "price_tiers": [
+      "<$25",
+      "$25-50",
+      "$50+"
+    ],
+    "count_per_tier": 4
+  }
 }

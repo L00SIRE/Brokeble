@@ -18,14 +18,15 @@ export type BPayloads = {
 export const bJobKeys = {
   /** `<researchRunId>:<n>`, due +15 s; the handler inserts n+1 while the run is not terminal. */
   creaoPoll: (researchRunId: string, n: number) => `${researchRunId}:${n}`,
-  /** `<researchRunId>`, due started + 6 min (Scout) / + 10 min (Concierge). */
+  /** `<researchRunId>`, due started + 12 min (Scout) / + 10 min (Concierge). */
   creaoTimeout: (researchRunId: string) => researchRunId,
   /** `<planId>:<researchRunId>` (standard-names). */
   checkResearchReady: jobKeys.checkResearchReady,
 } as const;
 
 export const POLL_INTERVAL_MS = 15_000;
-export const SCOUT_TIMEOUT_MS = 6 * 60_000;
+// A real show Scout took 9m55s (2026-10-18); 12 min stays inside agentApi ACTIVE_RUN_MAX_AGE_MIN (20) so a late CLI submit lands.
+export const SCOUT_TIMEOUT_MS = 12 * 60_000;
 export const CONCIERGE_TIMEOUT_MS = 10 * 60_000;
 
 /** Registers creao_poll, creao_timeout and check_research_ready once at boot. */

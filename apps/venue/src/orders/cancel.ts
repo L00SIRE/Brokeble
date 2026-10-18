@@ -5,7 +5,18 @@ import { deliver, enqueue } from "../outbox";
 import { runOp } from "../payments";
 import { rotateToken, loadOrderView, type OrderRow, type ShareRow } from "./store";
 
-/** Reverse one hold. Claims the share first (conditional UPDATE) so overlapping callers never double-reverse. */
+/**
+ * After this many rejected (4xx, not "already reversed") reversals a share stops being retried: the rejection is
+ * permanent, so the sweep moves its order to NEEDS_ATTENTION instead of calling Cybersource every 30 s forever.
+ */
+export const MAX_REJECTED_REVERSALS = 5;
+
+/**
+ * Reverse one hold. Claims the share first (conditional UPDATE) so overlapping callers never double-reverse.
+ * Only AUTHORIZED, stale REVERSING (under the rejection cap) or, with authorizingPaymentId, AUTHORIZING shares are
+ * claimed, never CAPTURING/CAPTURED: Cybersource answers MISSING_AUTH for an already-captured auth too, which
+ * reversalDone() reads as "no hold remains".
+ */
 export async function reverseShare(
   shareId: string,
   o?: { authorizingPaymentId?: string; retryLink?: boolean },
@@ -17,6 +28,8 @@ export async function reverseShare(
     : await sql()<ShareRow[]>`
         update venue.shares set status = 'REVERSING', updated_at = now()
         where id = ${shareId} and (status = 'AUTHORIZED' or (status = 'REVERSING' and updated_at < now() - interval '60 seconds'))
+          and (select count(*) from venue.payment_ops p
+               where p.share_id = ${shareId} and p.op = 'reverse' and p.status = 'rejected') < ${MAX_REJECTED_REVERSALS}
         returning *`;
   if (!s || !s.cybs_payment_id) return "pending";
   const paymentId = s.cybs_payment_id;

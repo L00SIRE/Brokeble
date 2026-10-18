@@ -28,6 +28,9 @@
   --text-console-hero: 3.5rem;
 }
 
+/* Tall screens (a 1080p projector in fullscreen) lock the console to the viewport; shorter ones scroll the page. */
+@custom-variant tall (@media (min-height: 1000px));
+
 html {
   color-scheme: dark;
 }

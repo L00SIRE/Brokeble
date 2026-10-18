@@ -23,7 +23,7 @@ export function LedgerPanel({ rows, lanes }: { rows: readonly LedgerRow[]; lanes
   const ordered = [...rows].sort((a, b) => a.lane - b.lane);
   const total = ordered.reduce((sum, r) => sum + r.amount_cents, 0);
   return (
-    <Panel title="Ledger">
+    <Panel title="Ledger" className="min-h-40">
       {ordered.length === 0 ? (
         <Waiting>No holds yet</Waiting>
       ) : (

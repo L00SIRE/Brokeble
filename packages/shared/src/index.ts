@@ -27,6 +27,19 @@ export const Vibe = z.enum(["casual", "lively", "quiet", "trendy", "classic", "o
 export type Vibe = z.infer<typeof Vibe>;
 
 // ---------- CREAO input (P6: enums/area/date/time/party only) ----------
+/**
+ * Organizer-typed area as accepted at plan creation. It goes verbatim to CREAO and the public Scout x-ray, so money
+ * text ("Westwood, under $40") is rejected up front (P6). Validate at the edge (POST /plans), not inside ResearchBrief,
+ * so a plan can never be created that later fails at Scout time.
+ */
+export const PlaceArea = z
+  .string()
+  .trim()
+  .min(2)
+  .max(60)
+  .refine((s) => !/[$€£¢]|\b(?:budget|bucks|dollars?|usd)\b/i.test(s), { message: "area must be a place, not a budget" });
+export type PlaceArea = z.infer<typeof PlaceArea>;
+
 export const ResearchBrief = z.strictObject({
   category: Category,
   area: z.string().min(2).max(60), // organizer-set, e.g. "Westwood / Sawtelle"

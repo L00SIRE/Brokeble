@@ -10,12 +10,15 @@ const m = vi.hoisted(() => ({
   upsert: vi.fn(),
   ensureSeat: vi.fn(),
   emit: vi.fn(),
+  findUserByPhone: vi.fn(),
+  getParticipant: vi.fn(),
+  countByStage: vi.fn(),
   enqueue: vi.fn(),
 }));
 
 vi.mock("../repo/plans", () => ({ getPlanByCode: m.getPlanByCode, insertPlan: m.insertPlan }));
-vi.mock("../repo/users", () => ({ upsertUserByPhone: m.upsertUserByPhone }));
-vi.mock("../repo/participants", () => ({ upsertParticipant: m.upsertParticipant }));
+vi.mock("../repo/users", () => ({ upsertUserByPhone: m.upsertUserByPhone, findUserByPhone: m.findUserByPhone }));
+vi.mock("../repo/participants", () => ({ upsertParticipant: m.upsertParticipant, getParticipant: m.getParticipant, countByStage: m.countByStage }));
 vi.mock("../repo/privateConstraints", () => ({ upsert: m.upsert }));
 vi.mock("../events", () => ({ emit: m.emit }));
 vi.mock("../dueJobs", () => ({ jobs: { enqueue: m.enqueue } }));
@@ -55,6 +58,9 @@ beforeEach(() => {
   m.ensureSeat.mockResolvedValue({ assignmentId: "asg_1", assignedPhoneNumber: "+13105550001" });
   m.upsertParticipant.mockResolvedValue({ row: { lane: 2, stage: "INVITED" }, created: true });
   m.enqueue.mockResolvedValue(true);
+  m.findUserByPhone.mockResolvedValue(null);
+  m.getParticipant.mockResolvedValue(null);
+  m.countByStage.mockResolvedValue({ JOINED: 2 });
 });
 
 describe("POST /join", () => {
@@ -85,6 +91,49 @@ describe("POST /join", () => {
   it("allows a target with no hard max (null)", async () => {
     await post("/join", { ...goodJoin, budget_usd: { target: 40 } });
     expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ target_pp_cents: 4000, hard_max_pp_cents: null }));
+  });
+
+  it("409 plan_closed for a 9th live member (the venue caps party_size at 8); no seat, user or row is created", async () => {
+    m.countByStage.mockResolvedValue({ PREFS_DONE: 6, VOTED: 2, DECLINED: 3, RELEASED: 1 });
+    const res = await post("/join", goodJoin);
+    expect([res.status, await res.json()]).toEqual([409, { error: "plan_closed" }]);
+    for (const f of [m.ensureSeat, m.upsertUserByPhone, m.upsertParticipant, m.upsert]) expect(f).not.toHaveBeenCalled();
+  });
+
+  it("a full plan still lets an existing member re-submit; declined/released lanes don't count", async () => {
+    m.countByStage.mockResolvedValue({ PREFS_DONE: 8 });
+    m.findUserByPhone.mockResolvedValue({ ...user, photon_user_id: null });
+    m.getParticipant.mockResolvedValue({ lane: 3, stage: "INVITED" });
+    expect((await post("/join", goodJoin)).status).toBe(200);
+    m.getParticipant.mockResolvedValue(null);
+    m.countByStage.mockResolvedValue({ PREFS_DONE: 7, DECLINED: 4 });
+    expect((await post("/join", goodJoin)).status).toBe(200);
+  });
+
+  it("form-only (INVITED) rows don't count toward the cap: 8 made-up phones can't lock the plan against real joiners", async () => {
+    m.countByStage.mockResolvedValue({ INVITED: 8, JOINED: 2 });
+    expect((await post("/join", goodJoin)).status).toBe(200);
+    m.countByStage.mockResolvedValue({ INVITED: 3, JOINED: 1, BUDGET_LOCKED: 2, PREFS_DONE: 5 });
+    expect([(await post("/join", goodJoin)).status]).toEqual([409]);
+  });
+
+  it("a form budget never overwrites a budget the member already confirmed by text (lane past INVITED)", async () => {
+    m.upsertParticipant.mockResolvedValue({ row: { lane: 2, stage: "BUDGET_LOCKED" }, created: false });
+    expect((await post("/join", { ...goodJoin, budget_usd: { target: 20 } })).status).toBe(200);
+    expect(m.upsert).not.toHaveBeenCalled();
+    m.upsertParticipant.mockResolvedValue({ row: { lane: 2, stage: "INVITED" }, created: false });
+    expect((await post("/join", { ...goodJoin, budget_usd: { target: 20 } })).status).toBe(200);
+    expect(m.upsert).toHaveBeenCalledOnce();
+  });
+
+  it("a user who has texted us keeps their name; an unconfirmed one can fix a typo", async () => {
+    m.findUserByPhone.mockResolvedValue({ ...user, first_name: "Ana", photon_user_id: "pu1" });
+    await post("/join", { ...goodJoin, first_name: "Mallory" });
+    expect(m.upsertUserByPhone).not.toHaveBeenCalled();
+    expect(m.ensureSeat).toHaveBeenCalledWith(expect.objectContaining({ first_name: "Ana" }), "plan-1");
+    m.findUserByPhone.mockResolvedValue({ ...user, photon_user_id: null });
+    await post("/join", { ...goodJoin, first_name: "Anna" });
+    expect(m.upsertUserByPhone).toHaveBeenCalledWith({ phone_e164: "+14155550111", first_name: "Anna" });
   });
 
   it("404 not_found for an unknown code", async () => {

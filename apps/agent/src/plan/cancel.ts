@@ -1,10 +1,13 @@
 // cancel: reverse everything, name nobody (A plan T9/T11). T_CANCELLED is one group template with no names, so the
 // person who left (or whose card failed) is never revealed. Owner A.
 import { cancelResearch } from "../creao/research";
+import { enqueue, type DueJob } from "../dueJobs";
 import { emit } from "../events";
+import { A_JOB_KINDS, aJobKeys, FOLLOW_UP_BACKSTOP_MS, type APayloads } from "../jobs/kinds";
 import { errInfo, log } from "../log";
 import { fanout } from "../notify/fanout";
 import { ports } from "../ports";
+import { usersSettledTemplate } from "../repo/outbound";
 import { getPlan } from "../repo/plans";
 import type { PlanState } from "../repo/types";
 import { transition } from "./machine";
@@ -41,12 +44,32 @@ export async function cancel(planId: string, reason: CancelReason): Promise<bool
 }
 
 /**
- * Idempotent final step (also run by the order.cancelled hook): transition(from→CANCELLED). The winner fans out
- * T_CANCELLED to every recipient and emits counters.
+ * Idempotent final step (also run by the order.cancelled hook): transition(from→CANCELLED), optionally guarded by
+ * `version`. The winning transaction also enqueues `post_cancel` (+30 s), so a crash or DB blip right after the
+ * transition can never leave the group without T_CANCELLED. The winner then fans out T_CANCELLED to every recipient and
+ * emits counters inline (the fast path); the backstop job only covers recipients whose send did not settle.
  */
-export async function finishCancel(planId: string, from: PlanState | readonly PlanState[] = "CANCELLING"): Promise<void> {
-  const t = await transition(planId, from, "CANCELLED");
+export async function finishCancel(planId: string, from: PlanState | readonly PlanState[] = "CANCELLING", o: { version?: number } = {}): Promise<void> {
+  const t = await transition(planId, from, "CANCELLED", {
+    ...(o.version !== undefined ? { version: o.version } : {}),
+    inTx: async (tx, w) => {
+      await enqueue(A_JOB_KINDS.postCancel, aJobKeys.postCancel(planId, w.version), new Date(Date.now() + FOLLOW_UP_BACKSTOP_MS), { version: w.version }, { planId, tx });
+    },
+  });
   if (!t) return;
   await fanout(planId, "T_CANCELLED", () => ({}), { version: t.version }).catch((e) => log.error({ ...errInfo(e), planId }, "T_CANCELLED fan-out failed"));
   await venueClient.emitCounters().catch((e) => log.error({ ...errInfo(e), planId }, "counters failed"));
+}
+
+/**
+ * due_jobs `post_cancel` (postcancel:<planId>:<v>): plan still CANCELLED at v → T_CANCELLED to recipients whose send
+ * never settled (none in the normal case, so no second X-ray preview), then counters. Throws so the poller retries.
+ */
+export async function postCancelJob(job: DueJob): Promise<void> {
+  const { version } = job.payload as APayloads["post_cancel"];
+  const plan = job.plan_id ? await getPlan(job.plan_id) : null;
+  if (!plan || plan.state !== "CANCELLED" || plan.version !== version) return;
+  const settled = await usersSettledTemplate(plan.id, "T_CANCELLED");
+  await fanout(plan.id, "T_CANCELLED", () => ({}), { version, only: (m) => !settled.has(m.user_id) });
+  await venueClient.emitCounters();
 }

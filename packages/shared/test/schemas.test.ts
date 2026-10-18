@@ -4,7 +4,7 @@ import * as shared from "../src/index";
 import {
   AgentProgress, Ballot, BallotParse, BudgetParse, Bundle, CommitResult, ConciergeInput, CreaoRun, CreateOrderRequest,
   CreateOrderResponse, DelegateInput, InboundEvent, Itinerary, OrderStatus, Preferences, PublicBundle, RateCandidate, Ratings,
-  ResearchBrief, ScoutOption, ScoutSubmission, SseEvent, TemplateId, COPY, VARS, ValidationResult, VenueEvent,
+  PlaceArea, ResearchBrief, ScoutOption, ScoutSubmission, SseEvent, TemplateId, COPY, VARS, ValidationResult, VenueEvent,
 } from "../src/index";
 import { PrivateConstraints } from "../src/private";
 
@@ -155,6 +155,16 @@ describe("strictness (privacy)", () => {
     const brief = fixtures[0]![2] as Record<string, unknown>;
     expect(ResearchBrief.safeParse({ ...brief, names: ["Sam"] }).success).toBe(false);
     expect(ResearchBrief.safeParse({ ...brief, budget_cents: 3000 }).success).toBe(false);
+  });
+
+  it("P6: PlaceArea accepts places and rejects money text before it can reach CREAO", () => {
+    for (const ok of ["Westwood / Sawtelle", "Downtown LA", "Silver Lake", "90024", "3rd Street Promenade", "Budgetville Ave"]) {
+      expect(PlaceArea.safeParse(ok).success, ok).toBe(true);
+    }
+    for (const bad of ["Westwood, under $40", "Sawtelle 30 bucks", "Koreatown budget 25", "WeHo 40 dollars", "DTLA 50 USD", "Soho £30", "x"]) {
+      expect(PlaceArea.safeParse(bad).success, bad).toBe(false);
+    }
+    expect(PlaceArea.parse("  Westwood  ")).toBe("Westwood");
   });
 
   it("P8: SseEvent rejects budget-like fields", () => {

@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { verifyVenueHook } from "../src/venueClient/hook";
 import { runTapTest } from "../src/venueClient/tapTest";
+import { failedSteps } from "../src/venueClient/sweep";
 import { MockVenue } from "../src/ports/venue.mock";
 
 const secret = "s".repeat(32);
@@ -30,6 +31,23 @@ describe("verifyVenueHook", () => {
   });
 });
 
+describe("failedSteps (venue sweep 500 body)", () => {
+  it("keeps step names only", () => {
+    expect(failedSteps({ ok: false, failed: ["g_outbox", "d_cancelling"] })).toEqual(["g_outbox", "d_cancelling"]);
+    expect(failedSteps({ failed: ["ok", "postgres://user:pw@host/db", 7, "x".repeat(41)] })).toEqual(["ok"]);
+    expect(failedSteps(null)).toEqual([]);
+    expect(failedSteps("<html>")).toEqual([]);
+  });
+  it("appends each step's error code when it is a plain code token", () => {
+    expect(failedSteps({ failed: ["a_stale", "h_nonces", "init"], codes: { a_stale: "XX000", h_nonces: "CONNECT_TIMEOUT", init: "ZodError" } }))
+      .toEqual(["a_stale=XX000", "h_nonces=CONNECT_TIMEOUT", "init=ZodError"]);
+    expect(failedSteps({ failed: ["a_stale", "b_x", "c_y"], codes: { a_stale: "password=hunter2", b_x: 42, toString: "X" } }))
+      .toEqual(["a_stale", "b_x", "c_y"]);
+    expect(failedSteps({ failed: ["toString"], codes: {} })).toEqual([]); // not a step name ([a-z0-9_] only)
+    expect(failedSteps({ failed: ["a_stale"], codes: "XX000" })).toEqual(["a_stale"]);
+  });
+});
+
 describe("runTapTest", () => {
   it("refuses replay while the first leg would capture", async () => {
     const venue = new MockVenue();
@@ -40,5 +58,30 @@ describe("runTapTest", () => {
     for (const s of o.shares) venue.authorize(s.share_id);
     await expect(runTapTest("replay", o.order_id, venue)).rejects.toThrow(/refused/);
     expect((await runTapTest("tamper", o.order_id, venue)).expected_step).toBe(6);
+  });
+
+  it("runs when a share has no payment id yet (APPROVING with someone unpaid, after a cancel or release)", async () => {
+    const order = {
+      order_id: "ord_x", plan_ref: crypto.randomUUID(), plan_version: 1, status: "OPEN" as const, total_cents: 6000, updated_at: new Date().toISOString(),
+      shares: [
+        { share_id: "shr_a", payer_ref: "a".repeat(32), amount_cents: 3000, status: "AUTHORIZED" as const, cybs_payment_id: "7000000000000000000001", card_last4: "1111" },
+        { share_id: "shr_b", payer_ref: "b".repeat(32), amount_cents: 3000, status: "PENDING" as const, cybs_payment_id: null, card_last4: null },
+      ],
+    };
+    const sent: unknown[] = [];
+    const venue = {
+      getOrder: async () => order,
+      commit: async (_id: string, consent: unknown, kind: unknown) => (sent.push({ consent, kind }), { order_id: "ord_x", result: "rejected" as const, tap: null as never, captures: [] }),
+    } as unknown as MockVenue;
+    for (const kind of ["tamper", "wrong_tag", "expired", "replay"] as const) {
+      await expect(runTapTest(kind, "ord_x", venue)).resolves.toMatchObject({ result: "rejected" });
+    }
+    expect(sent[0]).toEqual({
+      kind: "tamper",
+      consent: { order_id: "ord_x", total_cents: 6000, shares: [
+        { share_id: "shr_a", cybs_payment_id: "7000000000000000000001", amount_cents: 3000 },
+        { share_id: "shr_b", cybs_payment_id: "", amount_cents: 3000 },
+      ] },
+    });
   });
 });

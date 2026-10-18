@@ -9,8 +9,8 @@ export type ProblemAction =
   | "capacity" // SHARED_LINE_CAP_EXCEEDED 409 / SHARED_LINE_POOL_EXHAUSTED 503: join → 503 {error:"capacity"}
   | "assignment_exists" // ASSIGNMENT_EXISTS 409: join adopts the existing seat via assignments.list
   | "bug" // IDEMPOTENCY_KEY_REUSED, UNSUPPORTED_CONTENT, MESSAGE_TOO_LONG, INVALID_CONTENT 422: log error, never resend with a new key
-  | "stale_route" // SPACE_NOT_SENDABLE, SENDER_NOT_SENDABLE 409: log warn, mark route stale
-  | "rate_limited" // RATE_LIMITED 429: SDK already retried keyed requests
+  | "stale_route" // SPACE_NOT_SENDABLE, SENDER_NOT_SENDABLE 409: log warn + console warn; the dm_route is kept
+  | "rate_limited" // RATE_LIMITED 429: SDK retried Retry-After ≤ 5 s; notify retries once more with the same key
   | "transient"; // transport errors, 5xx, anything unknown
 
 const ACTIONS: Readonly<Record<string, ProblemAction>> = {
@@ -57,7 +57,8 @@ export function problemAction(code: string): ProblemAction {
 
 /**
  * The server-requested delay of a 429/503 ApiError in ms (Retry-After seconds or HTTP date), else null. The SDK
- * already waited out any Retry-After ≤ 60 s for keyed requests, so a non-null value here means "back off this long".
+ * already waited out any Retry-After ≤ 5 s for keyed requests (client.ts), so a non-null value here means "back off
+ * this long" (notify caps its single retry wait at 5 s).
  */
 export function retryAfterMs(e: unknown, now = Date.now()): number | null {
   if (!(e instanceof ApiError)) return null;

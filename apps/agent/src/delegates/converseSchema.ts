@@ -29,6 +29,23 @@ export const ConverseInput = z.strictObject({
   commands: z.array(z.string()),
   /** VOTING only: the public numbered picks (titles and times, no prices). */
   picks: z.array(z.string()),
+  /**
+   * Once the vote is decided (ORDERING onward): the group's winning pick, public venue facts only (names, addresses,
+   * times; no prices). `booked` = the plan is CONFIRMED.
+   */
+  chosen_plan: z
+    .strictObject({
+      booked: z.boolean(),
+      title: z.string(),
+      dinner_name: z.string(),
+      dinner_address: z.string(),
+      dinner_time: z.string(),
+      show_name: z.string(),
+      show_address: z.string(),
+      show_start: z.string(),
+      show_end: z.string(),
+    })
+    .nullable(),
 });
 export type ConverseInput = z.infer<typeof ConverseInput>;
 

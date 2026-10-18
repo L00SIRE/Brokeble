@@ -7,7 +7,9 @@ import { clearAwaiting, setAwaiting } from "../delegates/awaiting";
 import { log } from "../log";
 import { fmtDeadline, usd2 } from "../notify/render";
 import { notify, tplKey } from "../notify/notify";
+import { bundleTitle } from "../plan/decision";
 import { setStage, onOut } from "../plan/membership";
+import { getBundle } from "../repo/bundles";
 import * as holdGates from "../repo/holdGates";
 import * as payLinks from "../repo/payLinks";
 import * as privateConstraints from "../repo/privateConstraints";
@@ -88,10 +90,12 @@ export async function answer(ctx: MemberContext, yes: boolean, e: InboundEvent):
 /** Delivers the stored link; the stage and awaiting flag move only once Photon has it, so a failed send can be retried by replying again. */
 async function sendLink(ctx: MemberContext, link: { amount_cents: number; pay_url: string; expires_at: Date }, suffix: string, e?: InboundEvent): Promise<void> {
   const { user, plan } = ctx;
+  // Same title as everyone else's T_PAY_LINK and T_REPING: the booked bundle, not the plan's working title.
+  const bundle = plan.chosen_bundle_id ? await getBundle(plan.id, plan.version, plan.chosen_bundle_id) : null;
   const outcome = await notify(
     user.id,
     "T_PAY_LINK",
-    { title: plan.title, amount: usd2(link.amount_cents), deadline: fmtDeadline(plan.deadlines.approve_at ?? link.expires_at), url: link.pay_url },
+    { title: bundle ? bundleTitle(bundle) : plan.title, amount: usd2(link.amount_cents), deadline: fmtDeadline(plan.deadlines.approve_at ?? link.expires_at), url: link.pay_url },
     { key: tplKey(plan.id, user.id, "T_PAY_LINK", plan.version, suffix), planId: plan.id, ...(e ? { replyTo: e.message_id } : {}) },
   );
   if (outcome !== "sent" && outcome !== "duplicate") return;

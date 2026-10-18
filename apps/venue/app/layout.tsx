@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SquadTab Partner Venue (demo merchant)",
-  description: "Sandbox merchant of record for Tab. No real payments.",
+  description: "Demo merchant of record for SquadTab. Cybersource sandbox or a labelled simulation; no real charges.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

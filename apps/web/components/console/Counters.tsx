@@ -5,7 +5,7 @@ import { Panel } from "./Panel";
 function Stat({ value, label, tone = "text-fg" }: { value: string; label: string; tone?: string }) {
   return (
     <div className="flex flex-col-reverse justify-end gap-1">
-      <dd className={`font-mono text-(length:--text-console-hero) font-semibold leading-none tabular-nums ${tone}`}>{value}</dd>
+      <dd className={`min-w-0 font-mono text-(length:--text-console-key) font-semibold min-[1800px]:text-(length:--text-console-hero) leading-none tabular-nums ${tone}`}>{value}</dd>
       <dt className="text-(length:--text-console-label) leading-tight text-muted">{label}</dt>
     </div>
   );

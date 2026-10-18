@@ -2,6 +2,7 @@
 // Every handler re-reads the plan and returns quietly when the state/version no longer matches: a job that fires
 // late (retry, restart, a plan that moved on) must be a no-op, never an action on the wrong phase.
 import { z } from "zod";
+import { researchReady, startResearch } from "../creao/research";
 import { enqueue, type DueJob, type Jobs } from "../dueJobs";
 import { env } from "../env";
 import { errInfo, log } from "../log";
@@ -10,11 +11,14 @@ import { notify, tplKey } from "../notify/notify";
 import { fmtDeadline } from "../notify/render";
 import { bundleTitle } from "../plan/decision";
 import { cancel } from "../plan/cancel";
+import { commitJob } from "../plan/commit";
+import { ports } from "../ports";
 import { getBundle } from "../repo/bundles";
 import { listMembers, countByStage } from "../repo/participants";
 import { getPayLink } from "../repo/payLinks";
 import { getPlan } from "../repo/plans";
-import type { PlanRow } from "../repo/types";
+import { listRunsForPlan } from "../repo/researchRuns";
+import { TERMINAL_RUN_STATUSES, type PlanRow } from "../repo/types";
 import { A_JOB_KINDS, aJobKeys } from "./kinds";
 
 const VersionPayload = z.object({ version: z.int() });
@@ -33,11 +37,33 @@ async function planIfStill(job: DueJob, state: PlanRow["state"], versioned: bool
   return plan;
 }
 
-/** `still_looking` (still:<planId>, research start + 90 s): still RESEARCHING → T_STILL_LOOKING fan-out (once per plan). */
+/**
+ * `still_looking` (still:<planId>, research start + 90 s; enqueued in the COLLECTING→RESEARCHING transaction, so it
+ * survives a crash): still RESEARCHING → research watchdog, then T_STILL_LOOKING fan-out (once per plan).
+ *
+ * Watchdog: a crash or DB error between the transition and B's startResearch scheduling its poll/timeout jobs would
+ * otherwise strand the plan in RESEARCHING forever (nothing else re-runs it). So: a Scout run that never got a CREAO id
+ * (or no Scout runs at all) → startResearch again (idempotent: same rows, same CREAO idempotency key, insert-or-ignore
+ * jobs); options for both categories already stored → a fresh recompute (the options one may have already run).
+ */
 export async function stillLookingJob(job: DueJob): Promise<void> {
   const plan = await planIfStill(job, "RESEARCHING", false);
   if (!plan) return;
+  await researchWatchdog(plan).catch((e) => log.warn({ ...errInfo(e), plan_id: plan.id }, "still_looking: research watchdog failed"));
   await fanout(plan.id, "T_STILL_LOOKING", () => ({}), { version: plan.version });
+}
+
+async function researchWatchdog(plan: PlanRow): Promise<void> {
+  if (await researchReady(plan.id)) {
+    await enqueue(A_JOB_KINDS.recompute, aJobKeys.recompute(plan.id, "still"), new Date(), {}, { planId: plan.id });
+    return;
+  }
+  const scouts = await listRunsForPlan(plan.id, { kind: "scout" });
+  const stranded = scouts.length === 0 || scouts.some((r) => !TERMINAL_RUN_STATUSES.includes(r.status) && !r.creao_run_id);
+  if (env.PLANNER_MODE !== "cached" && stranded) {
+    log.warn({ plan_id: plan.id, runs: scouts.length }, "still_looking: research looks stranded, restarting");
+    await startResearch(plan.id);
+  }
 }
 
 /** `org_join_status` (orgjoin:<planId>, create + 20 min, demo 3): COLLECTING and joined < target → T_ORG_JOIN_STATUS {k,n} to the organizer. */
@@ -84,10 +110,26 @@ export async function approveRepingJob(job: DueJob): Promise<void> {
   });
 }
 
-/** `approve_deadline` (approve:<planId>:<v>): still APPROVING at v → cancel(planId, "deadline"), which releases every hold. */
+/**
+ * `approve_deadline` (approve:<planId>:<v>): still APPROVING at v → if the venue already holds every share (the last
+ * hold landed just before the deadline, or its share.authorized hook was lost), commit instead; otherwise
+ * cancel(planId, "deadline"), which releases every hold. A retry that finds COMMITTING re-runs the commit (the venue's
+ * commit is idempotent), so a crash mid-commit never strands the plan.
+ */
 export async function approveDeadlineJob(job: DueJob): Promise<void> {
-  const plan = await planIfStill(job, "APPROVING", true);
-  if (plan) await cancel(plan.id, "deadline");
+  const plan = await planFor(job);
+  if (!plan || plan.version !== VersionPayload.parse(job.payload).version) return;
+  const asCommit: DueJob = { ...job, kind: A_JOB_KINDS.commit, payload: { version: plan.version, share_id: "deadline" } };
+  if (plan.state === "COMMITTING" && job.attempts > 1) return commitJob(asCommit);
+  if (plan.state !== "APPROVING") return;
+  if (plan.venue_order_id) {
+    const order = await ports.venue.getOrder(plan.venue_order_id).catch((e) => {
+      log.warn({ ...errInfo(e), plan_id: plan.id }, "approve_deadline: getOrder failed; cancelling");
+      return null;
+    });
+    if (order?.status === "OPEN" && order.shares.length > 0 && order.shares.every((s) => s.status === "AUTHORIZED")) return commitJob(asCommit);
+  }
+  await cancel(plan.id, "deadline");
 }
 
 /** C owns the module; loaded lazily so mock mode never touches the venue client. */

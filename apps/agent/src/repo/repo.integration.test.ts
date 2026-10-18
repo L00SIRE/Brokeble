@@ -191,6 +191,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("repo (postgres)", () => {
     expect((await participants.memberByPayerRef(p.id, us[1]!.payer_ref))?.user_id).toBe(us[1]!.id);
     expect(await participants.capturedPlanIdsForUser(us[1]!.id)).toEqual([p.id]);
     expect((await plans.currentPlanForUser(us[0]!.id))?.id).toBe(p.id);
+    // INVITED (a /join nobody confirmed by text) never becomes the current plan, even when it is the newest one.
+    expect(await plans.currentPlanForUser(us[3]!.id)).toBeNull();
+    const newer = await newPlan();
+    await participants.upsertParticipant(newer.id, us[0]!.id);
+    expect((await plans.currentPlanForUser(us[0]!.id))?.id).toBe(p.id);
+    await participants.updateStage(newer.id, us[0]!.id, "JOINED");
+    expect((await plans.currentPlanForUser(us[0]!.id))?.id).toBe(newer.id);
   });
 
   it("private constraints: validated upsert, ISO confirmed_at, filters", async () => {

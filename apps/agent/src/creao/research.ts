@@ -40,7 +40,7 @@ async function safeEmit(ev: Parameters<typeof emit>[0]): Promise<void> {
 /** The id the console and /agent/progress use for a run: the CREAO id once known, else ours. */
 const consoleRunId = (r: Pick<ResearchRunRow, "id" | "creao_run_id">): string => r.creao_run_id ?? r.id;
 
-async function emitRun(r: ResearchRunRow, status: string, source: "live" | "cached", shareUrl: string | null): Promise<void> {
+export async function emitRun(r: ResearchRunRow, status: string, source: "live" | "cached", shareUrl: string | null): Promise<void> {
   await safeEmit({
     type: "creao.run",
     run_id: consoleRunId(r),
@@ -53,7 +53,7 @@ async function emitRun(r: ResearchRunRow, status: string, source: "live" | "cach
   });
 }
 
-/** Poll-chain head and the hard timeout (Scout 6 min, Concierge 10 min after the run started). Idempotent on the dedupe keys. */
+/** Poll-chain head and the hard timeout (Scout 12 min, Concierge 10 min after the run started). Idempotent on the dedupe keys. */
 export async function scheduleRunJobs(
   r: Pick<ResearchRunRow, "id" | "plan_id" | "kind" | "started_at">,
   firstPollDelayMs = POLL_INTERVAL_MS,
@@ -199,7 +199,11 @@ function parseSubmission(raw: unknown, row: ResearchRunRow, p: PlanRow): ScoutSu
   return validateSubmission(body, { planArea: p.area, runCategory: row.category }).submission;
 }
 
-/** Completed Scout run without CLI-submitted options: parse result.text, repair once with the LLM, else cached. */
+/**
+ * Completed Scout run without CLI-submitted options: parse result.text / chatText, else cached. There is deliberately
+ * no LLM "repair": the saved Scout's text is a session echo or a Markdown summary, never the options JSON, and a
+ * structured-output repair forced to ScoutSubmission invents placeholder venues that pass validation (verified live).
+ */
 async function ingestScoutResult(row: ResearchRunRow, run: CreaoRun): Promise<void> {
   if (await hasLiveData(row)) return;
   const p = await getPlan(row.plan_id);
@@ -209,14 +213,6 @@ async function ingestScoutResult(row: ResearchRunRow, run: CreaoRun): Promise<vo
   for (const t of texts) {
     sub = parseSubmission(extractScoutJson(t), row, p);
     if (sub) break;
-  }
-  if (!sub && texts[0]) {
-    try {
-      const fixed = await ports.llm.repairScoutJson(texts[0], row.category);
-      sub = parseSubmission(typeof fixed === "string" ? extractScoutJson(fixed) : fixed, row, p);
-    } catch (e) {
-      log.warn({ run_id: row.id, ...errInfo(e) }, "creao.repair_failed");
-    }
   }
   if (!sub) {
     log.warn({ run_id: row.id }, "creao.scout_unparseable");
@@ -236,8 +232,9 @@ export async function reconcile(researchRunId: string): Promise<void> {
   if (!row || isTerminal(row.status) || !row.creao_run_id) return;
   const run = await ports.planner.getRun(row.creao_run_id);
   if (run.status === "pending" || run.status === "running") {
+    // Only a change is news: the console ticks live chips itself, and a repeat every 15 s floods the event window.
+    if (row.status === "pending" && run.status === "running") await emitRun(row, run.status, "live", null);
     await runs.markRunRunning(row.id);
-    await emitRun(row, run.status, "live", null);
     return;
   }
   if (row.kind === "concierge") {

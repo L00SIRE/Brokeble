@@ -25,8 +25,16 @@ const JOINABLE: readonly PlanState[] = ["COLLECTING", "RESEARCHING", "VOTING"];
 const smallGroupWarned = new Set<string>();
 
 /**
- * The only stage writer that emits SSE: repo updateStage + emit `lane` {plan_id, lane, first_name, stage,
- * amount_cents (share amount, public; null before the order), cybs_id_short}, in one transaction. Never a budget.
+ * The stage the console may show. GATED means "this share is above the member's private max", so on the projected
+ * console it reads exactly like any other member holding a link (LINK_SENT, same share amount); the DB keeps GATED for
+ * the state machine. Exported for tests.
+ */
+export const publicStage = (stage: LaneStage): LaneStage => (stage === "GATED" ? "LINK_SENT" : stage);
+
+/**
+ * The only stage writer that emits SSE: repo updateStage + emit `lane` {plan_id, lane, first_name, stage (publicStage),
+ * amount_cents (share amount, public; null before the order), cybs_id_short}, in one transaction. Never a budget, and
+ * never GATED (P8: the console must not reveal that a share exceeds someone's max).
  */
 export async function setStage(planId: string, userId: string, stage: LaneStage, o: { amountCents?: number | null; cybsIdShort?: string | null } = {}): Promise<void> {
   await sql.begin(async (tx) => {
@@ -35,7 +43,7 @@ export async function setStage(planId: string, userId: string, stage: LaneStage,
     const user = await getUser(userId, tx);
     await emit(
       {
-        type: "lane", plan_id: planId, lane: row.lane, first_name: user?.first_name ?? "", stage,
+        type: "lane", plan_id: planId, lane: row.lane, first_name: user?.first_name ?? "", stage: publicStage(stage),
         amount_cents: o.amountCents ?? null, cybs_id_short: o.cybsIdShort ?? null,
       },
       tx,

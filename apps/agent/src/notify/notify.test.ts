@@ -31,8 +31,9 @@ vi.mock("../events", () => ({ emit: vi.fn(async (e: unknown) => (db.events.push(
 vi.mock("../photon/errors", () => ({
   problemCode: (e: unknown) => (e as { code?: string }).code ?? "TRANSPORT",
   problemAction: (c: string) =>
-    ({ SHARED_LINE_INBOUND_REQUIRED: "blocked_inbound", MESSAGE_TOO_LONG: "bug", SPACE_NOT_SENDABLE: "stale_route", SHARED_LINE_NOT_ASSIGNED: "not_assigned" })[c] ??
+    ({ SHARED_LINE_INBOUND_REQUIRED: "blocked_inbound", MESSAGE_TOO_LONG: "bug", SPACE_NOT_SENDABLE: "stale_route", SHARED_LINE_NOT_ASSIGNED: "not_assigned", RATE_LIMITED: "rate_limited" })[c] ??
     "transient",
+  retryAfterMs: (e: unknown) => (e as { retryAfterMs?: number }).retryAfterMs ?? null,
 }));
 
 const { ports } = await import("../ports");
@@ -156,7 +157,7 @@ describe("notify", () => {
     expect(spy.mock.calls[1]![2].replyTo).toBe("pho_msg_9");
   });
 
-  it("maps Photon problems: inbound-required blocks, stale route is dropped, not-assigned raises a system event", async () => {
+  it("maps Photon problems: inbound-required blocks, stale route is KEPT (console warn), not-assigned raises a system event", async () => {
     db.routes.set(U1, route(U1));
     sendSpy()
       .mockRejectedValueOnce({ code: "SHARED_LINE_INBOUND_REQUIRED" })
@@ -167,7 +168,35 @@ describe("notify", () => {
     expect(await notify(U1, "T_HELP", {}, { key: "b" })).toBe("failed");
     expect(db.events).toEqual([expect.objectContaining({ type: "system", level: "error" })]);
     expect(await notify(U1, "T_HELP", {}, { key: "c" })).toBe("failed");
-    expect(db.routes.has(U1)).toBe(false);
+    // One bad request (e.g. a threaded reply → 409 SPACE_NOT_SENDABLE) must not silence every later message.
+    expect(db.routes.has(U1)).toBe(true);
+    expect(db.events[1]).toEqual({ type: "system", level: "warn", msg: "Message not delivered (SPACE_NOT_SENDABLE)" });
+  });
+
+  it("a 429 the SDK gave up on is retried once with the SAME key; a second 429 is a failure", async () => {
+    db.routes.set(U1, route(U1));
+    const spy = sendSpy()
+      .mockRejectedValueOnce({ code: "RATE_LIMITED", retryAfterMs: 0 })
+      .mockResolvedValueOnce({ messageId: "pho_msg_ok" } as never);
+    expect(await notify(U1, "T_WINNER", { title: "t" }, { key: "r1" })).toBe("sent");
+    expect(spy.mock.calls.map((c) => c[2].idempotencyKey)).toEqual(["r1", "r1"]);
+    expect(db.outbound.get("r1")).toBe("accepted");
+    spy.mockReset();
+    spy.mockRejectedValueOnce({ code: "RATE_LIMITED", retryAfterMs: 0 }).mockRejectedValueOnce({ code: "RATE_LIMITED", retryAfterMs: 0 });
+    expect(await notify(U1, "T_WINNER", { title: "t" }, { key: "r2" })).toBe("failed");
+    expect(spy).toHaveBeenCalledTimes(2);
+    // Transport errors are not retried here (the SDK already did; another round could outlast the handler timeout).
+    spy.mockReset();
+    spy.mockRejectedValueOnce({ code: "TRANSPORT" });
+    expect(await notify(U1, "T_WINNER", { title: "t" }, { key: "r3" })).toBe("failed");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a member with no dm_route is flagged on the console once per plan (template id only)", async () => {
+    const plan = "7e57ab1e-0000-4000-8000-000000000001";
+    expect(await notify(U2, "T_PICKS", { lines: "1. x" }, { key: "w1", planId: plan })).toBe("blocked_inbound");
+    expect(await notify(U2, "T_WINNER", { title: "t" }, { key: "w2", planId: plan })).toBe("blocked_inbound");
+    expect(db.events).toEqual([{ type: "system", level: "warn", msg: "A member hasn't texted SquadTab yet; T_PICKS is held" }]);
   });
 
   it("invalid vars throw before any send, without echoing the value", async () => {
@@ -207,7 +236,7 @@ describe("fanout", () => {
     db.recipients = [member(U1, 1), member(U2, 2)];
     db.routes.set(U2, route(U2)); // U1 has no route
     expect(await fanout(P, "T_REPING", () => ({ title: "t", deadline: "9:40 PM", url: "https://pay.example/x" }), { version: 1, suffix: 1 })).toBe(1);
-    expect(db.events).toEqual([]);
+    expect(db.events.filter((e) => (e as { type: string }).type === "xray")).toEqual([]);
     const spy = sendSpy();
     expect(await fanout(P, "T_WINNER", () => ({ title: "t" }), { version: 1, only: (r) => r.lane === 2 })).toBe(1);
     expect(spy).toHaveBeenCalledTimes(1);

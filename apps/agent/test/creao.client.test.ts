@@ -125,6 +125,50 @@ describe("CreaoPlanner", () => {
     expect(await pl.getRun("run_x")).toEqual({ id: "run_x", status: "running" });
   });
 
+  // Real GET /runs/{id} bodies, captured live 2026-10-18 (scratch/verify/creao-live/runs): CREAO sends null, not absent.
+  it("getRun reads CREAO's real running shape (result: null, errorCode: null) as running, not unparsed", async () => {
+    const running = {
+      id: "b7680e7c-0000-4000-8000-000000000001", status: "running", threadId: "f4a0747f-0000-4000-8000-000000000002",
+      result: null, errorCode: null, startedAt: "2026-10-18T07:54:44.731Z", completedAt: null, createdAt: "2026-10-18T07:54:44.719Z",
+    };
+    const { f } = fakeFetch(json(200, running), json(200, { ...running, status: "pending", threadId: null }));
+    const pl = new CreaoPlanner({ fetch: f, config: CFG });
+    const got = await pl.getRun(running.id);
+    expect(got).toMatchObject({ id: running.id, status: "running", threadId: running.threadId, startedAt: running.startedAt });
+    expect(got).not.toHaveProperty("result");
+    expect(got).not.toHaveProperty("errorCode");
+    const pending = await pl.getRun(running.id);
+    expect(pending.status).toBe("pending");
+    expect(pending).not.toHaveProperty("threadId");
+  });
+
+  it("getRun reads CREAO's real completed shape (errorCode: null, artifacts with display titles)", async () => {
+    const done = {
+      id: "deee9e1f-3518-4d69-885f-3bcaf88cfe07", status: "completed", threadId: "852f5552-a410-4bb1-b58c-55ba39bedad1",
+      result: {
+        text: '{"plan_ref":"00000000-0000-4000-8000-000000000000","category":"show"}', chatText: "All required inputs are present.",
+        artifacts: [
+          { id: "workspaces/w/852f5552/work/options.json", url: "https://agent.creao.ai/api/v1/runs/deee9e1f/artifacts/download?artifactId=x", type: "application/json", title: "options.json" },
+          { id: "workspaces/w/852f5552/files/summary.md" },
+        ],
+      },
+      errorCode: null, startedAt: "2026-10-18T07:54:44.731Z", completedAt: "2026-10-18T08:04:39.744Z", createdAt: "2026-10-18T07:54:44.719Z",
+    };
+    const { f } = fakeFetch(json(200, done), json(200, { ...done, status: "failed", result: { text: null, chatText: null, artifacts: null }, errorCode: "AGENT_ERROR" }));
+    const pl = new CreaoPlanner({ fetch: f, config: CFG });
+    const got = await pl.getRun(done.id);
+    expect(got).toMatchObject({ id: done.id, status: "completed", result: { text: done.result.text, chatText: done.result.chatText } });
+    expect(got).not.toHaveProperty("errorCode");
+    expect(got.result?.artifacts).toEqual([
+      done.result.artifacts[0],
+      { id: "workspaces/w/852f5552/files/summary.md", title: "summary.md", type: "", url: "" },
+    ]);
+    const failed = await pl.getRun(done.id);
+    expect(failed).toMatchObject({ status: "failed", errorCode: "AGENT_ERROR", result: {} });
+    expect(failed.result).not.toHaveProperty("text");
+    expect(failed.result).not.toHaveProperty("artifacts");
+  });
+
   it("getRun surfaces HTTP errors as CreaoError", async () => {
     const { f } = fakeFetch(json(404, { error: "RUN_NOT_FOUND" }));
     await expect(new CreaoPlanner({ fetch: f, config: CFG }).getRun("nope")).rejects.toMatchObject({ status: 404 });

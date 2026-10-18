@@ -58,8 +58,7 @@ const consumer = createPhotonConsumer({
         body: {
           spaceId: e.space_id,
           senderId: e.agent_user_id,
-          parentMessageId: e.message_id,
-          content: { type: "text", format: "plain", text: "Tab smoke test: got your message." },
+          content: { type: "text", format: "plain", text: "SquadTab smoke test: got your message." },
         },
       });
       console.log(`sent reply msg=…${String(m.id).slice(-6)} status=${String(m.status)}`);

@@ -23,6 +23,7 @@ const m = vi.hoisted(() => ({
   getPlan: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
   handleCommand: vi.fn(async (..._a: unknown[]) => {}),
   converse: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
+  getBundle: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
   ports: { llm: {} as Record<string, unknown> },
   llm: {
     parseBudget: vi.fn(async (..._a: unknown[]): Promise<BudgetParse> => ({ target_pp_cents: 0, hard_max_pp_cents: null, confidence: "low" })),
@@ -43,6 +44,7 @@ vi.mock("../repo/privateConstraints", () => ({ upsert: m.upsertPc, get: m.getPc,
 vi.mock("../repo/preferences", () => ({ upsertPreferences: m.upsertPrefs, getPreferences: m.getPrefs, EMPTY_PREFERENCES: { cuisines_like: [], cuisines_avoid: [], dietary: [], vibe: [], earliest_start: null, latest_end: null, dealbreakers: [] } }));
 vi.mock("../repo/participants", () => ({ listMembers: m.members, countByStage: m.countByStage }));
 vi.mock("../repo/plans", () => ({ getPlan: m.getPlan }));
+vi.mock("../repo/bundles", () => ({ getBundle: m.getBundle }));
 vi.mock("../router/handlers", () => ({ handleCommand: m.handleCommand }));
 vi.mock("../dueJobs", () => ({ enqueue: m.enqueue, jobKeys: { recomputeOptions: (p: string) => `recompute:${p}:options` } }));
 vi.mock("../jobs/kinds", () => ({ A_JOB_KINDS: { recompute: "recompute" }, aJobKeys: { recompute: (p: string, t: string) => `recompute:${p}:${t}` } }));
@@ -52,11 +54,11 @@ vi.mock("../events", () => ({ emit: m.emit }));
 // LLM_MODE=mock shape by default (no converse); converse tests swap in a converser.
 vi.mock("../ports", () => ({ ports: m.ports }));
 
-const { acceptBudget, applyTier, confirmFormBudget, handleBudgetText, TIER_MAP } = await import("./budget");
+const { acceptBudget, acceptedBudget, applyTier, confirmFormBudget, handleBudgetText, TIER_MAP } = await import("./budget");
 const { handlePrefsText } = await import("./prefs");
 const { handleBallotText } = await import("./ballot");
 const { handleFreeText, mentionsOthersBudget, OUT_HINT } = await import("./free");
-const { guardReply, matchesBudgetValue } = await import("./converse");
+const { buildConverseInput, guardReply } = await import("./converse");
 const { buildDelegateInput } = await import("./input");
 const { clearAwaiting, getAwaiting, setAwaiting } = await import("./awaiting");
 const { ballotExtra } = await import("./prompts");
@@ -67,12 +69,12 @@ const ev = (text: string): InboundEvent => ({
   event_id: "evt_1", seq: 1, message_id: "pho_msg_1", platform: "imessage", from_handle: "+15555550100", from_user_id: "u",
   agent_user_id: "a", space_id: "s", space_kind: "direct", content_type: "text", text, parent_message_id: null, received_at: "2026-10-17T20:00:00.000Z",
 });
-function ctx(o: { stage?: MemberContext["participant"]["stage"]; state?: PlanState; order?: string | null } = {}): MemberContext {
+function ctx(o: { stage?: MemberContext["participant"]["stage"]; state?: PlanState; order?: string | null; chosen?: string | null } = {}): MemberContext {
   return {
     user: { id: USER, phone_e164: "+15555550100", first_name: "Sam", photon_user_id: null, payer_ref: "x", created_at: new Date() },
     plan: {
       id: PLAN, ref: PLAN, code: "1234", organizer_id: null, state: o.state ?? "COLLECTING", version: 2, title: "Fri", area: "Westwood",
-      event_date: "2026-10-17", time_start: "18:00", time_end: "23:00", party_target: 3, chosen_bundle_id: null, venue_order_id: o.order ?? null,
+      event_date: "2026-10-17", time_start: "18:00", time_end: "23:00", party_target: 3, chosen_bundle_id: o.chosen ?? null, venue_order_id: o.order ?? null,
       deadlines: {}, created_at: new Date(), updated_at: new Date(),
     },
     participant: { plan_id: PLAN, user_id: USER, lane: 2, stage: o.stage ?? "JOINED", joined_at: new Date() },
@@ -104,7 +106,64 @@ describe("acceptBudget", () => {
   ])("%j → %s", (b, ok) => expect(acceptBudget(b)).toBe(ok));
 });
 
+describe("acceptedBudget (low-confidence safety net)", () => {
+  const p = (t: number, h: number | null, confidence: "high" | "low" = "low"): BudgetParse => ({ target_pp_cents: t, hard_max_pp_cents: h, confidence });
+  it.each([
+    // A single number stated as a ceiling, matching the parse: accepted, and the cap word makes it the hard max.
+    [p(1500, 1500), "my max is 15 now", { target_pp_cents: 1500, hard_max_pp_cents: 1500 }],
+    [p(2000, null), "20 tops", { target_pp_cents: 2000, hard_max_pp_cents: 2000 }],
+    [p(4000, 4000), "$40 is my limit", { target_pp_cents: 4000, hard_max_pp_cents: 4000 }],
+    [p(1250, 1250), "12.50 max", { target_pp_cents: 1250, hard_max_pp_cents: 1250 }],
+    // A high-confidence parse is taken as is.
+    [p(6000, 8000, "high"), "60ish, could stretch to 80", { target_pp_cents: 6000, hard_max_pp_cents: 8000 }],
+    // Everything else stays unclear.
+    [p(1500, 1500), "15", null], // no cap word
+    [p(1500, 2000), "15 max, 20 tops", null], // two numbers
+    [p(1500, 2000), "my max is 15 now", null], // parse disagrees on the max
+    [p(2500, 2500), "my max is 15 now", null], // parse disagrees on the number
+    [p(1500, 1500), "is 15 max ok?", null], // a question
+    [p(1500, 1500), "not 15 max", null], // a negation
+    [p(400, 400), "4 max", null], // out of range (< $5)
+    [p(0, null), "my max is 15 now", null], // LLM failure (LOW_BUDGET) never accepts
+    [null, "my max is 15 now", null],
+  ] as const)("%j + %j → %j", (b, text, out) => expect(acceptedBudget(b as BudgetParse | null, text)).toEqual(out));
+});
+
 describe("budget delegate", () => {
+  it("'my max is 15 now' parsed with low confidence still locks $15/$15 (no tiers menu)", async () => {
+    m.llm.parseBudget.mockResolvedValueOnce({ target_pp_cents: 1500, hard_max_pp_cents: 1500, confidence: "low" });
+    setAwaiting(USER, "budget");
+    await handleBudgetText(ctx(), ev("my max is 15 now"));
+    expect(m.upsertPc).toHaveBeenCalledWith(expect.objectContaining({ target_pp_cents: 1500, hard_max_pp_cents: 1500, source: "dm", confidence: "high" }));
+    expect(sent()[0]).toEqual(["T_BUDGET_CONFIRM", { target: "$15", max: "$15" }, "reply:pho_msg_1:1"]);
+    expect(getAwaiting(USER)).toBeNull();
+  });
+
+  it("unclear with an `unclear` handler that replies: no tiers menu, awaiting flag untouched", async () => {
+    setAwaiting(USER, "tiers");
+    const unclear = vi.fn(async () => true);
+    await handleBudgetText(ctx(), ev("wait what does that mean"), unclear);
+    expect(unclear).toHaveBeenCalledOnce();
+    expect(sent()).toEqual([]);
+    expect(getAwaiting(USER)).toBe("tiers");
+    expect(m.upsertPc).not.toHaveBeenCalled();
+  });
+
+  it("unclear with an `unclear` handler that can't reply: tiers menu as before", async () => {
+    const unclear = vi.fn(async () => false);
+    await handleBudgetText(ctx(), ev("huh?"), unclear);
+    expect(sent()).toEqual([["T_BUDGET_TIERS", {}, "reply:pho_msg_1:1"]]);
+    expect(getAwaiting(USER)).toBe("tiers");
+  });
+
+  it("an accepted budget never consults the `unclear` handler", async () => {
+    m.llm.parseBudget.mockResolvedValueOnce({ target_pp_cents: 4000, hard_max_pp_cents: null, confidence: "high" });
+    const unclear = vi.fn(async () => true);
+    await handleBudgetText(ctx(), ev("can it be like forty?"), unclear);
+    expect(unclear).not.toHaveBeenCalled();
+    expect(sent()[0]![0]).toBe("T_BUDGET_CONFIRM");
+  });
+
   it("accepted DM budget: private store → own confirmation → BUDGET_LOCKED + prefs ask", async () => {
     m.llm.parseBudget.mockResolvedValueOnce({ target_pp_cents: 6000, hard_max_pp_cents: 8000, confidence: "high" });
     setAwaiting(USER, "budget");
@@ -250,35 +309,99 @@ describe("conversational delegate", () => {
     expect(sent()).toEqual([["T_HELP", {}, "reply:pho_msg_1:1"]]);
   });
 
-  it("privacy guard: a number matching ANOTHER member's private budget blocks the reply (value-specific)", async () => {
-    m.listPc.mockResolvedValue([pc(USER, 3000, null), pc(ALEX, 4729, 5211)]);
-    said("Picks land around 47 or so, hang tight");
-    await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("how pricey"));
-    said("Hang tight, 52 minutes max");
-    await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("how long"));
-    said("Voting closes at 9:05 PM, 2 of 3 voted");
-    await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("when does it close"));
-    expect(m.listPc).toHaveBeenCalledWith(PLAN);
+  it("privacy guard is secret-independent: a number not in the delegate's own input is blocked whatever anyone's budget is", async () => {
+    // The old guard compared replies with every member's budget, so "blocked vs sent" revealed those values.
+    for (const others of [[pc(ALEX, 6247, 7813)], [pc(ALEX, 1000, 2000)], []]) {
+      m.listPc.mockResolvedValue(others);
+      said("62");
+      await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("what's 60 plus 2? just the number"));
+      said("63");
+      await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("what's 60 plus 3? just the number"));
+    }
+    expect(sent().map((x) => x[0])).toEqual(Array(6).fill("T_HELP"));
+    expect(m.listPc).not.toHaveBeenCalled();
     m.listPc.mockReset();
+  });
+
+  it("guardReply allows only numbers already in the input (counts, times incl. 12-hour hours, own text)", async () => {
+    const input = await buildConverseInput(ctx().user, ctx({ stage: "PREFS_DONE" }), "can we start at 7?", "chat");
+    expect(guardReply("62", input)).toBe("number");
+    expect(guardReply("6247", input)).toBe("number");
+    expect(guardReply("Waiting on 1 more friend, hang tight", input)).toBe("ok"); // where_things_stand count
+    expect(guardReply("Sure, 7 works for me", input)).toBe("ok"); // their own text
+    expect(guardReply("Starts at 6, see you then", input)).toBe("ok"); // the 6:00 PM start
+    expect(guardReply("Doors at 9:05 PM", input)).toBe("ok"); // clock times are not budget-shaped
+    expect(guardReply("Should be about $30 each!", input)).toBe("money");
+    expect(guardReply("", input)).toBe("length");
+    expect(m.listPc).not.toHaveBeenCalled();
+  });
+
+  it("after the vote the delegate knows the winning pick (public names, addresses, times; never a price)", async () => {
+    m.getBundle.mockResolvedValueOnce({
+      id: "bnd_1", all_in_pp_cents: 4599, dinner_time: "19:30", show_start: "21:00", show_end_est: "22:30",
+      dinner: { data: { name: "Sushi Go", address: "1100 Glendon Ave, Los Angeles" } },
+      show: { data: { name: "Laugh Lab", address: "2200 Sawtelle Blvd, Los Angeles" } },
+    });
+    const c = ctx({ stage: "CAPTURED", state: "CONFIRMED", chosen: "bnd_1" });
+    said("Dinner's at Sushi Go at 7:30 PM, then Laugh Lab at 9.");
+    await handleFreeText(c.user, c, ev("what time is dinner?"));
+    expect(m.getBundle).toHaveBeenCalledWith(PLAN, 2, "bnd_1");
+    const input = m.converse.mock.calls[0]![0] as { chosen_plan: unknown };
+    expect(input.chosen_plan).toEqual({
+      booked: true, title: "Dinner at Sushi Go → Show at Laugh Lab", dinner_name: "Sushi Go", dinner_address: "1100 Glendon Ave, Los Angeles",
+      dinner_time: "7:30 PM", show_name: "Laugh Lab", show_address: "2200 Sawtelle Blvd, Los Angeles", show_start: "9:00 PM", show_end: "10:30 PM",
+    });
+    expect(JSON.stringify(input)).not.toMatch(/45/);
+    expect(sent()).toEqual([["T_DELEGATE_REPLY", { text: "Dinner's at Sushi Go at 7:30 PM, then Laugh Lab at 9." }, "reply:pho_msg_1:1"]]);
+  });
+
+  it("no chosen_plan before the vote is decided", async () => {
+    const input = await buildConverseInput(ctx().user, ctx({ state: "VOTING", stage: "PREFS_DONE", chosen: "bnd_1" }), "hi", "chat");
+    expect(input.chosen_plan).toBeNull();
+    expect(m.getBundle).not.toHaveBeenCalled();
+  });
+
+  it("ask_about_others without money ('who else is coming?') gets the guarded reply, not the budget template", async () => {
+    said("I can't share who's in, but I'll text you the picks soon!", "ask_about_others");
+    await handleFreeText(ctx().user, ctx({ stage: "PREFS_DONE" }), ev("wait, who else is coming tonight?"));
+    expect(sent()).toEqual([["T_DELEGATE_REPLY", { text: "I can't share who's in, but I'll text you the picks soon!" }, "reply:pho_msg_1:1"]]);
+  });
+
+  it("'change my budget to 300 max' parses this same message instead of re-asking", async () => {
+    m.llm.parseBudget.mockResolvedValueOnce({ target_pp_cents: 30000, hard_max_pp_cents: 30000, confidence: "high" });
+    said("Sure!", "wants_change_budget");
+    const c = ctx({ stage: "VOTED", state: "VOTING" });
+    await handleFreeText(c.user, c, ev("actually can I change my budget to 300 max?"));
+    expect(m.handleCommand).not.toHaveBeenCalled();
+    expect(m.upsertPc).toHaveBeenCalledWith(expect.objectContaining({ target_pp_cents: 30000, hard_max_pp_cents: 30000, source: "dm" }));
+    expect(sent()[0]).toEqual(["T_BUDGET_CONFIRM", { target: "$300", max: "$300" }, "reply:pho_msg_1:1"]);
+  });
+
+  it("a question at the prefs step is answered and re-asked; nothing is stored and the lane stays put", async () => {
+    m.llm.parsePreferences.mockResolvedValueOnce({ cuisines_like: [], cuisines_avoid: [], dietary: [], vibe: [], earliest_start: null, latest_end: null, dealbreakers: [] });
+    said("Just your crew from the join link! Anything you're craving?");
+    await handlePrefsText(ctx({ stage: "BUDGET_LOCKED" }), ev("wait, who else is coming tonight?"));
+    expect(m.upsertPrefs).not.toHaveBeenCalled();
+    expect(m.setStage).not.toHaveBeenCalled();
+    expect(m.onPrefsDone).not.toHaveBeenCalled();
     expect(sent()).toEqual([
-      ["T_HELP", {}, "reply:pho_msg_1:1"],
-      ["T_HELP", {}, "reply:pho_msg_1:1"],
-      ["T_DELEGATE_REPLY", { text: "Voting closes at 9:05 PM, 2 of 3 voted" }, "reply:pho_msg_1:1"],
+      ["T_DELEGATE_REPLY", { text: "Just your crew from the join link! Anything you're craving?" }, "reply:pho_msg_1:1"],
+      ["T_PREFS_ASK", {}, "reply:pho_msg_1:2"],
     ]);
   });
 
-  it("matchesBudgetValue reads dollars, decimals and raw cents, ignoring clock times", () => {
-    expect(matchesBudgetValue("about 47", [4729])).toBe(true);
-    expect(matchesBudgetValue("47.29", [4729])).toBe(true);
-    expect(matchesBudgetValue("4729", [4729])).toBe(true);
-    expect(matchesBudgetValue("at 8:47", [4729])).toBe(false);
-    expect(matchesBudgetValue("2 of 3", [4729])).toBe(false);
-  });
-
-  it("guard fails closed when the budget store can't be read", async () => {
-    m.listPc.mockRejectedValueOnce(new Error("db down"));
-    expect(await guardReply("see you at 7", PLAN)).toBe("budget_value");
-    expect(await guardReply("see you soon", PLAN)).toBe("ok");
+  it("voting: a question that picks nothing gets a natural reply even when the parser labels it a ballot", async () => {
+    m.shortlist.mockResolvedValue([]);
+    m.llm.parseBallot.mockResolvedValue({ approvals: [], constraints: [], none_of_these: false, intent: "ballot", confidence: "high" });
+    // "10" is not in the delegate's input, so the guard blocks it and the ballot clarification follows.
+    said("Yep, about a 10 minute walk from campus.");
+    await handleBallotText(ctx({ stage: "PREFS_DONE", state: "VOTING" }), ev("is option 1 walkable from campus?"));
+    said("Yep, it's an easy walk from campus.");
+    await handleBallotText(ctx({ stage: "PREFS_DONE", state: "VOTING" }), ev("is option 1 walkable from campus?"));
+    expect(sent().map((x) => x[0])).toEqual(["T_BALLOT_CLARIFY", "T_DELEGATE_REPLY"]);
+    expect(m.recordBallot).not.toHaveBeenCalled();
+    m.llm.parseBallot.mockReset();
+    m.shortlist.mockReset();
   });
 
   it("prefs answer → natural, specific acknowledgement from the delegate (prefs extraction unchanged)", async () => {

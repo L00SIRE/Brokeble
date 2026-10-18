@@ -5,7 +5,7 @@ import { bodyLimit } from "hono/body-limit";
 import { AgentProgress, Category, Itinerary, PlanRef, ScoutSubmission, type ValidationResult } from "@tab/shared";
 import { hasKey } from "../auth";
 import { B_JOB_KINDS, bJobKeys } from "../creao/jobs";
-import { deliverItinerary } from "../creao/concierge";
+import { deliverItinerary, itineraryBookingErrors } from "../creao/concierge";
 import { normArea } from "../decide/compose";
 import { enqueue } from "../dueJobs";
 import { env } from "../env";
@@ -227,7 +227,12 @@ export async function handleSubmitItinerary(c: Context): Promise<Response> {
 
   const active = await authorizeRun(it.plan_ref, "concierge", null);
   if (!active) return noActiveRun(c);
-  if (!("test" in active)) await deliverItinerary(active.plan.id, active.run.id, it);
+  if (!("test" in active)) {
+    // Members get this calendar for what they booked and paid for: stops must be the chosen bundle's venues.
+    const booking = await itineraryBookingErrors(active.plan, it);
+    if (booking.length) return c.json({ ok: false, errors: booking }, 422);
+    await deliverItinerary(active.plan.id, active.run.id, it);
+  }
   const base = baseUrl(c);
   return c.json({ ok: true, itinerary_url: `${base}/p/${it.plan_ref}/itinerary`, ics_url: `${base}/p/${it.plan_ref}/plan.ics` }, 201);
 }

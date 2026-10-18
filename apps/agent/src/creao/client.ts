@@ -3,6 +3,7 @@
 // Verified against hackathon-context/creao.md + docs.creao.ai/pro/api-trigger. Owner B.
 import { ConciergeInput as ConciergeInputSchema, CreaoRun as CreaoRunSchema, ResearchBrief as ResearchBriefSchema } from "@tab/shared";
 import type { ConciergeInput, CreaoRun, ResearchBrief } from "@tab/shared";
+import * as z from "zod";
 import { env } from "../env";
 import { log } from "../log";
 import type { PlannerPort } from "../ports";
@@ -59,6 +60,51 @@ export function webhookUrlFor(publicBaseUrl: string | undefined, hookSecret: str
   }
   if (PRIVATE_HOST.test(u.hostname)) return undefined;
   return `${u.origin}${u.pathname.replace(/\/+$/, "")}/creao/hook/${encodeURIComponent(hookSecret)}`;
+}
+
+/**
+ * The real GET /runs/{id} body (verified live 2026-10-18): `{id, status, threadId, result: {text, chatText,
+ * artifacts[{id,url,type,title}]} | null, errorCode: null, startedAt, completedAt, createdAt}`. CREAO sends null, not
+ * absent, for result/errorCode (and possibly threadId) while running, so this wire schema accepts null everywhere
+ * optional and toCreaoRun maps null to absent. Artifacts only need an id (the download key).
+ */
+const Str = z.string().nullish();
+const CreaoRunWire = z.looseObject({
+  id: Str,
+  runId: Str,
+  status: CreaoRunSchema.shape.status,
+  threadId: Str,
+  errorCode: Str,
+  result: z
+    .looseObject({
+      text: Str,
+      chatText: Str,
+      artifacts: z.array(z.looseObject({ id: z.string(), title: Str, type: Str, url: Str })).nullish(),
+    })
+    .nullish(),
+});
+type CreaoRunWire = z.infer<typeof CreaoRunWire>;
+
+const lastSegment = (id: string): string => id.slice(id.lastIndexOf("/") + 1);
+
+/** Wire run → the shared CreaoRun: nulls dropped, id normalized (id | runId | the id we asked for). */
+export function toCreaoRun(w: CreaoRunWire, requestedId: string): CreaoRun {
+  const { id, runId, threadId, errorCode, result, ...rest } = w;
+  const run: CreaoRun = { ...rest, id: id ?? runId ?? requestedId, status: w.status };
+  if (threadId) run.threadId = threadId;
+  if (errorCode) run.errorCode = errorCode;
+  if (result) {
+    const { text, chatText, artifacts, ...more } = result;
+    run.result = {
+      ...more,
+      ...(text ? { text } : {}),
+      ...(chatText ? { chatText } : {}),
+      ...(artifacts
+        ? { artifacts: artifacts.map((a) => ({ ...a, title: a.title ?? lastSegment(a.id), type: a.type ?? "", url: a.url ?? "" })) }
+        : {}),
+    };
+  }
+  return run;
 }
 
 /** Network failure or timeout (fetch rejects), as opposed to an HTTP status. */
@@ -142,12 +188,12 @@ export class CreaoPlanner implements PlannerPort {
   /** GET /runs/{id}. An unparseable shape reads as still running: the creao_timeout job always ends the run. */
   async getRun(runId: string): Promise<CreaoRun> {
     const raw = await this.call<unknown>(`/runs/${encodeURIComponent(runId)}`);
-    const p = CreaoRunSchema.safeParse(raw);
+    const p = CreaoRunWire.safeParse(raw);
     if (!p.success) {
       log.warn({ runId, issues: p.error.issues.map((i) => i.path.join(".")).slice(0, 5) }, "creao.run.unparsed");
       return { id: runId, status: "running" };
     }
-    return { ...p.data, id: p.data.id ?? p.data.runId ?? runId };
+    return toCreaoRun(p.data, runId);
   }
 
   /** POST /runs/{id}/cancel. The response body is undocumented and may be empty. */

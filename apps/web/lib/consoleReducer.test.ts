@@ -1,6 +1,6 @@
 import type { SseEvent } from "@tab/shared";
 import { describe, expect, it } from "vitest";
-import { MAX_DELIVERIES, MAX_PROGRESS, MAX_SYSTEM, applySnapshot, consoleReducer, initialConsoleState, reduceConsole, stepFor, type ConsoleState } from "./consoleReducer";
+import { MAX_DELIVERIES, MAX_PROGRESS, MAX_RUNS, MAX_SYSTEM, applySnapshot, consoleReducer, initialConsoleState, reduceConsole, stepFor, type ConsoleState } from "./consoleReducer";
 
 const P1 = "11111111-1111-4111-8111-111111111111";
 const P2 = "22222222-2222-4222-8222-222222222222";
@@ -90,6 +90,78 @@ describe("consoleReducer", () => {
   });
 });
 
+describe("plan routing", () => {
+  const run = (n: number): SseEvent => ({ type: "creao.run", run_id: `r${n}`, kind: "scout", category: "dinner", status: "completed", elapsed_ms: 1, source: "cached", share_url: null });
+
+  it("keeps lanes that precede the first plan.state of the same plan (join, then research starts)", () => {
+    let s = apply(initialConsoleState, 1, lane(1, "JOINED"));
+    s = apply(s, 2, lane(2, "JOINED"));
+    expect(s.plan).toEqual({ plan_id: P1, state: "COLLECTING", version: 0 }); // stepper shows Gather as current
+    s = apply(s, 3, planState(P1, "RESEARCHING"));
+    expect(Object.keys(s.lanes)).toEqual(["1", "2"]);
+    expect(s.plan?.state).toBe("RESEARCHING");
+  });
+
+  it("ops Reset: lanes seeded before the new plan.state survive it, even while the old plan is in flight", () => {
+    let s = apply(initialConsoleState, 1, planState(P1, "VOTING"));
+    s = apply(s, 2, lane(1, "HELD", P1));
+    s = apply(s, 3, lane(1, "JOINED", P2));
+    s = apply(s, 4, lane(2, "JOINED", P2));
+    expect(Object.keys(s.lanes)).toEqual(["1"]);
+    expect(s.lanes[1]?.stage).toBe("HELD");
+    s = apply(s, 5, planState(P2, "RESEARCHING"));
+    expect(Object.values(s.lanes).map((l) => [l.lane, l.stage, l.plan_id])).toEqual([[1, "JOINED", P2], [2, "JOINED", P2]]);
+    expect(s.pending).toEqual({});
+  });
+
+  it("a lane, tally or shortlist from another plan cannot overwrite a plan in flight", () => {
+    let s = apply(initialConsoleState, 1, planState(P1, "VOTING"));
+    s = apply(s, 2, lane(1, "JOINED", P1));
+    s = apply(s, 3, lane(1, "HELD", P2));
+    s = apply(s, 4, { type: "vote.tally", plan_id: P2, voted: 9, total: 9 });
+    s = apply(s, 5, { type: "shortlist", plan_id: P2, version: 1, from_count: 1, survived_count: 1, bundles: [] });
+    expect(s.lanes[1]).toMatchObject({ plan_id: P1, stage: "JOINED" });
+    expect(s.tally).toBeNull();
+    expect(s.shortlist).toBeNull();
+    expect(s.plan?.plan_id).toBe(P1);
+  });
+
+  it("a new plan's lanes stay queued after CONFIRMED or CANCELLED, so a stranger cannot replace the evidence; its plan.state adopts them", () => {
+    for (const end of ["CONFIRMED", "CANCELLED"]) {
+      let s = apply(initialConsoleState, 1, planState(P1, end));
+      s = apply(s, 2, lane(1, "HELD", P1));
+      s = apply(s, 3, { type: "ledger", order_id: "o1", lane: 1, status: "CAPTURED", amount_cents: 100, cybs_id_short: null });
+      s = apply(s, 4, lane(2, "JOINED", P2));
+      expect(s.plan?.plan_id).toBe(P1);
+      expect(Object.keys(s.lanes)).toEqual(["1"]);
+      expect(Object.keys(s.ledger)).toEqual(["1"]);
+      s = apply(s, 5, planState(P2, "RESEARCHING"));
+      expect(Object.values(s.lanes).map((l) => [l.lane, l.plan_id])).toEqual([[2, P2]]);
+      expect(s.ledger).toEqual({});
+    }
+  });
+
+  it("queues at most a few other plans", () => {
+    let s = apply(initialConsoleState, 1, planState(P1, "VOTING"));
+    for (let i = 0; i < 9; i++) s = apply(s, 2 + i, lane(1, "JOINED", `00000000-0000-4000-8000-00000000000${i}`));
+    expect(Object.keys(s.pending)).toHaveLength(4);
+  });
+
+  it("caps CREAO run chips at the newest MAX_RUNS and updates a kept run in place", () => {
+    let s = initialConsoleState;
+    for (let i = 1; i <= 10; i++) s = apply(s, i, run(i));
+    expect(Object.keys(s.creaoRuns)).toEqual(["r7", "r8", "r9", "r10"]);
+    expect(Object.keys(s.creaoRuns)).toHaveLength(MAX_RUNS);
+    s = apply(s, 11, { ...(run(8) as Extract<SseEvent, { type: "creao.run" }>), elapsed_ms: 5 });
+    expect(Object.keys(s.creaoRuns)).toEqual(["r7", "r8", "r9", "r10"]);
+    expect(s.creaoRuns.r8?.elapsed_ms).toBe(5);
+  });
+
+  it("stepper: CONFIRMED completes every step", () => {
+    expect(stepFor("CONFIRMED")).toBe(5);
+  });
+});
+
 describe("applySnapshot", () => {
   const events = [
     { id: 3, data: lane(1, "HELD") },
@@ -119,7 +191,7 @@ describe("stepFor", () => {
     ["ORDERING", 3],
     ["APPROVING", 3],
     ["COMMITTING", 4],
-    ["CONFIRMED", 4],
+    ["CONFIRMED", 5],
     ["CANCELLING", -1],
     ["CANCELLED", -1],
     ["SHOWCASE", -1],

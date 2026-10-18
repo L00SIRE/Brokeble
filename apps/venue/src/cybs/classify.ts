@@ -23,7 +23,9 @@ export function reversalDone(o: CybsOutcome<any>): boolean {
   if (o.kind === "ok") return o.data?.status === "REVERSED";
   if (o.kind === "rejected") {
     const b = o.body as { reason?: string } | null;
-    // testrest: a 2nd reversal of the same auth → 400 MISSING_AUTH (verified 2026-10-17)
+    // testrest: a 2nd reversal of the same auth → 400 MISSING_AUTH (verified 2026-10-17).
+    // MISSING_AUTH is also returned for an auth that was already captured (verified 2026-10-18): callers must never
+    // reverse a CAPTURING/CAPTURED share (reverseShare only claims AUTHORIZED, stale REVERSING or AUTHORIZING rows).
     return b?.reason === "AUTH_ALREADY_REVERSED" || b?.reason === "MISSING_AUTH";
   }
   return false;
@@ -68,6 +70,7 @@ export function redact(d: any): Record<string, unknown> {
   return {
     id: d?.id,
     status: d?.status,
+    reason: typeof d?.reason === "string" ? d.reason : undefined, // 4xx bodies carry a fixed enum here (INVALID_DATA, MISSING_AUTH…)
     errorInformation: d?.errorInformation ? { reason: d.errorInformation.reason } : undefined,
     tokenInformation: d?.tokenInformation
       ? { customer: { id: d.tokenInformation.customer?.id }, paymentInstrument: { id: d.tokenInformation.paymentInstrument?.id } }

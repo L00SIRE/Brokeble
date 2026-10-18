@@ -221,13 +221,16 @@ export function JoinSuccess({ result }: { result: JoinResponse }) {
         </a>
       ) : null}
 
-      <dl className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4">
+      <ul className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4">
         <CopyRow label="Text this number" shown={formatPhone(result.assigned_number)} value={result.assigned_number} />
         <CopyRow label="Send this message" shown={result.join_text} value={result.join_text} />
-      </dl>
+      </ul>
 
       <p className="text-sm text-pretty text-muted">
         Send it as your first message. On a computer? Send it from your phone.
+      </p>
+      <p className="text-sm text-pretty text-muted">
+        Make sure your iPhone texts from the number you just entered: Settings → Apps → Messages → Send &amp; Receive → Start New Conversations From.
       </p>
     </section>
   );
@@ -235,12 +238,12 @@ export function JoinSuccess({ result }: { result: JoinResponse }) {
 
 function CopyRow({ label, shown, value }: { label: string; shown: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <dt className="text-sm text-muted">{label}</dt>
-        <dd className="font-mono text-lg tabular-nums break-words select-all">{shown}</dd>
+    <li className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col">
+        <span className="text-sm text-muted">{label}</span>
+        <span className="font-mono text-lg tabular-nums break-words select-all">{shown}</span>
       </div>
       <CopyButton value={value} what={label.toLowerCase()} />
-    </div>
+    </li>
   );
 }

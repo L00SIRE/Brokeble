@@ -168,14 +168,23 @@ describe("replayDemo", () => {
     m.users.findUserByPhone.mockImplementation(async (phone: string) => ({ id: `u-${phone}`, photon_user_id: phone === TEAM[0]!.phone_e164 ? "pho_usr_ana" : null }));
     m.dmRoutes.getDmRoute.mockImplementation(async (id: string) => (id.endsWith("0101") ? { userId: id, spaceId: "spc_ana", agentUserId: "agent_1" } : null));
 
-    expect(await replayDemo(fast)).toEqual({ ok: true, steps: 3 });
+    expect(await replayDemo(fast)).toEqual({ ok: true, steps: 2 });
 
     expect(m.plans.getPlan).toHaveBeenCalledTimes(2);
     const events = m.route.mock.calls.map(([e]) => e);
-    expect(events.map((e) => e.text)).toEqual(["1 2", "2", "2 3"]);
-    expect(events.map((e) => e.from_handle)).toEqual(TEAM.slice(0, 3).map((t) => t.phone_e164));
+    expect(events.map((e) => e.text)).toEqual(["1 2", "2"]);
+    expect(events.map((e) => e.from_handle)).toEqual(TEAM.slice(0, 2).map((t) => t.phone_e164));
     expect(events[0]).toMatchObject({ event_id: "replay:plan-new:0", message_id: "replay_msg:plan-new:0", from_user_id: "pho_usr_ana", space_id: "spc_ana", agent_user_id: "agent_1" });
-    expect(new Set(events.map((e) => e.event_id)).size).toBe(3);
+    expect(new Set(events.map((e) => e.event_id)).size).toBe(2);
+  });
+
+  it("a scripted lane with no DEMO_TEAM member fails BEFORE resetting, so the live plan is never retired", async () => {
+    Object.assign(env, { DEMO_TEAM: TEAM.slice(0, 1) });
+    m.plans.listActivePlans.mockResolvedValue([plan({ state: "VOTING" })]);
+    await expect(replayDemo(fast)).rejects.toThrow(/script lane 2 has no DEMO_TEAM member/);
+    expect(m.plans.listActivePlans).not.toHaveBeenCalled();
+    expect(m.transition).not.toHaveBeenCalled();
+    expect(m.plans.insertPlan).not.toHaveBeenCalled();
   });
 
   it("aborts when the plan never reaches VOTING", async () => {
@@ -192,6 +201,7 @@ describe("replayDemo", () => {
     m.dmRoutes.getDmRoute.mockResolvedValue(null);
     await expect(replayDemo(fast)).rejects.toThrow(/has not texted/);
     expect(m.route).not.toHaveBeenCalled();
+    expect(m.plans.insertPlan).not.toHaveBeenCalled(); // validated before the reset
   });
 });
 

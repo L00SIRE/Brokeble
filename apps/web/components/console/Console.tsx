@@ -25,15 +25,15 @@ export function Console({ consoleKey, children }: { consoleKey: string | null; c
   const onTapTest = children ? (kind: TapTestKind) => agent.ops("tap-test", readOperatorKey(), { kind }) : undefined;
 
   return (
-    <main className="grid min-h-dvh gap-4 p-4 lg:h-dvh lg:min-h-[40rem] lg:grid-rows-[auto_1fr_auto_auto] lg:overflow-hidden lg:p-5 tabular-nums">
+    <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] gap-4 p-4 lg:grid-rows-[auto_minmax(0,1fr)_auto_auto] lg:p-5 lg:tall:h-dvh lg:tall:overflow-hidden tabular-nums">
       <ConsoleHeader plan={state.plan} stream={consoleKey ? status : "missing"} invalid={invalidCount} />
-      <div className="grid min-h-0 gap-4 lg:grid-cols-[1fr_1.25fr_1.1fr]">
+      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[1fr_1.25fr_1.1fr]">
         <LanesPanel lanes={lanes} tally={state.tally} />
-        <div className="grid min-h-0 grid-rows-[auto_1fr] gap-4">
+        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-4">
           <ShortlistPanel shortlist={state.shortlist} />
           <XrayPanel contexts={Object.values(state.xray)} />
         </div>
-        <div className="grid min-h-0 grid-rows-[auto_1fr_auto] gap-4">
+        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
           <LedgerPanel rows={Object.values(state.ledger)} lanes={lanes} />
           <TapPanel signed={state.tapSigned} verify={state.tapVerify} onTapTest={onTapTest} />
           <CountersPanel counters={state.counters} />

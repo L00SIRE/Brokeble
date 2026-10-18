@@ -8,13 +8,15 @@ export type JoinFields = { phone: string; firstName: string; budgetTarget: strin
 
 export const JOIN_FIELD_ORDER: readonly JoinField[] = ["phone", "firstName", "budgetTarget", "budgetMax", "consent"];
 
+// The agent rejects a target under $5 (acceptBudget: 500 cents), so the form says the same.
+const MIN_USD = 5;
 const MAX_USD = 1000;
 
 const MESSAGES: Record<JoinField, string> = {
   phone: "Enter a valid phone number, like (310) 555-0123.",
   firstName: "Enter your first name.",
-  budgetTarget: "Enter an amount between $1 and $1,000.",
-  budgetMax: "Enter an amount between $1 and $1,000.",
+  budgetTarget: "Enter an amount between $5 and $1,000.",
+  budgetMax: "Enter an amount between $5 and $1,000.",
   consent: "Agree to continue.",
 };
 
@@ -30,7 +32,7 @@ export function validateJoin(code: string, f: JoinFields): { ok: true; body: Joi
 
   const target = parseUsd(f.budgetTarget);
   const max = parseUsd(f.budgetMax);
-  const outOfRange = (n: number | null | "invalid") => n === "invalid" || (n !== null && (n <= 0 || n > MAX_USD));
+  const outOfRange = (n: number | null | "invalid") => n === "invalid" || (n !== null && (n < MIN_USD || n > MAX_USD));
   if (outOfRange(target)) errors.budgetTarget = MESSAGES.budgetTarget;
   if (outOfRange(max)) errors.budgetMax = MESSAGES.budgetMax;
   if (!errors.budgetTarget && !errors.budgetMax) {

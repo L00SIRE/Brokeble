@@ -44,19 +44,78 @@ export async function startConciergeFor(planId: string): Promise<void> {
     category: null,
     idempotency_key: conciergeIdempotencyKey(plan.ref),
   });
-  if (row.creao_run_id || row.status !== "pending") return;
+  if (row.creao_run_id) {
+    // A crash between setCreaoRunId and the enqueues left a started run with no jobs: re-arm (enqueue dedupes).
+    if (row.status === "pending" || row.status === "running") await armJobs(row.id, planId, row.started_at);
+    return;
+  }
+  if (row.status !== "pending") return;
 
   try {
     const { runId } = await ports.planner.startConcierge(input);
     await researchRuns.setCreaoRunId(row.id, runId, null);
   } catch (err) {
     log.warn({ plan_id: planId, ...errInfo(err) }, "concierge: start failed, using code fallback");
-    if (await researchRuns.finishRun(row.id, "failed")) await conciergeFallback(planId);
+    if (await researchRuns.finishRun(row.id, "failed")) {
+      await conciergeFallback(planId);
+      // The console's CREAO lane shows the Concierge too; without this event it would show nothing at all.
+      await emit({ type: "creao.run", run_id: row.id, kind: "concierge", category: null, status: "failed", elapsed_ms: 0, source: "cached", share_url: null }).catch(
+        (e) => log.warn(errInfo(e), "emit failed"),
+      );
+    }
     return;
   }
+  await armJobs(row.id, planId, row.started_at);
+}
+
+/** Poll-chain head (+15 s) and the hard timeout (10 min after the run started). Idempotent on the dedupe keys. */
+async function armJobs(researchRunId: string, planId: string, startedAt: Date | undefined): Promise<void> {
   const opts = { planId };
-  await enqueue(B_JOB_KINDS.creaoPoll, bJobKeys.creaoPoll(row.id, 1), new Date(Date.now() + POLL_INTERVAL_MS), { research_run_id: row.id, n: 1 }, opts);
-  await enqueue(B_JOB_KINDS.creaoTimeout, bJobKeys.creaoTimeout(row.id), new Date(Date.now() + CONCIERGE_TIMEOUT_MS), { research_run_id: row.id }, opts);
+  const started = startedAt instanceof Date ? startedAt.getTime() : Date.now();
+  await enqueue(B_JOB_KINDS.creaoPoll, bJobKeys.creaoPoll(researchRunId, 1), new Date(Date.now() + POLL_INTERVAL_MS), { research_run_id: researchRunId, n: 1 }, opts);
+  await enqueue(B_JOB_KINDS.creaoTimeout, bJobKeys.creaoTimeout(researchRunId), new Date(started + CONCIERGE_TIMEOUT_MS), { research_run_id: researchRunId }, opts);
+}
+
+/** The Concierge's itinerary.json artifact: titles are display names in practice, so the id's file name counts too. */
+const isItineraryArtifact = (a: { id: string; title?: string | null }): boolean =>
+  (a.title ?? "").trim().toLowerCase() === "itinerary.json" || a.id.toLowerCase().endsWith("/itinerary.json") || a.id.toLowerCase() === "itinerary.json";
+
+const normName = (s: string): string =>
+  s
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+/** Same venue name: equal after normalizing, or one contains the other ("Tatsu Ramen" vs "Tatsu Ramen Sawtelle"). */
+const sameVenue = (a: string, b: string): boolean => {
+  const x = normName(a);
+  const y = normName(b);
+  return x.length > 0 && y.length > 0 && (x === y || (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x))));
+};
+
+/**
+ * An agent itinerary must describe what was booked and paid for: a dinner stop and a show stop, every stop naming the
+ * booked venue of its kind, and the show at the ticketed start time. Returns the validation errors (empty ⇒ ok).
+ * The live Concierge has substituted its own venues (run e9fdc9e5), so this is enforced, not just instructed.
+ */
+export function bookedStopErrors(it: Pick<Itinerary, "stops">, bundle: Bundle): { path: string; message: string }[] {
+  const errors: { path: string; message: string }[] = [];
+  const booked = { dinner: bundle.dinner.data.name, show: bundle.show.data.name } as const;
+  for (const kind of ["dinner", "show"] as const) {
+    if (!it.stops.some((s) => s.kind === kind)) errors.push({ path: "stops", message: `must include the booked ${kind} "${booked[kind]}"` });
+  }
+  it.stops.forEach((s, i) => {
+    if (!sameVenue(s.name, booked[s.kind])) errors.push({ path: `stops.${i}.name`, message: `must be the booked ${s.kind} "${booked[s.kind]}"; never substitute venues` });
+    if (s.kind === "show" && s.time !== bundle.show_start) errors.push({ path: `stops.${i}.time`, message: `must be the ticketed show start ${bundle.show_start}` });
+  });
+  return errors;
+}
+
+/** bookedStopErrors against this plan's chosen bundle; no chosen bundle ⇒ nothing can be verified ⇒ an error. */
+export async function itineraryBookingErrors(plan: PlanRow, it: Pick<Itinerary, "stops">): Promise<{ path: string; message: string }[]> {
+  const bundle = await chosenBundle(plan);
+  return bundle ? bookedStopErrors(it, bundle) : [{ path: "stops", message: "this plan has no booked bundle" }];
 }
 
 /** ConciergeInput.parse({plan_ref: plan.ref, itinerary: {date, area, party_size, dinner {name, address, time}, show {…}}}). */
@@ -73,16 +132,21 @@ export function buildConciergeInput(plan: PlanRow, bundle: Bundle, partySize: nu
   });
 }
 
-/** Completed run without a CLI-submitted itinerary: artifact titled itinerary.json → downloadArtifact → Itinerary.safeParse; else conciergeFallback. */
+/** Completed run without a CLI-submitted itinerary: an itinerary.json artifact (by title or file name) → downloadArtifact → Itinerary.safeParse; else conciergeFallback. */
 export async function onConciergeCompleted(row: ResearchRunRow, run: CreaoRun): Promise<void> {
   const [fresh, plan] = await Promise.all([researchRuns.getResearchRun(row.id), getPlan(row.plan_id)]);
   if (!plan || fresh?.result?.itinerary) return; // delivered through the CLI
-  const artifact = run.result?.artifacts?.find((a) => a.title.toLowerCase() === "itinerary.json");
+  const artifact = run.result?.artifacts?.find(isItineraryArtifact);
   if (artifact && run.id) {
     try {
       const bytes = await ports.planner.downloadArtifact(run.id, artifact.id);
       const parsed = Itinerary.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
-      if (parsed.success && parsed.data.plan_ref === plan.ref && parsed.data.ics.includes("BEGIN:VEVENT")) {
+      if (
+        parsed.success &&
+        parsed.data.plan_ref === plan.ref &&
+        parsed.data.ics.includes("BEGIN:VEVENT") &&
+        (await itineraryBookingErrors(plan, parsed.data)).length === 0
+      ) {
         await deliverItinerary(plan.id, row.id, parsed.data);
         return;
       }

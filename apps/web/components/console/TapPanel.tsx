@@ -35,7 +35,7 @@ function Steps({ steps }: { steps: readonly TapStep[] }) {
   return (
     <ol className="flex flex-col gap-1">
       {stepRows(steps).map(({ name, step }, i) => (
-        <li key={name} className="grid min-w-0 grid-cols-[1.5rem_8rem_1fr] items-baseline gap-x-2">
+        <li key={name} className="grid min-w-0 grid-cols-[1.5rem_10rem_1fr] items-baseline gap-x-2">
           <Mark ok={step ? step.ok : null} />
           <span className="font-mono capitalize">{`${i + 1} ${name}`}</span>
           <span className="min-w-0 break-words font-mono text-(length:--text-console-label) text-muted">{step?.detail ?? "not reached"}</span>
@@ -113,7 +113,7 @@ export function TapPanel({
 }) {
   const report = verify?.report ?? null;
   return (
-    <Panel title="Signed agent request (Visa Trusted Agent Protocol)">
+    <Panel title="Signed agent request (Visa Trusted Agent Protocol)" className="min-h-48">
       {!signed && !report ? (
         <Waiting />
       ) : (

@@ -72,6 +72,7 @@ vi.mock("../src/dueJobs", async (orig) => ({ ...((await orig()) as any), enqueue
 vi.mock("../src/events", () => ({ emit: vi.fn(async () => 1) }));
 vi.mock("../src/creao/concierge", () => ({ startConciergeFor: vi.fn(async () => {}) }));
 vi.mock("../src/creao/research", () => ({ cancelResearch: vi.fn(async () => {}) }));
+vi.mock("../src/repo/outbound", () => ({ usersSettledTemplate: vi.fn(async () => new Set<string>()) }));
 
 import { enqueue } from "../src/dueJobs";
 import { emit } from "../src/events";
@@ -82,7 +83,9 @@ import { fanout } from "../src/notify/fanout";
 import { notify } from "../src/notify/notify";
 import { transition } from "../src/plan/machine";
 import { buildCreateOrderRequest, createOrderJob } from "../src/plan/order";
-import { commitJob, confirm } from "../src/plan/commit";
+import { commitJob, confirm, postConfirmJob } from "../src/plan/commit";
+import { usersSettledTemplate } from "../src/repo/outbound";
+import { VenueHttpError } from "../src/venueClient";
 import { cancel } from "../src/plan/cancel";
 import { dispatchVenueEvent, displayBrand, mountVenueHook, venueClient } from "../src/plan/venueHook";
 import { Hono } from "hono";
@@ -228,6 +231,40 @@ describe("create_order", () => {
     expect(fanned("T_CANCELLED")).toHaveLength(1);
   });
 
+  it("a permanent venue rejection (HTTP 400) calls the plan off at once: CANCELLED + T_CANCELLED, no pay link", async () => {
+    vi.spyOn(w.venue, "createOrder").mockRejectedValue(new VenueHttpError(400, { error: "bad_request" }, "createOrder"));
+    await createOrderJob(job("create_order", { version: 4 }));
+    expect(plan().state).toBe("CANCELLED");
+    expect(fanned("T_CANCELLED")).toHaveLength(1);
+    expect(fanned("T_CANCELLED")[0]![3]).toEqual({ version: 4 });
+    expect(sentTo("T_PAY_LINK")).toEqual([]);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "system", level: "error" }));
+  });
+
+  it("a transient failure (venue down, 409, 5xx) is retried until the last attempt, then the plan is called off", async () => {
+    const spy = vi.spyOn(w.venue, "createOrder").mockRejectedValue(new TypeError("fetch failed"));
+    await expect(createOrderJob(job("create_order", { version: 4 }, 1))).rejects.toThrow("fetch failed");
+    spy.mockRejectedValue(new VenueHttpError(409, {}, "createOrder"));
+    await expect(createOrderJob(job("create_order", { version: 4 }, 7))).rejects.toThrow("HTTP 409");
+    expect(plan().state).toBe("ORDERING");
+    expect(fanout).not.toHaveBeenCalled();
+    spy.mockRejectedValue(new VenueHttpError(503, {}, "createOrder"));
+    await createOrderJob(job("create_order", { version: 4 }, 8)); // CREATE_ORDER_MAX_ATTEMPTS
+    expect(plan().state).toBe("CANCELLED");
+    expect(fanned("T_CANCELLED")).toHaveLength(1);
+  });
+
+  it("a plan cancelled by someone else while create_order was failing is left alone", async () => {
+    vi.spyOn(w.venue, "createOrder").mockRejectedValue(new VenueHttpError(400, {}, "createOrder"));
+    vi.spyOn(w.venue, "checkAvailability").mockImplementation(async () => {
+      plan().state = "CANCELLED";
+      return { available: true };
+    });
+    await createOrderJob(job("create_order", { version: 4 }));
+    expect(plan().state).toBe("CANCELLED");
+    expect(fanout).not.toHaveBeenCalled();
+  });
+
   it("retry after a crash past createOrder resumes from stored pay links without a second order", async () => {
     vi.mocked(transition).mockRejectedValueOnce(new Error("crash")); // dies after setVenueOrder, before APPROVING
     await expect(createOrderJob(job("create_order", { version: 4 }))).rejects.toThrow("crash");
@@ -335,6 +372,61 @@ describe("venue hook → commit (exactly once) → confirm", () => {
     expect(plan().state).toBe("CONFIRMED");
   });
 
+  it("rejected commit because the venue's deadline sweep already cancelled the order → CANCELLED + T_CANCELLED, never stuck in COMMITTING", async () => {
+    await orderAndAuthorize();
+    const orderId = plan().venue_order_id!;
+    vi.spyOn(w.venue, "commit").mockImplementation(async () => {
+      await w.venue.cancel(orderId, "deadline_passed"); // the venue's sweep wins the race
+      return { order_id: orderId, result: "rejected", tap: {} as never, captures: [] };
+    });
+    await commitJob(job("commit", { version: 4, share_id: "s" }));
+    expect(plan().state).toBe("CANCELLED");
+    expect(fanned("T_CANCELLED")).toHaveLength(1);
+  });
+
+  it("order.cancelled while COMMITTING finishes the plan (the venue only emits it once nothing was captured)", async () => {
+    await orderAndAuthorize();
+    plan().state = "COMMITTING";
+    await dispatchVenueEvent({ event_id: "e_c", at: new Date().toISOString(), order_id: plan().venue_order_id!, plan_ref: REF, type: "order.cancelled", share_id: null, payer_ref: null, data: { reason: "deadline_passed" } });
+    expect(plan().state).toBe("CANCELLED");
+    expect(fanned("T_CANCELLED")).toHaveLength(1);
+  });
+
+  it("a retried commit job that finds the order CANCELLED finishes a COMMITTING plan", async () => {
+    await orderAndAuthorize();
+    plan().state = "COMMITTING";
+    await w.venue.cancel(plan().venue_order_id!, "deadline_passed");
+    await commitJob(job("commit", { version: 4, share_id: "s" }, 2));
+    expect(plan().state).toBe("CANCELLED");
+  });
+
+  it("post_confirm backstop: T_CAPTURED only to members whose send never settled, counters and concierge again", async () => {
+    await orderAndAuthorize();
+    plan().state = "CONFIRMED";
+    vi.mocked(usersSettledTemplate).mockResolvedValueOnce(new Set(["u1", "u3"]));
+    await postConfirmJob(job("post_confirm", { version: 4 }));
+    const [, , varsFor, o] = fanned("T_CAPTURED")[0]!;
+    const only = (o as unknown as { only: (r: MemberRow) => boolean }).only;
+    expect(only(w.members[1])).toBe(true);
+    expect(only(w.members[0])).toBe(false);
+    expect((varsFor as (r: MemberRow) => unknown)(w.members[1])).toEqual({ title: "Dinner at Bestia → Show at The Echo", amount: expect.stringMatching(/^\d+\.\d\d$/) });
+    expect(emitCounters).toHaveBeenCalledTimes(1);
+    expect(startConciergeFor).toHaveBeenCalledWith(PLAN_ID);
+  });
+
+  it("post_confirm backstop: everyone settled → no second fan-out; wrong state or version → no-op", async () => {
+    await orderAndAuthorize();
+    plan().state = "CONFIRMED";
+    vi.mocked(usersSettledTemplate).mockResolvedValueOnce(new Set(["u1", "u2", "u3"]));
+    await postConfirmJob(job("post_confirm", { version: 4 }));
+    expect(fanned("T_CAPTURED")).toHaveLength(0);
+    vi.mocked(startConciergeFor).mockClear();
+    await postConfirmJob(job("post_confirm", { version: 3 }));
+    plan().state = "CANCELLED";
+    await postConfirmJob(job("post_confirm", { version: 4 }));
+    expect(startConciergeFor).not.toHaveBeenCalled();
+  });
+
   it("confirm is idempotent", async () => {
     plan().state = "COMMITTING";
     await confirm(PLAN_ID);
@@ -363,10 +455,13 @@ describe("share-level hook events", () => {
     expect(emitLedger).toHaveBeenCalled();
   });
 
-  it("share.released{retry:true} → retry link + LINK_SENT; plain release → RELEASED", async () => {
+  it("share.released{retry:true} → T_HOLD_RELEASED_RETRY (never 'declined': the card was fine) + LINK_SENT; plain release → RELEASED", async () => {
     w.members[1].stage = "HELD";
-    await dispatchVenueEvent(base("share.released", { retry: true, pay_url: "https://mock-venue.invalid/pay/r", expires_at: "2026-10-18T05:00:00Z" }));
-    expect(sentTo("T_DECLINED_RETRY")).toEqual(["u2"]);
+    const url = "https://mock-venue.invalid/pay/r";
+    await dispatchVenueEvent(base("share.released", { retry: true, pay_url: url, expires_at: "2026-10-18T05:00:00Z" }));
+    expect(vi.mocked(notify).mock.calls).toEqual([["u2", "T_HOLD_RELEASED_RETRY", { url }, { key: `tpl:${PLAN_ID}:u2:T_HOLD_RELEASED_RETRY:4:evt_share.released`, planId: PLAN_ID }]]);
+    expect(sentTo("T_DECLINED_RETRY")).toEqual([]);
+    expect(w.payLinks.get(`${PLAN_ID}:u2:4`).pay_url).toBe(url);
     expect(w.members[1].stage).toBe("LINK_SENT");
     vi.mocked(notify).mockClear();
     await dispatchVenueEvent(base("share.released", { retry: false }, 3));
@@ -383,6 +478,28 @@ describe("share-level hook events", () => {
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: "system", level: "error" }));
     expect(notify).not.toHaveBeenCalled();
     expect(emitLedger).toHaveBeenCalledTimes(2);
+  });
+
+  it("a late or redelivered share.authorized never moves a CAPTURED lane back to HELD, but still checks the commit", async () => {
+    w.members[0].stage = "CAPTURED";
+    await dispatchVenueEvent(base("share.authorized", { amount_cents: 8000, card_brand: "VISA", card_last4: "1111" }, 1));
+    expect(w.members[0].stage).toBe("CAPTURED");
+    expect(notify).not.toHaveBeenCalled();
+    expect(fanout).not.toHaveBeenCalled();
+    expect(emitLedger).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(enqueue).mock.calls.filter((c) => c[0] === "commit").map((c) => c[1])).toEqual([`commit:${PLAN_ID}:4:shr_new`]);
+  });
+
+  it("a redelivered share.authorized for a HELD lane (first dispatch failed part-way) skips the stage write but finishes the keyed messages", async () => {
+    w.members[1].stage = "HELD";
+    const { setStage } = await import("../src/plan/membership");
+    vi.mocked(setStage).mockClear();
+    await dispatchVenueEvent(base("share.authorized", { amount_cents: 8000, card_brand: "VISA", card_last4: "1111" }, 2));
+    expect(setStage).not.toHaveBeenCalled();
+    expect(sentTo("T_HELD")).toEqual(["u2"]);
+    expect(vi.mocked(notify).mock.calls.find((c) => c[1] === "T_HELD")![3].key).toBe(`tpl:${PLAN_ID}:u2:T_HELD:4`);
+    expect(fanned("T_IN_COUNT")).toHaveLength(1);
+    expect(vi.mocked(enqueue).mock.calls.some((c) => c[0] === "commit")).toBe(true);
   });
 
   it("order.cancelled finishes a CANCELLING plan once (T_CANCELLED + counters)", async () => {
@@ -444,15 +561,28 @@ describe("POST /venue/hook", () => {
     expect(verifyVenueHook.mock.calls[0]![0]).toBe('{"a": 1}');
   });
 
-  it("200 and dispatch once; a replayed event_id is not dispatched again", async () => {
+  it("200 only after the dispatch finished and was marked seen; a replayed event_id is not dispatched again", async () => {
     plan().state = "COMMITTING";
     const ev: VenueEvent = { event_id: "evt_cap", at: new Date().toISOString(), order_id: "o", plan_ref: REF, type: "order.captured", share_id: null, payer_ref: null, data: {} };
     verifyVenueHook.mockResolvedValue(ev);
     expect((await post()).status).toBe(200);
-    await vi.waitFor(() => expect(w.seen.has("evt_cap")).toBe(true));
+    expect(w.seen.has("evt_cap")).toBe(true);
     expect(plan().state).toBe("CONFIRMED");
     expect((await post()).status).toBe(200);
     expect(vi.mocked(transition).mock.calls.filter((c) => c[2] === "CONFIRMED")).toHaveLength(1);
+  });
+
+  it("a failed dispatch answers 500 and stays unseen, so the venue's sweep redelivers it (it never resends a 2xx)", async () => {
+    plan().state = "COMMITTING";
+    const ev: VenueEvent = { event_id: "evt_lost", at: new Date().toISOString(), order_id: "o", plan_ref: REF, type: "order.captured", share_id: null, payer_ref: null, data: {} };
+    verifyVenueHook.mockResolvedValue(ev);
+    vi.mocked(transition).mockRejectedValueOnce(Object.assign(new Error("connection closed"), { code: "CONNECTION_CLOSED" }));
+    expect((await post()).status).toBe(500);
+    expect(w.seen.has("evt_lost")).toBe(false);
+    expect(plan().state).toBe("COMMITTING");
+    expect((await post()).status).toBe(200); // the redelivery
+    expect(w.seen.has("evt_lost")).toBe(true);
+    expect(plan().state).toBe("CONFIRMED");
   });
 });
 

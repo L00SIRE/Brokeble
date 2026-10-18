@@ -18,6 +18,7 @@ import { getPlanByRef } from "../repo/plans";
 import type { MemberRow, PlanRow } from "../repo/types";
 import { finishCancel } from "./cancel";
 import { confirm, needsAttention } from "./commit";
+import { stageAtLeast } from "./machine";
 import { setStage } from "./membership";
 
 /**
@@ -37,16 +38,22 @@ export function mountVenueHook(app: Hono): void {
 
 /**
  * raw = await c.req.text() (never re-serialized) → verifyVenueHook(raw, c.req.raw.headers) → null ⇒ 401. Dedupe on
- * inbound_events('venue', event_id) (seen ⇒ 200). Respond 200 fast, dispatchVenueEvent, then markInboundSeen; a failed
- * dispatch stays unseen so a venue redelivery runs it again (every action below is idempotent).
+ * inbound_events('venue', event_id) (seen ⇒ 200). dispatchVenueEvent, then markInboundSeen, and only then 200: the
+ * venue marks an event delivered on any 2xx and never sends it again, so acknowledging before the dispatch finished
+ * would lose a share.authorized to a DB blip or a restart. A failed dispatch answers 500 and the venue sweep redelivers
+ * it (same event_id); one slower than the venue's 3 s timeout is redelivered too, and every action below is idempotent.
  */
 export async function handleVenueHook(c: Context): Promise<Response> {
   const ev = await venueClient.verifyVenueHook(await c.req.text(), c.req.raw.headers);
   if (!ev) return c.body(null, 401);
   if (await seenInbound("venue", ev.event_id)) return c.body(null, 200);
-  void dispatchVenueEvent(ev)
-    .then(() => markInboundSeen("venue", ev.event_id))
-    .catch((e) => log.error({ ...errInfo(e), type: ev.type, event_id: ev.event_id }, "venue hook dispatch failed"));
+  try {
+    await dispatchVenueEvent(ev);
+    await markInboundSeen("venue", ev.event_id);
+  } catch (e) {
+    log.error({ ...errInfo(e), type: ev.type, event_id: ev.event_id }, "venue hook dispatch failed");
+    return c.body(null, 500);
+  }
   return c.body(null, 200);
 }
 
@@ -62,8 +69,11 @@ const Captured = z.object({ amount_cents: z.number().int().nonnegative().optiona
 
 const ledger = (ev: VenueEvent) => venueClient.emitLedger(ev).catch((e) => log.error({ ...errInfo(e), type: ev.type }, "ledger emit failed"));
 
-/** T_DECLINED_RETRY to that person only (key suffix event_id) with the fresh link, which replaces the stored one. */
-async function sendRetryLink(plan: PlanRow, m: MemberRow, ev: VenueEvent): Promise<boolean> {
+/**
+ * The fresh link to that person only (key suffix event_id), replacing the stored one. `template`: T_DECLINED_RETRY when
+ * the card was declined; T_HOLD_RELEASED_RETRY when the venue reversed a hold it could not confirm (the card was fine).
+ */
+async function sendRetryLink(plan: PlanRow, m: MemberRow, ev: VenueEvent, template: "T_DECLINED_RETRY" | "T_HOLD_RELEASED_RETRY"): Promise<boolean> {
   const link = RetryLink.safeParse(ev.data);
   if (!link.success) {
     log.error({ type: ev.type, event_id: ev.event_id }, "venue hook: retry link missing");
@@ -71,14 +81,25 @@ async function sendRetryLink(plan: PlanRow, m: MemberRow, ev: VenueEvent): Promi
   }
   const prev = await getPayLink(plan.id, m.user_id, plan.version);
   if (prev) await upsertPayLink({ ...prev, share_id: ev.share_id ?? prev.share_id, pay_url: link.data.pay_url, expires_at: new Date(link.data.expires_at) });
-  await notify(m.user_id, "T_DECLINED_RETRY", { url: link.data.pay_url }, { key: tplKey(plan.id, m.user_id, "T_DECLINED_RETRY", plan.version, ev.event_id), planId: plan.id });
+  await notify(m.user_id, template, { url: link.data.pay_url }, { key: tplKey(plan.id, m.user_id, template, plan.version, ev.event_id), planId: plan.id });
   return true;
 }
 
 async function onAuthorized(plan: PlanRow, m: MemberRow, ev: VenueEvent): Promise<void> {
+  // A late redelivery (e.g. the sweep resending it after the capture) must never move a lane back from CAPTURED or
+  // message a booked group; the commit check still runs (it is idempotent).
+  if (stageAtLeast(m.stage, "CAPTURED") || plan.state === "CONFIRMED") {
+    await ledger(ev);
+    if (ev.share_id) await enqueueCommit(plan, ev.share_id);
+    return;
+  }
   const d = Authorized.safeParse(ev.data);
   const amount = d.success ? d.data.amount_cents : null;
-  await setStage(plan.id, m.user_id, "HELD", { amountCents: amount, cybsIdShort: d.success ? (d.data.cybs_payment_id_short ?? null) : null });
+  // Already HELD = a redelivery after a dispatch that failed part-way: skip the stage write (no duplicate lane event) but
+  // finish the rest; T_HELD and T_IN_COUNT are keyed, so whatever was already sent is not sent again.
+  if (!stageAtLeast(m.stage, "HELD")) {
+    await setStage(plan.id, m.user_id, "HELD", { amountCents: amount, cybsIdShort: d.success ? (d.data.cybs_payment_id_short ?? null) : null });
+  }
   if (d.success) {
     const brand = displayBrand(d.data.card_brand) ?? "card";
     await notify(m.user_id, "T_HELD", { amount: usd2(d.data.amount_cents), brand, last4: d.data.card_last4 }, { key: tplKey(plan.id, m.user_id, "T_HELD", plan.version), planId: plan.id });
@@ -87,15 +108,16 @@ async function onAuthorized(plan: PlanRow, m: MemberRow, ev: VenueEvent): Promis
   const k = (counts.HELD ?? 0) + (counts.CAPTURED ?? 0);
   await fanout(plan.id, "T_IN_COUNT", () => ({ k, n: members.length }), { version: plan.version, suffix: k });
   await ledger(ev);
-  if (ev.share_id) {
-    await enqueue(A_JOB_KINDS.commit, aJobKeys.commit(plan.id, plan.version, ev.share_id), new Date(), { version: plan.version, share_id: ev.share_id }, { planId: plan.id });
-  }
+  if (ev.share_id) await enqueueCommit(plan, ev.share_id);
 }
+
+const enqueueCommit = (plan: PlanRow, shareId: string) =>
+  enqueue(A_JOB_KINDS.commit, aJobKeys.commit(plan.id, plan.version, shareId), new Date(), { version: plan.version, share_id: shareId }, { planId: plan.id });
 
 /**
  * share.authorized → HELD, T_HELD {amount, brand, last4}, T_IN_COUNT fan-out, emitLedger, enqueue commit per share ·
  * share.declined → T_DECLINED_RETRY {url} (suffix event_id), upsertPayLink, emitLedger · share.auth_unknown → emitLedger ·
- * share.released → retry ? T_DECLINED_RETRY + LINK_SENT : RELEASED; emitLedger · share.captured → CAPTURED, emitLedger ·
+ * share.released → retry ? T_HOLD_RELEASED_RETRY + LINK_SENT : RELEASED; emitLedger · share.captured → CAPTURED, emitLedger ·
  * order.captured → confirm · order.cancelled → CANCELLED + T_CANCELLED + emitCounters ·
  * order.needs_attention → system:error, no DMs · tap.verified → ignored.
  */
@@ -108,8 +130,10 @@ export async function dispatchVenueEvent(ev: VenueEvent): Promise<void> {
     case "order.captured":
       return confirm(plan.id);
     case "order.cancelled":
-      // Usually CANCELLING (we asked); APPROVING/ORDERING when the venue expired the order on its own.
-      return finishCancel(plan.id, ["CANCELLING", "APPROVING", "ORDERING"]);
+      // Usually CANCELLING (we asked); APPROVING/ORDERING when the venue expired the order on its own; COMMITTING when its
+      // deadline sweep beat our commit. Safe in every case: the venue emits order.cancelled only once every share is
+      // VOID/RELEASED/DECLINED, so nothing was captured.
+      return finishCancel(plan.id, ["CANCELLING", "APPROVING", "ORDERING", "COMMITTING"]);
     case "order.needs_attention":
       return needsAttention(plan.id);
   }
@@ -120,11 +144,11 @@ export async function dispatchVenueEvent(ev: VenueEvent): Promise<void> {
     case "share.authorized":
       return onAuthorized(plan, m, ev);
     case "share.declined":
-      await sendRetryLink(plan, m, ev);
+      await sendRetryLink(plan, m, ev, "T_DECLINED_RETRY");
       break;
     case "share.released":
       if (Released.safeParse(ev.data).data?.retry === true) {
-        if (await sendRetryLink(plan, m, ev)) await setStage(plan.id, m.user_id, "LINK_SENT");
+        if (await sendRetryLink(plan, m, ev, "T_HOLD_RELEASED_RETRY")) await setStage(plan.id, m.user_id, "LINK_SENT");
       } else await setStage(plan.id, m.user_id, "RELEASED");
       break;
     case "share.captured":

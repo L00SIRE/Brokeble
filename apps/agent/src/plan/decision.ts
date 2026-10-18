@@ -1,6 +1,7 @@
 // recompute: shortlist → VOTING / refresh / NO_FIT (A plan T7). Heavy work runs as a due_job, off the inbound path.
 // A owns plan transitions, app.bundles writes, the `shortlist` SSE and every fan-out; B's computeShortlist only computes.
 // Owner A.
+import { createHash } from "node:crypto";
 import type { Bundle, PublicBundle } from "@tab/shared";
 import { cancelResearch } from "../creao/research";
 import { sql, type Tx } from "../db";
@@ -29,21 +30,37 @@ export async function onOptionsReady(planId: string): Promise<void> {
 }
 
 /**
- * computeShortlist(planId) → top3 < 3: transition([RESEARCHING, VOTING]→CANCELLED) + T_NO_FIT fan-out (never who or why).
+ * computeShortlist(planId) → no pick at all: transition([RESEARCHING, VOTING]→CANCELLED) + T_NO_FIT fan-out (never who or
+ * why). One or two picks still go to a vote: a plan that fits everyone is worth offering even when no three disjoint
+ * bundles survive. If the active member set changed while computing (someone finished prefs or left mid-compute), the
+ * result is stale (it ignored a cap, or counts a leaver), so nothing is published; a later recompute covers the new set.
  * RESEARCHING: →VOTING with writeBundles + `shortlist` + vote deadline in the same transaction, then stopPlanTyping, T_PICKS.
  * VOTING and top3 ids (in rank order) changed: VOTING→VOTING {version, bumpVersion} (null → another recompute won), same
  * writes for the new version, VOTED stages reset, T_PICKS_REFRESH to prior holders + T_PICKS to newcomers.
  * Unchanged: T_PICKS to newcomers only, then maybeCloseVote (a leaver may have been the last non-voter).
- * Any other state (incl. SHOWCASE, whose options are only a live-Scout showcase) is a no-op.
+ * Picks only ever go to members whose constraints were in the computation; a later joiner gets them from their own
+ * recompute. Any other state (incl. SHOWCASE, whose options are only a live-Scout showcase) is a no-op.
  */
 export async function recompute(planId: string): Promise<void> {
   const plan = await getPlan(planId);
   if (!plan || (plan.state !== "RESEARCHING" && plan.state !== "VOTING")) return;
+  const before = memberSetKey(await listMembers(planId));
   const result = await computeShortlist(planId);
+  const after = memberSetKey(await listMembers(planId));
+  if (after.key !== before.key) {
+    // VOTING: the joiner's onPrefsDone (or the leaver's onOut) already queued its own recompute, which runs after the
+    // change. RESEARCHING queues none, so queue one per member set here.
+    log.info({ plan_id: planId, state: plan.state }, "plan.recompute: members changed mid-compute; not publishing");
+    if (plan.state === "RESEARCHING") await enqueue(A_JOB_KINDS.recompute, aJobKeys.recompute(planId, `members:${after.hash}`), new Date(), {}, { planId });
+    return;
+  }
+  const included = before.ids;
 
-  if (result.top3.length < 3) {
+  if (result.top3.length === 0) {
     const t = await transition(planId, ["RESEARCHING", "VOTING"], "CANCELLED", { version: plan.version });
     if (!t) return;
+    // Counts only: never which constraint or whose (P1/P7).
+    log.info({ plan_id: planId, from_count: result.from_count, survived_count: result.survived_count, top3: 0 }, "plan.no_fit");
     stopPlanTyping(planId);
     await fanout(planId, "T_NO_FIT", () => ({}), { version: t.version });
     await cancelResearch(planId).catch((err: unknown) => log.warn({ ...errInfo(err), plan_id: planId }, "plan.recompute cancelResearch"));
@@ -58,14 +75,14 @@ export async function recompute(planId: string): Promise<void> {
     const t = await transition(planId, "RESEARCHING", "VOTING", { version: plan.version, inTx: (tx, w) => publish(tx, w.version) });
     if (!t) return;
     stopPlanTyping(planId);
-    await sendPicks(planId, t.version, publicTop3, new Set());
+    await sendPicks(planId, t.version, publicTop3, new Set(), included);
     return;
   }
 
   const current = await getShortlist(planId, plan.version);
   const holders = await picksHolders(planId);
   if (sameIds(current.map((b) => b.id), top3Ids)) {
-    await sendPicks(planId, plan.version, publicTop3, holders, { newcomersOnly: true });
+    await sendPicks(planId, plan.version, publicTop3, holders, included, { newcomersOnly: true });
     await maybeCloseVote(planId, plan.version);
     return;
   }
@@ -76,7 +93,14 @@ export async function recompute(planId: string): Promise<void> {
   const members = await listMembers(planId);
   for (const m of members) if (m.stage === "VOTED") await setStage(planId, m.user_id, "PREFS_DONE");
   await emit({ type: "vote.tally", plan_id: planId, voted: 0, total: members.length });
-  await sendPicks(planId, t.version, publicTop3, holders);
+  await sendPicks(planId, t.version, publicTop3, holders, included);
+}
+
+/** Sorted active member ids, their join key and a short hash (a dedupe-key suffix: one queued recompute per member set). */
+function memberSetKey(members: readonly MemberRow[]): { ids: ReadonlySet<string>; key: string; hash: string } {
+  const sorted = members.map((m) => m.user_id).sort();
+  const key = sorted.join(",");
+  return { ids: new Set(sorted), key, hash: createHash("sha1").update(key).digest("hex").slice(0, 12) };
 }
 
 /** The winning transaction's writes: bundles for `version`, the `shortlist` event, the vote deadline and its job. */
@@ -90,11 +114,19 @@ async function publishVersion(tx: Tx, planId: string, version: number, r: Shortl
 
 /**
  * T_PICKS to active members who never got picks; T_PICKS_REFRESH to those who did (skipped when `newcomersOnly`).
+ * Only members in `included` (whose caps the shortlist was computed with) are sent anything.
  * tplKey(version) dedupes retries of this job.
  */
-async function sendPicks(planId: string, version: number, bundles: readonly PublicBundle[], holders: ReadonlySet<string>, o: { newcomersOnly?: boolean } = {}): Promise<void> {
+async function sendPicks(
+  planId: string,
+  version: number,
+  bundles: readonly PublicBundle[],
+  holders: ReadonlySet<string>,
+  included: ReadonlySet<string>,
+  o: { newcomersOnly?: boolean } = {},
+): Promise<void> {
   const lines = picksLines(bundles);
-  const active = (m: MemberRow) => stageAtLeast(m.stage, "PREFS_DONE");
+  const active = (m: MemberRow) => included.has(m.user_id) && stageAtLeast(m.stage, "PREFS_DONE");
   await fanout(planId, "T_PICKS", () => ({ lines }), { version, only: (m) => active(m) && !holders.has(m.user_id) });
   if (!o.newcomersOnly && holders.size > 0) {
     await fanout(planId, "T_PICKS_REFRESH", () => ({ lines }), { version, only: (m) => active(m) && holders.has(m.user_id) });

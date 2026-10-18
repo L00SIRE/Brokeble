@@ -66,7 +66,7 @@ export function CreaoLane({ runs, progress }: { runs: readonly CreaoRunView[]; p
       {runs.length === 0 && progress.length === 0 ? (
         <Waiting />
       ) : (
-        <div className="flex max-h-full flex-col gap-3 overflow-y-auto">
+        <div tabIndex={0} aria-label="CREAO runs" className="flex max-h-48 flex-col gap-3 overflow-y-auto">
           {runs.length > 0 && (
             <ul className="flex flex-col gap-2">
               {runs.map((r) => (
@@ -74,14 +74,16 @@ export function CreaoLane({ runs, progress }: { runs: readonly CreaoRunView[]; p
               ))}
             </ul>
           )}
-          {/* role=log is an implicit polite live region: new lines are announced without stealing focus */}
-          <ol role="log" aria-label="CREAO progress" className="flex flex-col gap-1 font-mono text-(length:--text-console-label) text-muted">
-            {progress.map((p) => (
-              <li key={p.id} className="min-w-0 break-words">
-                <span className="text-accent">{p.category ?? p.kind}</span> {p.step}
-              </li>
-            ))}
-          </ol>
+          {/* polite live region: new lines are announced without stealing focus */}
+          <div aria-live="polite">
+            <ol aria-label="CREAO progress" className="flex flex-col gap-1 font-mono text-(length:--text-console-label) text-muted">
+              {progress.map((p) => (
+                <li key={p.id} className="min-w-0 break-words">
+                  <span className="text-accent">{p.category ?? p.kind}</span> {p.step}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
       )}
     </Panel>

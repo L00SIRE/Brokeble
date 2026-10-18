@@ -31,6 +31,18 @@ describe("P1: budgets are reachable only from the allowlist", () => {
     const offenders = sources.filter((f) => readFileSync(join(root, f), "utf8").includes("private_constraints") && f !== "src/repo/privateConstraints.ts");
     expect(offenders).toEqual([]);
   });
+
+  it("only allowlisted src files read constraints through repo/privateConstraints (writes from join/seed are fine)", () => {
+    const offenders = sources.filter(
+      (f) => f.startsWith("src/") && !/\.test\.tsx?$/.test(f) && !P1_ALLOW(f) && /privateConstraints\.(get|listForPlan)\b/.test(readFileSync(join(root, f), "utf8")),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("a delegate reads only its own person's row: no src/delegates file lists the whole plan's budgets (P1a)", () => {
+    const offenders = sources.filter((f) => f.startsWith("src/delegates/") && !/\.test\.tsx?$/.test(f) && /privateConstraints\.listForPlan\b/.test(readFileSync(join(root, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe("P3: only notify.ts sends text", () => {

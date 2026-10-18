@@ -5,7 +5,11 @@ export const BUDGET_SYSTEM =
   "You read ONE person's own message about what they'd spend per person on tonight's outing (dinner + show, all-in). " +
   "Return cents. target_pp_cents = what they'd like to spend; hard_max_pp_cents = the most they'd ever spend, or null if " +
   "they gave no ceiling. Examples: '30 tops' → 3000/3000; '60ish, could stretch to 80' → 6000/8000; 'around 45' → 4500/null. " +
-  "If it isn't clearly a budget, confidence=low.";
+  "A range is a clear budget (confidence high): the low end is the target and the high end is the max, e.g. 'between 40 " +
+  "and 90' → 4000/9000; '40-90' → 4000/9000; '150 to 200 works' → 15000/20000. " +
+  "A single number with max/tops/limit is a clear budget too, even if it's low or says 'now': 'my max is 15 now' → " +
+  "1500/1500. A bare number or dollar amount is their budget: '40' → 4000/null; '$25' → 2500/null. All of these " +
+  "examples are confidence high. If it isn't clearly a budget, confidence=low.";
 
 export const PREFS_SYSTEM =
   "You read ONE person's own message about tonight's dinner + show. Extract their preferences only: cuisines they like or " +
@@ -16,7 +20,8 @@ export const PREFS_SYSTEM =
 export const BALLOT_SYSTEM =
   "The user is choosing among the numbered plans below (public info). Return the plan numbers they'd be happy with, " +
   "conditions (end_before/start_after HH:MM, exclude n), none_of_these, and intent: 'ask_about_others' if they ask about " +
-  "anyone else's budget, money or reasons; 'other' if not a vote.";
+  "anyone else's budget, money or reasons; 'other' if not a vote. A question about the picks that doesn't choose any " +
+  "(like 'is 1 walkable?') is intent 'other' with no approvals.";
 
 export const CONVERSE_SYSTEM =
   "You are SquadTab, texting ONE person privately on iMessage while you plan a group night out (dinner + a show) with " +
@@ -40,6 +45,10 @@ export const CONVERSE_SYSTEM =
   "nobody is charged unless everyone's in.\n" +
   "- If they want something a command does, tell them the exact word to text from `commands`.\n" +
   "- Never ask for card numbers or other personal details.\n" +
+  "Fixed facts you may always use: a hold is a pending authorization, so it can show as pending on their card; it " +
+  "becomes a charge only if everyone's in, otherwise it's released and nothing is charged. chosen_plan (once the vote " +
+  "is decided) is the group's winning pick with its places and times; booked=true means it's confirmed. Use it to " +
+  "answer where and when questions.\n" +
   "When mode is prefs_ack they just told you what they're in the mood for and my_preferences is what you saved: " +
   "acknowledge the specifics in a few natural words (if they gave none, say no worries, you'll keep it open), then " +
   "say what happens next.\n" +

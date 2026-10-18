@@ -3,6 +3,7 @@ import type { InboundEvent, LaneStage, TemplateId, TemplateVars } from "@tab/sha
 import { cancelResearch } from "../creao/research";
 import { clearAwaiting, setAwaiting } from "../delegates/awaiting";
 import { sql } from "../db";
+import { joinWouldOverfill } from "../join/capacity";
 import { releaseSeat } from "../join/seats";
 import { errInfo, log } from "../log";
 import { fanout } from "../notify/fanout";
@@ -40,6 +41,8 @@ const PRE_ORDER: readonly PlanState[] = ["COLLECTING", "RESEARCHING", "VOTING"];
 export async function handleCommand(user: UserRow, ctx: MemberContext | null, cmd: Command, e: InboundEvent): Promise<void> {
   switch (cmd.kind) {
     case "join":
+      // The lane stays INVITED, so the same JOIN works once a spot frees up.
+      if (await joinWouldOverfill(user, cmd.code)) return void (await reply(user, "T_PLAN_FULL", {}, e));
       return onJoinText(user, cmd.code, e);
     case "help":
     case "remove_card": // no VenuePort call can forget a payer, so T_CARD_REMOVED would be a false promise
@@ -50,6 +53,8 @@ export async function handleCommand(user: UserRow, ctx: MemberContext | null, cm
       return forgetMe(user, ctx, e);
   }
   if (!ctx) return void (await reply(user, "T_NOT_IN_PLAN", {}, e));
+  // After capture nothing can be undone or changed: every plan command answers with where things stand.
+  if (ctx.plan.state === "CONFIRMED") return sendStatus(ctx, e);
   switch (cmd.kind) {
     case "status":
       return sendStatus(ctx, e);
@@ -75,11 +80,16 @@ async function cancelPlan(ctx: MemberContext, e: InboundEvent): Promise<void> {
     if (t) {
       stopPlanTyping(plan.id);
       await cancelResearch(plan.id);
-      await fanout(plan.id, "T_CANCELLED", () => ({}), { version: t.version });
+      // No pay link exists before ORDERING, so there is no authorization to talk about.
+      await fanout(plan.id, "T_PLAN_OFF", () => ({}), { version: t.version });
       return;
     }
   }
-  await cancel(plan.id, "organizer"); // also the path when the plan moved to ORDERING between the read and the transition
+  const won = await cancel(plan.id, "organizer"); // also the path when the plan moved to ORDERING between the read and the transition
+  // A finished cancel fans out T_CANCELLED. Otherwise (venue unreachable → still CANCELLING until the hook or expiry
+  // sweep, or nothing to cancel any more) the organizer would hear nothing, so tell them where it stands.
+  const now = await getPlan(plan.id);
+  if (now && (!won || now.state === "CANCELLING")) await sendStatus({ ...ctx, plan: now }, e);
 }
 
 /** Keeps the stage (dropping it would shrink member counts and trigger a recompute); allowed until the member is HELD. */
@@ -88,7 +98,7 @@ async function changeBudget(ctx: MemberContext, e: InboundEvent): Promise<void> 
   if (!stageAtLeast(participant.stage, "JOINED")) return void (await reply(user, "T_HELP", {}, e, plan.id));
   if (stageAtLeast(participant.stage, "HELD") || plan.state === "COMMITTING") return sendStatus(ctx, e);
   setAwaiting(user.id, "budget");
-  await reply(user, "T_BUDGET_ASK", {}, e, plan.id);
+  await reply(user, "T_BUDGET_REASK", {}, e, plan.id);
 }
 
 const countFrom = (by: Partial<Record<LaneStage, number>>, from: LaneStage): number =>
@@ -112,7 +122,7 @@ export function phaseText(state: PlanState, by: Partial<Record<LaneStage, number
     case "CONFIRMED":
       return "confirmed";
     case "CANCELLING":
-      return "cancelling";
+      return "cancelling; any holds are released automatically";
     case "CANCELLED":
       return "cancelled";
     case "SHOWCASE":
@@ -135,7 +145,7 @@ export async function sendReceipts(user: UserRow, e: InboundEvent): Promise<void
       if (plan?.state !== "CONFIRMED" || !plan.venue_order_id) continue;
       const share = (await ports.venue.getOrder(plan.venue_order_id)).shares.find((s) => s.payer_ref === user.payer_ref);
       if (share?.status !== "CAPTURED") continue;
-      lines.push(`${plan.title}, ${fmtDate(plan.event_date)}: ${usd2(share.amount_cents)}${share.card_last4 ? ` on card ••${share.card_last4}` : ""}`);
+      lines.push(`${plan.title}, ${fmtDate(plan.event_date)}: $${usd2(share.amount_cents)}${share.card_last4 ? ` on card ••${share.card_last4}` : ""}`);
     } catch (err) {
       log.warn({ plan_id: planId, ...errInfo(err) }, "receipts lookup failed"); // one bad order must not hide the rest
     }

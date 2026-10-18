@@ -25,12 +25,12 @@ export function ConsoleHeader({ plan, stream, invalid }: { plan: PlanView | null
   const stopped = plan !== null && step < 0;
   return (
     <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-      <div className="flex items-baseline gap-5">
+      <div className="flex flex-wrap items-baseline gap-x-5">
         <h1 className="text-(length:--text-console-key) font-semibold">SquadTab</h1>
         <p className="text-(length:--text-console-label) uppercase tracking-wide text-muted">Trust Console</p>
       </div>
-      <nav aria-label="Plan progress" className="flex items-center gap-2">
-        <ol className="flex items-center gap-2">
+      <nav aria-label="Plan progress" className="flex flex-wrap items-center gap-2">
+        <ol className="flex flex-wrap items-center gap-2">
           {PLAN_STEPS.map((label, i) => {
             const state = i < step ? "done" : i === step ? "current" : "todo";
             return (
@@ -56,7 +56,7 @@ export function ConsoleHeader({ plan, stream, invalid }: { plan: PlanView | null
         ) : null}
       </nav>
       <p role="status" className="flex items-center gap-3 font-mono text-(length:--text-console-label) text-muted">
-        {plan ? <span>v{plan.version}</span> : null}
+        {plan && plan.version > 0 ? <span>v{plan.version}</span> : null}
         <span aria-hidden className={`size-3 rounded-full ${STREAM_DOT[stream]}`} />
         <span>{STREAM_LABEL[stream]}</span>
         {invalid > 0 ? <span className="text-warn">{invalid} invalid</span> : null}

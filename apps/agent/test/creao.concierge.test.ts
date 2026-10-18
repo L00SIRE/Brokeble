@@ -24,7 +24,7 @@ vi.mock("../src/notify/notify", () => ({
 vi.mock("../src/creao/notionFallback", () => ({ createNotionPage: m.createNotionPage }));
 vi.mock("../src/creao/research", () => ({}));
 
-import { buildConciergeInput, conciergeFallback, deliverItinerary, onConciergeCompleted, startConciergeFor } from "../src/creao/concierge";
+import { bookedStopErrors, buildConciergeInput, conciergeFallback, deliverItinerary, onConciergeCompleted, startConciergeFor } from "../src/creao/concierge";
 import { env } from "../src/env";
 
 const REF = "11111111-1111-4111-8111-111111111111";
@@ -76,18 +76,31 @@ describe("startConciergeFor", () => {
     expect(m.enqueue.mock.calls.map((c) => [c[0], c[1]])).toEqual([["creao_poll", "r1:1"], ["creao_timeout", "r1"]]);
     expect((m.enqueue.mock.calls[1]![2] as Date).getTime() - Date.now()).toBeGreaterThan(9 * 60_000);
   });
-  it("is a no-op when the run already started (cap 1 per plan)", async () => {
-    m.insertResearchRun.mockResolvedValue({ id: "r1", status: "running", creao_run_id: "cr1" });
+  it("never starts a second run (cap 1 per plan), but re-arms the jobs of a started, unfinished one", async () => {
+    const startedAt = new Date(Date.now() - 60_000);
+    m.insertResearchRun.mockResolvedValue({ id: "r1", status: "running", creao_run_id: "cr1", started_at: startedAt });
+    await startConciergeFor("p1");
+    expect(m.startConcierge).not.toHaveBeenCalled();
+    expect(m.enqueue.mock.calls.map((c) => [c[0], c[1]])).toEqual([["creao_poll", "r1:1"], ["creao_timeout", "r1"]]);
+    expect((m.enqueue.mock.calls[1]![2] as Date).getTime()).toBe(startedAt.getTime() + 10 * 60_000);
+  });
+  it("is a no-op for a finished run", async () => {
+    m.insertResearchRun.mockResolvedValue({ id: "r1", status: "completed", creao_run_id: "cr1", started_at: new Date() });
+    await startConciergeFor("p1");
+    m.insertResearchRun.mockResolvedValue({ id: "r1", status: "failed", creao_run_id: null, started_at: new Date() });
     await startConciergeFor("p1");
     expect(m.startConcierge).not.toHaveBeenCalled();
     expect(m.enqueue).not.toHaveBeenCalled();
   });
-  it("falls back to code when CREAO fails, and never throws", async () => {
+  it("falls back to code when CREAO fails, tells the console, and never throws", async () => {
     m.startConcierge.mockRejectedValue(new Error("402"));
     await expect(startConciergeFor("p1")).resolves.toBeUndefined();
     expect(m.finishRun).toHaveBeenCalledWith("r1", "failed");
     expect(m.mergeRunResult).toHaveBeenCalledWith("r1", { itinerary: expect.objectContaining({ plan_ref: REF }) });
     expect(m.enqueue).not.toHaveBeenCalled();
+    expect(m.emit).toHaveBeenCalledWith({
+      type: "creao.run", run_id: "r1", kind: "concierge", category: null, status: "failed", elapsed_ms: 0, source: "cached", share_url: null,
+    });
   });
   it("does nothing without a chosen bundle", async () => {
     m.getBundle.mockResolvedValue(null);
@@ -138,7 +151,10 @@ describe("onConciergeCompleted", () => {
   const row = { id: "r1", plan_id: "p1" } as never;
   const good = (): Itinerary => ({
     plan_ref: REF, title: "T", date: "2026-10-17",
-    stops: [{ kind: "dinner", name: "A", address: "1 Main St", time: "18:30", notes: "" }],
+    stops: [
+      { kind: "dinner", name: "Pho Place", address: "1 Main St, LA", time: "18:30", notes: "" },
+      { kind: "show", name: "Comedy Night", address: "2 Sunset Blvd, LA", time: "20:30", notes: "" },
+    ],
     logistics: { getting_there: "a", parking: "b", doors: "c", dress_code: "d", know_before: [] },
     ics: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", notion_url: null,
   });
@@ -158,7 +174,16 @@ describe("onConciergeCompleted", () => {
     expect(m.downloadArtifact).toHaveBeenCalledWith("cr1", "a1");
     expect(m.mergeRunResult).toHaveBeenCalledWith("r1", { itinerary: good() });
   });
+  it("finds the artifact by file name when its title is a display name", async () => {
+    m.getResearchRun.mockResolvedValue({ id: "r1", result: null });
+    m.downloadArtifact.mockResolvedValue(enc(good()));
+    const titled = { id: "cr1", status: "completed", result: { artifacts: [{ id: "ws/t/files/itinerary.json", title: "Pho + Comedy (party of 3)", type: "application/json", url: "" }] } };
+    await onConciergeCompleted(row, titled as never);
+    expect(m.downloadArtifact).toHaveBeenCalledWith("cr1", "ws/t/files/itinerary.json");
+    expect(m.mergeRunResult).toHaveBeenCalledWith("r1", { itinerary: good() });
+  });
   it.each([
+    ["substituted venues", { ...good(), stops: [{ kind: "dinner", name: "Shamshiri Grill", address: "x st", time: "18:30", notes: "" }, { kind: "show", name: "Geffen Playhouse", address: "y st", time: "20:15", notes: "" }] }],
     ["invalid JSON", "nope"],
     ["another plan's itinerary", { ...good(), plan_ref: "22222222-2222-4222-8222-222222222222" }],
     ["a schema violation", { ...good(), title: 5 }],
@@ -174,5 +199,19 @@ describe("onConciergeCompleted", () => {
     await onConciergeCompleted(row, { id: "cr1", status: "completed" } as never);
     expect(m.downloadArtifact).not.toHaveBeenCalled();
     expect(m.mergeRunResult).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("bookedStopErrors", () => {
+  const stop = (kind: "dinner" | "show", name: string, time: string) => ({ kind, name, address: "1 Main St", time, notes: "" });
+  it("accepts the booked venues, tolerating case, punctuation and a branch suffix", () => {
+    expect(bookedStopErrors({ stops: [stop("dinner", "PHO PLACE", "18:15"), stop("show", "Comedy Night — Main Room", "20:30")] }, bundle)).toEqual([]);
+    expect(bookedStopErrors({ stops: [stop("dinner", "Pho Place", "18:30"), stop("show", "comedy night", "20:30")] }, bundle)).toEqual([]);
+  });
+  it("rejects substituted venues, a missing kind and a moved show start", () => {
+    expect(bookedStopErrors({ stops: [stop("dinner", "Shamshiri Grill", "18:30"), stop("show", "Comedy Night", "20:30")] }, bundle).map((e) => e.path)).toEqual(["stops.0.name"]);
+    expect(bookedStopErrors({ stops: [stop("dinner", "Pho Place", "18:30")] }, bundle).map((e) => e.path)).toEqual(["stops"]);
+    expect(bookedStopErrors({ stops: [stop("dinner", "Pho Place", "18:30"), stop("show", "Comedy Night", "20:15")] }, bundle).map((e) => e.path)).toEqual(["stops.1.time"]);
+    expect(bookedStopErrors({ stops: [stop("dinner", "Pho", "18:30"), stop("show", "Comedy Night", "20:30")] }, bundle).map((e) => e.path)).toEqual(["stops.0.name"]);
   });
 });

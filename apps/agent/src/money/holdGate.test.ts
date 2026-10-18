@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   onOut: vi.fn(),
   setAwaiting: vi.fn(),
   clearAwaiting: vi.fn(),
+  getBundle: vi.fn(),
 }));
 
 vi.mock("../repo/privateConstraints", () => ({ get: m.getConstraints }));
@@ -28,6 +29,8 @@ vi.mock("../notify/render", () => ({
 }));
 vi.mock("../plan/membership", () => ({ setStage: m.setStage, onOut: m.onOut }));
 vi.mock("../delegates/awaiting", () => ({ setAwaiting: m.setAwaiting, clearAwaiting: m.clearAwaiting }));
+vi.mock("../repo/bundles", () => ({ getBundle: m.getBundle }));
+vi.mock("../plan/decision", () => ({ bundleTitle: (b: { id: string }) => `Dinner at D-${b.id} → Show at S-${b.id}` }));
 
 import * as holdGate from "./holdGate";
 import type { MemberContext } from "../repo/types";
@@ -94,6 +97,16 @@ describe("answer", () => {
     expect(m.setStage).toHaveBeenCalledWith(PLAN, USER, "LINK_SENT", { amountCents: 6000 });
     expect(m.clearAwaiting).toHaveBeenCalledWith(USER);
     expect(m.onOut).not.toHaveBeenCalled();
+  });
+
+  it("YES uses the booked bundle's title (same as everyone else's pay link), not the plan's working title", async () => {
+    m.getGate.mockResolvedValue({ status: "pending" });
+    m.getBundle.mockResolvedValue({ id: "bnd_1" });
+    const c = ctx("GATED");
+    (c.plan as { chosen_bundle_id?: string }).chosen_bundle_id = "bnd_1";
+    await holdGate.answer(c, true, inbound);
+    expect(m.getBundle).toHaveBeenCalledWith(PLAN, 2, "bnd_1");
+    expect(m.notify).toHaveBeenCalledWith(USER, "T_PAY_LINK", expect.objectContaining({ title: "Dinner at D-bnd_1 → Show at S-bnd_1" }), expect.anything());
   });
 
   it("NO declines and treats it as being out, without sending a link", async () => {

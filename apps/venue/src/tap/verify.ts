@@ -69,10 +69,12 @@ export async function verifyTap(
   for (const c of requiredComponents(method)) if (!parsed.components.includes(c)) return fail(2, `missing ${c}`);
   const unsupported = parsed.components.find((c) => !(["@method", "@authority", "@path", "content-digest"] as string[]).includes(c));
   if (unsupported) return fail(2, `unsupported component ${unsupported}`);
+  if (new Set(parsed.components).size !== parsed.components.length) return fail(2, "duplicate component"); // RFC 9421 §2.5
   pass(2, "created, expires, keyid, alg, nonce, tag present");
 
   // 3. timestamps
   const now = d.now();
+  if (p.expires <= p.created) return fail(3, "expires must be after created");
   if (p.created > now + SKEW_S) return fail(3, `created ${p.created - now}s in the future`);
   if (p.expires <= now) return fail(3, `expired ${now - p.expires}s ago`);
   if (p.expires - p.created > MAX_WINDOW_S) return fail(3, `window ${p.expires - p.created}s exceeds ${MAX_WINDOW_S}s`);

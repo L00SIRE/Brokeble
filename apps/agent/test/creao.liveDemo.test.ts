@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   findShowcasePlan: vi.fn(), insertPlan: vi.fn(), insertResearchRun: vi.fn(), latestLiveDemoStartedAt: vi.fn(), listRunsForPlan: vi.fn(), launchScout: vi.fn(),
+  emitScoutXray: vi.fn(),
 }));
 vi.mock("../src/repo/plans", () => ({ findShowcasePlan: m.findShowcasePlan, insertPlan: m.insertPlan }));
 vi.mock("../src/repo/researchRuns", () => ({
@@ -9,6 +10,7 @@ vi.mock("../src/repo/researchRuns", () => ({
 }));
 vi.mock("../src/ops/seed", () => ({ laToday: () => "2026-10-17" }));
 vi.mock("../src/creao/research", () => ({ launchScout: m.launchScout }));
+vi.mock("../src/creao/xray", () => ({ emitScoutXray: m.emitScoutXray }));
 
 import { ensureShowcasePlan, LIVE_DEMO_DEBOUNCE_MS, startLiveScoutDemo } from "../src/creao/liveDemo";
 
@@ -22,6 +24,7 @@ beforeEach(() => {
   m.listRunsForPlan.mockResolvedValue([{}, {}]);
   m.insertResearchRun.mockImplementation(async (r) => ({ id: "run-live", ...r }));
   m.launchScout.mockResolvedValue(undefined);
+  m.emitScoutXray.mockResolvedValue(undefined);
 });
 
 describe("ensureShowcasePlan", () => {
@@ -62,10 +65,12 @@ describe("startLiveScoutDemo", () => {
     expect(plan).toBe(PLAN);
     expect(row.id).toBe("run-live");
     expect(brief).toMatchObject({ category: "dinner", date: "2026-10-17", party_size: 4, dietary_tags: [], vibe: [] });
+    expect(m.emitScoutXray).toHaveBeenCalledWith("p", [brief]); // the X-ray shows exactly what CREAO receives
   });
 
-  it("still reports ok when launching throws", async () => {
+  it("still reports ok when launching or the X-ray throws", async () => {
     m.launchScout.mockRejectedValue(new Error("x"));
+    m.emitScoutXray.mockRejectedValue(new Error("y"));
     expect(await startLiveScoutDemo()).toEqual({ ok: true, research_run_id: "run-live" });
   });
 });

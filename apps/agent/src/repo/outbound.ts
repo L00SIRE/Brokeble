@@ -56,3 +56,16 @@ export async function usersSentTemplate(planId: string, templateIds: readonly Te
       and template_id = any(${templateIds as string[]}) and status in ('pending', 'accepted')`;
   return new Set(rows.map((r) => r.user_id));
 }
+
+/**
+ * Distinct users whose `templateId` send for this plan is settled (Photon accepted it, or the shared line refused it as
+ * blocked_inbound). A 'pending' row left by a crash or a 'failed:*' row does not count, so a backstop fan-out retries
+ * exactly those (notify re-claims them under the same key, which Photon dedupes).
+ */
+export async function usersSettledTemplate(planId: string, templateId: TemplateId, tx: Db = sql): Promise<Set<string>> {
+  const rows = await tx<{ user_id: string }[]>`
+    select distinct user_id::text as user_id from app.outbound_messages
+    where plan_id = ${planId} and user_id is not null and template_id = ${templateId}
+      and status in ('accepted', 'blocked_inbound')`;
+  return new Set(rows.map((r) => r.user_id));
+}

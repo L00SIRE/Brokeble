@@ -103,14 +103,14 @@ async function waitForVoting(planId: string, pollMs: number, timeoutMs: number):
 }
 
 /**
- * resetDemo(), then feeds fixtures/demo-script.json through route() (as /dev/inbound does) with synthetic event ids.
- * Each text arrives as the team member's real Photon identity and DM space, so replies reach their phones; in photon
- * mode every scripted lane must have texted the agent once already.
+ * Validates every scripted lane (a DEMO_TEAM member who, in photon mode, has texted the agent once already) BEFORE
+ * resetting, so a bad script or team config fails without retiring the live plan. Then resetDemo() and feeds
+ * fixtures/demo-script.json through route() (as /dev/inbound does) with synthetic event ids. Each text arrives as the
+ * team member's real Photon identity and DM space, so replies reach their phones.
  */
 export async function replayDemo(o: ReplayOptions = {}): Promise<{ ok: true; steps: number }> {
   const { pauseMs = 1_500, pollMs = 500, readyTimeoutMs = 90_000 } = o;
   const script = await loadDemoScript();
-  const { plan_id: planId } = await resetDemo();
   const team = env.DEMO_TEAM;
 
   const senders = new Map<number, { handle: string; photonUserId?: string; space?: { spaceId: string; agentUserId: string } }>();
@@ -124,6 +124,7 @@ export async function replayDemo(o: ReplayOptions = {}): Promise<{ ok: true; ste
     senders.set(lane, { handle: member.phone_e164, photonUserId: user?.photon_user_id ?? undefined, space: space ?? undefined });
   }
 
+  const { plan_id: planId } = await resetDemo();
   await waitForVoting(planId, pollMs, readyTimeoutMs);
   for (const [i, step] of script.steps.entries()) {
     const s = senders.get(step.lane)!;

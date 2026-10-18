@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardFromAuth, classifyAuth, reversalDone, timeoutReversalDone, type CybsOutcome, type AuthResp } from "../src/cybs";
+import { cardFromAuth, classifyAuth, redact, reversalDone, timeoutReversalDone, type CybsOutcome, type AuthResp } from "../src/cybs";
 import { opIds } from "../src/ids";
 
 const ok = (data: AuthResp): CybsOutcome<AuthResp> => ({ kind: "ok", http: 201, data });
@@ -40,6 +40,15 @@ describe("classifyAuth", () => {
       expect(c).toEqual({ next: "AUTH_UNKNOWN", reverse: false });
       expect(JSON.stringify(c)).not.toMatch(/retry/i);
     }
+  });
+});
+
+describe("redact", () => {
+  it("keeps the top-level 4xx reason enum (forensics) and never a token or card field", () => {
+    const r = redact({ id: "1", status: "INVALID_REQUEST", reason: "INVALID_DATA", message: "x", paymentInformation: { card: { number: "4111111111111111" } } });
+    expect(r).toMatchObject({ id: "1", status: "INVALID_REQUEST", reason: "INVALID_DATA" });
+    expect(JSON.stringify(r)).not.toMatch(/4111|message|paymentInformation/);
+    expect(redact({ reason: { nested: 1 } }).reason).toBeUndefined();
   });
 });
 

@@ -4,7 +4,7 @@ import type { InboundEvent } from "@tab/shared";
 import { getAwaiting, clearAwaiting, type AwaitingFlag } from "../delegates/awaiting";
 import { applyTier, handleBudgetText } from "../delegates/budget";
 import { handleBallotText } from "../delegates/ballot";
-import { handleFreeText } from "../delegates/free";
+import { converseReply, handleFreeText, mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "../delegates/free";
 import { handlePrefsText } from "../delegates/prefs";
 import { emit } from "../events";
 import * as holdGate from "../money/holdGate";
@@ -16,8 +16,8 @@ import { stageAtLeast, TERMINAL_STAGES } from "../plan/machine";
 import type { DmAddress } from "../ports";
 import { upsertDmRoute } from "../repo/dmRoutes";
 import * as holdGates from "../repo/holdGates";
-import { getParticipant } from "../repo/participants";
-import { currentPlanForUser } from "../repo/plans";
+import { capturedPlanIdsForUser, getParticipant } from "../repo/participants";
+import { currentPlanForUser, getPlan } from "../repo/plans";
 import type { MemberContext, UserRow } from "../repo/types";
 import { findUserByPhone, findUserByPhotonId, setPhotonUserId } from "../repo/users";
 import { getPayLink } from "../repo/payLinks";
@@ -29,8 +29,11 @@ import { containsCardNumber } from "./luhn";
  * Fixed order, first match wins:
  * 0 resolve user (photon_user_id, else phone → setPhotonUserId) and upsert dm_route;
  * 1 text null → markReadSafe, return; 2 containsCardNumber → T_CARD_INTERCEPT (replyTo), system event, return
- * (before ANY log/LLM/text write); 3 markReadSafe + typingOn; 4 no user → notifyRaw(T_NOT_IN_PLAN);
- * 5 parseCommand → handleCommand; 6 awaiting flags (holdgate/tiers/budget); 7 stage handlers
+ * (before ANY log/LLM/text write); 3 markReadSafe; 4 no user → notifyRaw(T_NOT_IN_PLAN);
+ * 5 parseCommand → handleCommand (deterministic, so no typing bubble); then typingOn; a CONFIRMED plan → free text;
+ * 6 another member's budget asked about during the budget/prefs steps → T_ONLY_YOURS (code check, no stage change);
+ * 7 awaiting flags (holdgate/tiers/budget; under 'tiers' a yes/no drops the menu and a question that isn't a
+ * budget goes to the free-text delegate); 8 stage handlers
  * (JOINED → budget, BUDGET_LOCKED → prefs, VOTING ∧ ≥PREFS_DONE → digits or delegate ballot, else free).
  */
 export async function route(e: InboundEvent): Promise<void> {
@@ -51,7 +54,6 @@ export async function route(e: InboundEvent): Promise<void> {
   }
 
   markReadSafe(e);
-  typingOn(addr);
 
   if (!user) {
     await notifyRaw(addr, "T_NOT_IN_PLAN", {}, replyKey(e.message_id, 1));
@@ -60,9 +62,29 @@ export async function route(e: InboundEvent): Promise<void> {
 
   const cmd = parseCommand(text);
   if (cmd) return handleCommand(user, ctx, cmd, e);
+  // Fired only before handlers that may call the LLM: a fast deterministic reply could otherwise land before the
+  // typing request and leave a bubble showing after the answer.
+  typingOn(addr);
   if (!ctx) return handleFreeText(user, null, e);
+  if (ctx.plan.state === "CONFIRMED") {
+    clearAwaiting(user.id); // nothing can change after capture; a leftover budget/tiers flag must not reopen it
+    return handleFreeText(user, ctx, e);
+  }
 
-  const flag = await awaitingFlag(ctx);
+  let flag = await awaitingFlag(ctx);
+  const { stage } = ctx.participant;
+  if (flag === "tiers" && parseYesNo(text)) {
+    // The 1–4 menu never asks a yes/no question, so this answers something else (often a pending hold gate): drop
+    // the menu and re-read the flag, which finds the gate row again (awaitingFlag).
+    clearAwaiting(user.id);
+    flag = await awaitingFlag(ctx);
+  }
+  const answering = flag === "tiers" || flag === "budget" || stage === "JOINED" || stage === "BUDGET_LOCKED";
+  if (answering && mentionsOthersBudget(text, await otherFirstNames(ctx))) {
+    // "what's Sam's budget?" is a question, not this person's budget or preferences: answer it, keep the step open.
+    await sendOnlyYours(user.id, ctx.plan.id, e);
+    return;
+  }
   if (flag === "holdgate") {
     const yn = parseYesNo(text);
     if (yn) return holdGate.answer(ctx, yn === "yes", e);
@@ -70,12 +92,14 @@ export async function route(e: InboundEvent): Promise<void> {
     clearAwaiting(user.id); // stale flag: the gate is gone, so treat the text like any other
   } else if (flag === "tiers") {
     const tier = parseTier(text);
-    return tier ? applyTier(ctx, tier, e) : handleBudgetText(ctx, e);
+    if (tier) return applyTier(ctx, tier, e);
+    // A question that doesn't parse as a budget ("wait what does that mean") gets the delegate's answer instead of
+    // the same menu again (the menu stays open for the next reply); with no usable answer the menu is resent.
+    return handleBudgetText(ctx, e, isQuestion(text) ? () => converseReply(user, ctx, e) : undefined);
   } else if (flag === "budget") {
     return handleBudgetText(ctx, e);
   }
 
-  const { stage } = ctx.participant;
   if (stage === "JOINED") return handleBudgetText(ctx, e);
   if (stage === "BUDGET_LOCKED") return handlePrefsText(ctx, e);
   if (ctx.plan.state === "VOTING" && stageAtLeast(stage, "PREFS_DONE")) {
@@ -83,6 +107,11 @@ export async function route(e: InboundEvent): Promise<void> {
     return digits ? handleDigitsBallot(ctx, digits, e) : handleBallotText(ctx, e);
   }
   return handleFreeText(user, ctx, e);
+}
+
+/** Reads as a question: ends in "?" or opens with a question word ("wait what does that mean", "huh"). */
+export function isQuestion(text: string): boolean {
+  return /\?\s*$/.test(text) || /^\s*(?:wait|what|whats|what's|why|how|huh|which|when|where|who|is|does|do|can|could)\b/i.test(text);
 }
 
 /** By Photon user id first, else by phone (and remember the id). The handle format is unverified, so both paths exist. */
@@ -95,11 +124,30 @@ async function resolveUser(e: InboundEvent): Promise<UserRow | null> {
   return { ...byPhone, photon_user_id: e.from_user_id };
 }
 
-/** The user's lane in their most recent active plan; null once they declined or were released. */
+/**
+ * The user's lane in their most recent active plan; null once they declined or were released. With no active plan,
+ * the newest CONFIRMED plan they were charged for, while its date is today or yesterday (LA time): right after a
+ * booking is exactly when people text "what time is dinner?" or "status".
+ */
 async function loadContext(user: UserRow): Promise<MemberContext | null> {
-  const plan = await currentPlanForUser(user.id);
+  const plan = (await currentPlanForUser(user.id)) ?? (await recentConfirmedPlan(user.id));
   const participant = plan ? await getParticipant(plan.id, user.id) : null;
   return plan && participant && !TERMINAL_STAGES.includes(participant.stage) ? { user, plan, participant } : null;
+}
+
+/** Newest plan the user is CAPTURED in, if it is CONFIRMED and its event date is no older than yesterday (LA). */
+async function recentConfirmedPlan(userId: string) {
+  const [newest] = await capturedPlanIdsForUser(userId);
+  const plan = newest ? await getPlan(newest) : null;
+  return plan?.state === "CONFIRMED" && plan.event_date >= laDate(-1) ? plan : null;
+}
+
+/** YYYY-MM-DD in America/Los_Angeles, shifted by `days`. Exported for tests. */
+export function laDate(days = 0, now = new Date()): string {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /** The in-memory flag, or (after a restart) the pending hold_gates row, which is the source of truth for 'holdgate'. */

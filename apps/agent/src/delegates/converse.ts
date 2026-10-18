@@ -3,12 +3,12 @@
 // out only through notify (T_DELEGATE_REPLY) after a code guard; money/privacy messages stay fixed templates (P4).
 // Never logs message text or reply text.
 import type { InboundEvent, LaneStage, PublicBundle } from "@tab/shared";
-import { effectiveHardMax } from "../decide/filter";
 import { log } from "../log";
 import { notify, replyKey } from "../notify/notify";
 import { fmtDate, fmtDeadline } from "../notify/render";
 import { STAGE_ORDER, stageAtLeast } from "../plan/machine";
 import { ports } from "../ports";
+import { getBundle } from "../repo/bundles";
 import { countByStage } from "../repo/participants";
 import { getPreferences } from "../repo/preferences";
 import * as privateConstraints from "../repo/privateConstraints";
@@ -87,6 +87,29 @@ export function whereThingsStand(plan: PlanRow, stage: LaneStage, by: Partial<Re
 export const picksForContext = (shortlist: readonly PublicBundle[]): string[] =>
   shortlist.map((b) => `${b.index}. ${b.title} (dinner ${b.dinner_time}, show ${b.show_start}-${b.show_end_est})`);
 
+const DECIDED: readonly PlanRow["state"][] = ["ORDERING", "APPROVING", "COMMITTING", "CONFIRMED"];
+
+/**
+ * The winning pick once the vote is decided: public venue facts only (the same names, addresses and times the
+ * itinerary carries), never a price. Null before the vote closes or if the bundle row can't be found.
+ */
+async function chosenPlanFor(plan: PlanRow): Promise<ConverseInput["chosen_plan"]> {
+  if (!DECIDED.includes(plan.state) || !plan.chosen_bundle_id) return null;
+  const b = await getBundle(plan.id, plan.version, plan.chosen_bundle_id);
+  if (!b) return null;
+  return {
+    booked: plan.state === "CONFIRMED",
+    title: `Dinner at ${b.dinner.data.name} → Show at ${b.show.data.name}`,
+    dinner_name: b.dinner.data.name,
+    dinner_address: b.dinner.data.address,
+    dinner_time: clock12(b.dinner_time),
+    show_name: b.show.data.name,
+    show_address: b.show.data.address,
+    show_start: clock12(b.show_start),
+    show_end: clock12(b.show_end_est),
+  };
+}
+
 /**
  * The delegate's whole context: the sender's first name and own text, public plan facts, the sender's OWN saved
  * preferences and whether their OWN budget is set (a boolean, never a value). Nothing about any other member.
@@ -103,17 +126,20 @@ export async function buildConverseInput(
     return {
       ...base, plan: null, is_organizer: false, my_preferences: null, my_budget_set: false, commands: BASE_COMMANDS,
       where_things_stand: "They're not in an active plan right now. To start, they tap the join link a friend shares.",
+      chosen_plan: null,
     };
   }
   const { plan, participant } = ctx;
-  const [by, prefs, own] = await Promise.all([
+  const [by, prefs, own, chosen_plan] = await Promise.all([
     countByStage(plan.id),
     getPreferences(plan.id, user.id),
     privateConstraints.get(plan.id, user.id),
+    chosenPlanFor(plan),
   ]);
   const isOrganizer = plan.organizer_id === user.id;
   return {
     ...base,
+    chosen_plan,
     plan: { title: plan.title, date: fmtDate(plan.event_date), start_time: clock12(plan.time_start), area: plan.area },
     is_organizer: isOrganizer,
     where_things_stand: whereThingsStand(plan, participant.stage, by),
@@ -129,37 +155,35 @@ const MONEY = /[$€£¢]|\b\d+(?:[.,]\d+)?\s*(?:dollars?|bucks|usd|k)\b/i;
 const LONG_DIGITS = /\d(?:[ -]?\d){11,}/;
 const CLOCK = /\b\d{1,2}:\d{2}\b/g;
 
-export type GuardVerdict = "ok" | "length" | "money" | "card" | "budget_value";
+export type GuardVerdict = "ok" | "length" | "money" | "card" | "number";
 
-/** True if a number token equals any of the budget values (cents), read as dollars ("31", "31.17") or raw cents ("3117"). */
-export function matchesBudgetValue(text: string, centsValues: readonly number[]): boolean {
-  if (centsValues.length === 0) return false;
-  const values = new Set(centsValues);
-  const dollars = new Set(centsValues.flatMap((c) => [Math.floor(c / 100), Math.round(c / 100)]));
-  for (const [tok] of text.replace(CLOCK, " ").matchAll(/\d+(?:\.\d+)?/g)) {
-    const n = Number(tok);
-    if (tok.includes(".") ? values.has(Math.round(n * 100)) : dollars.has(n) || values.has(n)) return true;
-  }
-  return false;
+const NUMBER = /\d+(?:\.\d+)?/g;
+/** "05" and "5", "31.10" and "31.1" are the same number. */
+const normNum = (tok: string): string => String(Number(tok));
+
+/**
+ * Every number the delegate was given (counts, picks, times, addresses, the sender's own text), plus the 12-hour hour
+ * of each HH:MM so "18:30" covers "6". ConverseInput never holds a budget, so this set is secret-free.
+ */
+function allowedNumbers(input: ConverseInput): Set<string> {
+  const json = JSON.stringify(input);
+  const allowed = new Set((json.match(NUMBER) ?? []).map(normNum));
+  for (const [, h] of json.matchAll(/(\d{1,2}):\d{2}/g)) allowed.add(String(Number(h) % 12 || 12));
+  return allowed;
 }
 
 /**
- * Code guard on generated text before it can be sent: length, any money amount, card-like digits, and (value-specific)
- * any number matching ANY member's private budget values for this plan. Fails closed if the values can't be read.
- * Budget values are compared here only; they are never logged or returned.
+ * Code guard on generated text before it can be sent: length, any money amount, card-like digits, and any number
+ * that is not already in the delegate's own input. Synchronous and secret-independent on purpose: a guard that
+ * compared against other members' budgets would make "blocked vs sent" an oracle for those values (P1/P2).
  */
-export async function guardReply(reply: string, planId: string | null): Promise<GuardVerdict> {
+export function guardReply(reply: string, input: ConverseInput): GuardVerdict {
   if (reply.length === 0 || reply.length > MAX_REPLY) return "length";
   if (MONEY.test(reply)) return "money";
   if (containsCardNumber(reply) || LONG_DIGITS.test(reply)) return "card";
-  if (!planId || !/\d/.test(reply)) return "ok";
-  try {
-    const all = await privateConstraints.listForPlan(planId);
-    const cents = all.flatMap((c) => [c.target_pp_cents, effectiveHardMax(c), ...(c.hard_max_pp_cents === null ? [] : [c.hard_max_pp_cents])]);
-    return matchesBudgetValue(reply, cents) ? "budget_value" : "ok";
-  } catch {
-    return "budget_value";
-  }
+  const allowed = allowedNumbers(input);
+  for (const [tok] of reply.replace(CLOCK, " ").matchAll(NUMBER)) if (!allowed.has(normNum(tok))) return "number";
+  return "ok";
 }
 
 /** One delegate call; null when there is no converser (LLM_MODE=mock), the call failed, or the model wasn't confident. */
@@ -172,8 +196,8 @@ export async function askDelegate(input: ConverseInput, lane: number | null): Pr
 }
 
 /** Sends generated text as T_DELEGATE_REPLY iff it passes guardReply. Returns whether it was sent. */
-export async function sendGuardedReply(userId: string, planId: string | undefined, reply: string, e: InboundEvent, n = 1): Promise<boolean> {
-  const verdict = await guardReply(reply, planId ?? null);
+export async function sendGuardedReply(userId: string, planId: string | undefined, reply: string, e: InboundEvent, input: ConverseInput, n = 1): Promise<boolean> {
+  const verdict = guardReply(reply, input);
   if (verdict !== "ok") {
     log.info({ plan_id: planId ?? null, verdict }, "delegate reply blocked");
     return false;

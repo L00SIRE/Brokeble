@@ -1,6 +1,6 @@
 // M1 + M2: payments and Cybersource credentials live only in apps/venue; agent code reaches money only through VenuePort.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +18,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 const scanDirs = ["apps/agent/src", "apps/web", "apps/venue/src", "apps/venue/app", "packages/shared/src"].map((d) => join(root, d));
 const files = scanDirs.flatMap((d) => { try { return walk(d); } catch { return []; } });
-const rel = (f: string) => relative(root, f);
+const rel = (f: string) => relative(root, f).split(sep).join("/"); // POSIX form so the checks also hold on Windows
 const inVenue = (f: string) => rel(f).startsWith("apps/venue/");
 const inCybs = (f: string) => rel(f).startsWith("apps/venue/src/cybs/");
 

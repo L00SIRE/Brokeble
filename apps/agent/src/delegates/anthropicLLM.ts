@@ -131,7 +131,8 @@ export class AnthropicLLM implements LLMPort, DelegateConverser {
       return (r.parsed_output as T | null) ?? null;
     } catch (e) {
       // Never log e.message: a structured-output validation error quotes the model's output (which can echo a budget).
-      log.warn({ method, err: e instanceof Error ? e.name : "unknown", status: e instanceof Anthropic.APIError ? e.status : undefined }, "llm call failed");
+      // constructor.name, not e.name: SDK subclasses (APIConnectionTimeoutError, RateLimitError) keep name "Error".
+      log.warn({ method, err: e instanceof Error ? e.constructor.name : "unknown", status: e instanceof Anthropic.APIError ? e.status : undefined }, "llm call failed");
       return null;
     }
   }

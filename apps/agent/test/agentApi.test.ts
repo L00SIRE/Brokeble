@@ -11,13 +11,14 @@ const m = vi.hoisted(() => ({
   emit: vi.fn(),
   enqueue: vi.fn(),
   deliverItinerary: vi.fn(),
+  itineraryBookingErrors: vi.fn(),
 }));
 vi.mock("../src/repo/researchRuns", () => ({ findActiveRun: m.findActiveRun, mergeRunResult: m.mergeRunResult, listRunsForPlan: m.listRunsForPlan }));
 vi.mock("../src/repo/options", () => ({ upsertOptions: m.upsertOptions }));
 vi.mock("../src/repo/plans", () => ({ getPlanByRef: m.getPlanByRef }));
 vi.mock("../src/events", () => ({ emit: m.emit }));
 vi.mock("../src/dueJobs", async (orig) => ({ ...(await orig<typeof import("../src/dueJobs")>()), enqueue: m.enqueue }));
-vi.mock("../src/creao/concierge", () => ({ deliverItinerary: m.deliverItinerary }));
+vi.mock("../src/creao/concierge", () => ({ deliverItinerary: m.deliverItinerary, itineraryBookingErrors: m.itineraryBookingErrors }));
 vi.mock("../src/decide/compose", () => ({ normArea: (a: string) => a.toLowerCase().trim().replace(/\s+/g, " ") }));
 
 import { env } from "../src/env";
@@ -67,6 +68,7 @@ beforeEach(() => {
   env.PUBLIC_BASE_URL = "https://tab.example";
   m.findActiveRun.mockResolvedValue(active());
   m.enqueue.mockResolvedValue(true);
+  m.itineraryBookingErrors.mockResolvedValue([]);
 });
 
 describe("auth", () => {
@@ -246,6 +248,15 @@ describe("POST /agent/itinerary", () => {
   it("403 without an active concierge run", async () => {
     m.findActiveRun.mockResolvedValue(null);
     expect((await call("/agent/itinerary", itinerary())).status).toBe(403);
+  });
+  it("422 and no delivery when the stops are not the booked venues", async () => {
+    const errors = [{ path: "stops.0.name", message: 'must be the booked dinner "Taco Place"; never substitute venues' }];
+    m.itineraryBookingErrors.mockResolvedValue(errors);
+    const res = await call("/agent/itinerary", itinerary());
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ ok: false, errors });
+    expect(m.itineraryBookingErrors).toHaveBeenCalledWith(expect.objectContaining({ id: "plan-1" }), expect.objectContaining({ plan_ref: REF }));
+    expect(m.deliverItinerary).not.toHaveBeenCalled();
   });
 });
 

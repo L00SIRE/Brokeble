@@ -38,6 +38,12 @@ describe("parseUsd", () => {
 const ok = { phone: "310 555 0123", firstName: " Leo ", budgetTarget: "", budgetMax: "", consent: true };
 
 describe("validateJoin", () => {
+  it("rejects budgets under $5 (the agent's floor) and accepts $5", () => {
+    expect(validateJoin("4821", { ...ok, budgetTarget: "3" })).toMatchObject({ ok: false, errors: { budgetTarget: "Enter an amount between $5 and $1,000." } });
+    expect(validateJoin("4821", { ...ok, budgetTarget: "5", budgetMax: "4.99" })).toMatchObject({ ok: false, errors: { budgetMax: expect.any(String) } });
+    expect(validateJoin("4821", { ...ok, budgetTarget: "5" })).toMatchObject({ ok: true });
+  });
+
   it("builds the wire body without a budget when none is given", () => {
     expect(validateJoin("4821", ok)).toEqual({
       ok: true,
