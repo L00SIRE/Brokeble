@@ -53,12 +53,12 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 **Shared files. Edit only after announcing it:**
 - `packages/shared/src/pricing.ts`: only the `TAX` constant, and C must ack (§3.3, C-3).
 - `packages/shared/src/index.ts`: additions only, always announced. After 11 PM, additions only.
-- `apps/agent/src/ports/llm.anthropic.ts`: you implement `rateBundles` and `repairScoutJson`. A owns the other three methods. Ping A.
-- `apps/agent/src/index.ts` (foundation): the one place routes are mounted and due_jobs kinds are registered. Add your mounts in one announced PR (§5 T2).
+- `apps/agent/src/decide/ratePrompt.ts` (yours): `RATE_SYSTEM`, `buildRateUserMessage(prefs, candidates)`, `REPAIR_SYSTEM`. A's `src/delegates/anthropicLLM.ts` sends them with the parameters in T6. Never create a second Anthropic client.
+- `apps/agent/src/agentApi/register.ts` (yours; foundation stub): mount `agentApiRoutes` and `creaoHookRoutes` and register your due_jobs kinds here. Never edit `src/index.ts`.
 
 **Never touch:**
 - `apps/venue/**` and `apps/agent/src/{tap,venueClient}` (C).
-- `apps/agent/src/{photon,router,delegates,plan,notify,jobs,join,ops}` (A). Call their exported functions and ask before editing.
+- `apps/agent/src/{photon,router,delegates,plan,notify,jobs,join,ops,money,repo,dev}` (A). Call their exported functions and ask before editing.
 - `src/repo/privateConstraints.ts`: read it only through its exported function.
 - Never call `MessagingPort.sendText`. Use `notify()` (P3).
 - Never import `@tab/shared/private` outside `decide/filter.ts` and `decide/score.ts` (P1). This includes **test files**. Build test constraint objects as plain literals typed through `Parameters<typeof filter>[1]`, so the P1 import test never sees a test-file import.
@@ -74,9 +74,8 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 |---|---|---|
 | Foundation | `PlannerPort`, `LLMPort` + mocks (§9). `emit()` → `app.events` → `SseEvent` (§8). The due_jobs registry. `repo/privateConstraints.ts`. | Implement the real adapters. Emit `creao.run`, `creao.progress`, `shortlist` and `xray`. |
 | Foundation | `priceBundle()` (`packages/shared/src/pricing.ts`) | `compose()` prices bundles with it |
-| A | `notify(userId, TemplateId, vars)` | `T_STILL_LOOKING`, `T_ITINERARY`, and `T_NO_FIT` if A delegates it |
-| A | A typing helper, e.g. `setTypingFor(userId)`, using the stored `dm_routes` address | `research_typing` job. Agree the name at 8:45 PM. |
-| A | Plan state machine hooks | You call `onResearchReady(planId)` / `onResearchFailed(planId)`. A calls your `startResearch(planId)` and `runWinner(planId, version)`. Names are agreed at the 8:45 PM checkpoint (§7). |
+| A | `notify(userId, TemplateId, vars, { key, planId? })` with keys from `tplKey()` | `T_STILL_LOOKING`, `T_ITINERARY`, and `T_NO_FIT` if A delegates it |
+| A | Plan state machine hooks (final, PLAN §9) | You call `plan.onOptionsReady(planId)` once both categories have options (live or cached). A calls your `startResearch`, `cancelResearch`, `computeShortlist`, `computeWinner`, `resolveApprovals`, `startConciergeFor`, `startLiveScoutDemo`. |
 | A | `POST /join`, `POST /plans`, `GET /events?k=`, `GET /events/snapshot`, `POST /ops/*` (§18) | Web pages and console. **CORS:** `/ops/*` must allow `POST` plus the `Authorization` and `Content-Type` request headers from `WEB_ORIGIN` (it needs a preflight). Raise this with A at 10:15 PM. |
 | C | SSE events `tap.signed`, `tap.verify` (`TapVerifyReport`), `ledger`, `counters` | Console TAP panel, ledger and counters |
 
@@ -85,11 +84,11 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 | Contract | Provided by | Consumer |
 |---|---|---|
 | Real `PlannerPort` (`startScout`, `startConcierge`, `getRun`, `cancel`, `downloadArtifact`) | `src/creao/client.ts` | `research.ts`, `concierge.ts` |
-| `LLMPort.rateBundles(prefs, PublicBundle[]) → Ratings` (claude-sonnet-5-5, effort low) and `repairScoutJson(raw, category)` (claude-haiku-5-5) | `src/ports/llm.anthropic.ts` | `score.ts` orchestrator, `research.ts` |
+| Prompts and parameters for `LLMPort.rateBundles(prefs, RateCandidate[])` (claude-sonnet-5-5, low, 4096, 30 s × 2 retries) and `repairScoutJson` (claude-haiku-5-5, low, 12000, 30 s × 2 retries) | `src/decide/ratePrompt.ts` | A's `AnthropicLLM` adapter |
 | `/agent/ping`, `/agent/progress` (`AgentProgress`), `/agent/options/validate` and `/agent/options` (`ScoutSubmission` → `ValidationResult`), `/agent/itinerary` (`Itinerary`) | `src/agentApi/` | `tab` CLI in the CREAO sandbox |
 | `POST /creao/hook/:CREAO_HOOK_SECRET` | `src/creao/hook.ts` | CREAO |
-| `compose`, `fitsPrefs`, `filter`, `shortlist`, `pickWinner`, `resolveApprovals` | `src/decide/*` | A (ballot wiring, winner) |
-| `startResearch(planId)`, `runShortlist(planId, version)`, `runWinner(planId, version) → bundleId`, `startConciergeFor(planId)`, `startLiveScoutDemo()` | `research.ts`, `score.ts`, `concierge.ts`, `liveDemo.ts` | A's state machine and `/ops/live-scout` |
+| `compose`, `fitsPrefs`, `filter`, `effectiveHardMax`, `selectForRating`, `shortlist`, `pickWinner`, `resolveApprovals` | `src/decide/*` | A (`holdGate` uses `effectiveHardMax`; ballots use `resolveApprovals`) |
+| `startResearch(planId)`, `cancelResearch(planId)`, `computeShortlist(planId)`, `computeWinner(planId, version) → bundleId`, `startConciergeFor(planId)`, `startLiveScoutDemo()` | `research.ts`, `score.ts`, `concierge.ts`, `liveDemo.ts` | A's state machine and `/ops/live-scout` |
 | `GET /p/:planRef/itinerary` (HTML), `GET /p/:planRef/plan.ics` | `src/agentApi/` | `T_ITINERARY` links |
 | Web: `/`, `/j/[code]`, `/console?k=` | `apps/web` | users, judges |
 
@@ -97,10 +96,10 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
 
 - **C-1. `PublicBundle.index` is `max(3)`, but ratings run over up to 15 candidates.**
   - The limit is runtime-only. `z.infer<typeof PublicBundle>['index']` is `number`, and `Ratings` has no max. So pass the up to 15 candidates **in one call** with indices 1..15 and **never** `.parse()` them as `PublicBundle`. No chunking is needed.
-  - Proposal for type clarity (additive, before 11 PM): `export const RateCandidate = PublicBundle.extend({ index: z.number().int().min(1).max(20) })`, with `rateBundles(prefs, bundles: RateCandidate[])`.
+  - Adopted in PLAN §8/§9: `export const RateCandidate = PublicBundle.extend({ index: z.number().int().min(1).max(20) })`, with `rateBundles(prefs, candidates: RateCandidate[])`.
 - **C-2. PLAN's `filter(bundles, constraints)` signature has no prefs.**
   - Dietary and time-window checks go in a separate pure `fitsPrefs(bundles, prefs[])`, which touches no private data.
-  - The orchestrators that need constraints (`runShortlist`, `runWinner`) live **inside `score.ts`**. That file is already on the P1 allowlist, so the allowlist does not change.
+  - The orchestrators that need constraints (`computeShortlist`, `computeWinner`) live **inside `score.ts`**. That file is already on the P1 allowlist, so the allowlist does not change.
 - **C-3. `TAX` must change from `0.0975` to `0.1025`.**
   - Evidence (VERIFIED today, PDF text extracted): CDTFA Special Notice L-1037 (August 2026), "New Sales and Use Tax Rates Effective October 1, 2026". The countywide table reads "County of Los Angeles B47 D29 9.750% 10.250%" and "applies within the unincorporated area of the listed county and within any incorporated city…" that has no own district rate change.
   - The City of Los Angeles (Westwood, Sawtelle, UCLA) is not in the notice's per-city list. Its current rate equals the county's 9.75%, so the new rate is 10.25%.
@@ -108,10 +107,10 @@ Tab's thesis: *"Say no without saying why. Nobody pays until everyone's in."* B 
   - Then: PR the one-line change, get C's ack (it changes venue prices), re-run the fixture tests, and record the result in PLAN §19 before 11 PM.
 - **C-4. Voice (only if go):** a call summary sent to a user must be a **template** (P4). Add `T_VOICE_RECAP_IN`, `T_VOICE_RECAP_OUT` and `T_VOICE_RECAP_LATER` (additive; A writes the copy). Never forward ElevenLabs' LLM summary text.
 - **C-5. Itinerary storage:** there is no itineraries table. Store the `Itinerary` in the concierge run's `app.research_runs.result` under the key `itinerary`. Store the raw CREAO run result under the key `creao`, so reconcile never overwrites the itinerary. No migration is needed.
-- **C-6. Snapshot shape:** A decides the `/events/snapshot` auth (`?k=`) and response shape. Proposed: `{ last_id: number, events: { id: number, data: SseEvent }[] }`. Agree with A at 10:15 PM.
+- **C-6. Settled (PLAN §18):** `{ last_id, events: { id, data }[] }`, foundation-built.
 - **C-7. New env var (additive):** `AGENT_API_ALLOW_TEST_REF` (default `0`). Add it to `.env.example` and announce it.
-- **C-8. Reset (ask A):** `/ops/reset` and `seed:demo` must create plans with a **new** `plans.ref` each time. Scout idempotency keys contain `planRef`, so reusing a ref would make CREAO replay old runs.
-- **C-9. Live Scout showcase plan (ask A):** `seed:demo` also creates a separate "Live Scout showcase" plan row with the demo plan's area, date and times. Its state is never advanced. `startLiveScoutDemo()` runs against **its** `plan_ref`, so the CLI's active-run lookup can never confuse the showcase run with a real plan's run. Fallback: `liveDemo.ts` creates the row lazily through a small repo function.
+- **C-8. Settled:** A's `seedDemo()` inserts a new plan row on every Reset, so `plans.ref` is fresh (default `gen_random_uuid()`).
+- **C-9. Live Scout showcase plan (B owns):** `liveDemo.ts` lazily creates one row (title "Live Scout showcase", code 'S'+3 random base36, state `SHOWCASE`, the demo area/date/times) and runs `startLiveScoutDemo()` against its `plan_ref`.
 
 ---
 
@@ -235,7 +234,7 @@ Each task lists its time box, files, exact calls and a sketch.
 
 ### T2 (6:10–6:35) `/agent/*` API: `apps/agent/src/agentApi/routes.ts`
 
-Hono 4.13.13: `app.get/post`, `c.req.header()`, `c.req.json()`, `c.json()`. Body limit: `bodyLimit({ maxSize: 256 * 1024, onError: c => c.json({ok:false}, 413) })` from `hono/body-limit` (VERIFIED Context7 /honojs/website). Export one `agentApiRoutes` Hono instance. Ask the foundation owner to `app.route("/", agentApiRoutes)` and the same for `creaoHookRoutes` in `src/index.ts`, and to register your due_jobs kinds (T5).
+Hono 4.13.13: `app.get/post`, `c.req.header()`, `c.req.json()`, `c.json()`. Body limit: `bodyLimit({ maxSize: 256 * 1024, onError: c => c.json({ok:false}, 413) })` from `hono/body-limit` (VERIFIED Context7 /honojs/website). Export one `agentApiRoutes` Hono instance, and mount it, `creaoHookRoutes` and your due_jobs kinds (T5) in `src/agentApi/register.ts`.
 
 ```ts
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -257,8 +256,8 @@ const authed = (c: Context) => {
 | `GET /agent/ping` | Auth only, no active-run check → `200 {ok:true}`. Log `agent.ping` (no headers). |
 | `POST /agent/progress` | Bad token → 401. `AgentProgress.parse`. Strip control chars from `step` (`/[\u0000-\u001f\u007f]/g`). Keep an in-memory per-run counter (1 machine); past 60 → `429`. `emit({type:"creao.progress", run_id: creao_run_id ?? null, kind, category, step})` → `202 {ok:true}`. |
 | `POST /agent/options/validate` | `ScoutSubmission.safeParse` + business checks → `200 ValidationResult`. Each error is `{path: issue.path.join("."), message}`. |
-| `POST /agent/options` | Same validation. On failure → `422 ValidationResult`. Otherwise upsert into `app.options` → `201 {ok:true, accepted:n}`. Option id = `'opt_' + sha1(category\|name\|address).slice(0,10)`. If the run is `scout_live_demo`, store the options only in `research_runs.result` (never in `app.options`). Otherwise enqueue `checkResearchReady` (T5). |
-| `POST /agent/itinerary` | `Itinerary.safeParse`, plus `ics` must contain `END:VCALENDAR` and `BEGIN:VEVENT` → store in the active concierge run's `result.itinerary` → `201 {ok:true, itinerary_url, ics_url}`. Then call `notify(userId,"T_ITINERARY",{itinerary_url, ics_url})` for each participant. Idempotent: A's `tpl:<planId>:<userId>:T_ITINERARY:<version>` key ensures each user gets it once. |
+| `POST /agent/options` | Same validation. On failure → `422 ValidationResult`. Otherwise upsert into `app.options` → `201 {ok:true, accepted:n}`. Option id = `'opt_' + sha1(category\|name\|address).slice(0,10)`. If the run is `scout_live_demo`, store the options only in `research_runs.result` (never in `app.options`). Otherwise enqueue `check_research_ready` (T5). |
+| `POST /agent/itinerary` | `Itinerary.safeParse`, plus `ics` must contain `END:VCALENDAR` and `BEGIN:VEVENT` → store in the active concierge run's `result.itinerary` → `201 {ok:true, itinerary_url, ics_url}`. Then, per participant: `notify(userId, "T_ITINERARY", {itinerary_url, ics_url}, { planId, key: tplKey(planId, userId, "T_ITINERARY", plan.version) })`. The key makes it once per user. |
 
 **Business checks** (beyond zod):
 - `body.category === every option.category`, and it matches the run's category.
@@ -450,9 +449,7 @@ due_jobs kinds (foundation registry, `unique(kind, dedupe_key)`; the unique key 
 |---|---|---|---|
 | `creao_poll` | `<researchRunId>:<n>` | +15 s | `reconcile`; if not terminal, insert `n+1` |
 | `creao_timeout` | `<researchRunId>` | started + 6 min (Scout), + 10 min (Concierge) | If not terminal: `cancel()` (best-effort), status `timed_out`, then `useCached` (Scout) or the Concierge fallback (T11) |
-| `check_research_ready` | `<planId>:<version>` | now | When both categories have options (live or cached) → `runShortlist(planId, version)` → A's `onResearchReady`. If not ready yet, mark done without acting; the next category's finish enqueues again with the same key, so in practice use `<planId>:<version>:<finishedCount>`. `runShortlist` itself is guarded by a `run_shortlist` job keyed `<planId>:<version>`, so it runs once. |
-| `research_typing` | `<planId>:<n>` | +5 s while the plan is RESEARCHING | A's typing helper (§3.1) per participant. The interval is A's §19 item. |
-| `research_still_looking` | `<planId>` | +90 s | Once: `notify(u, "T_STILL_LOOKING")` per participant, if the plan is still RESEARCHING |
+| `check_research_ready` | `<planId>:<researchRunId>` | now | If both categories now have options (live or cached) → `plan.onOptionsReady(planId)` (A dedupes with `recompute:<planId>:options`). Otherwise mark done. |
 
 `useCached(row)`:
 - Do nothing if live options already exist for this run (a CLI submit, then a failed run, keeps the live data).
@@ -490,7 +487,7 @@ export const MAX_RATED = 15, SHORTLIST_N = 3;
 | `filter.ts` (P1) | `filter(bundles, constraints: PrivateConstraints[]) → Bundle[]` | Keep a bundle iff `all_in_pp_cents ≤ effectiveHardMax(c)` for **every** c. `effectiveHardMax = hard_max_pp_cents ?? Math.round(target_pp_cents*1.10)`. No logging. |
 | `rateCandidates.ts` | `selectForRating(bundles) → Bundle[]` (≤15) | Greedy coverage: repeatedly add the bundle that covers a not-yet-covered dinner or show (ties broken by id), then fill by id. |
 | `score.ts` (P1) | `nashWelfare(b, ratings, constraints)`, `shortlist(bundles, ratings, constraints) → Bundle[3]`, `pickWinner(shortlist, ballots, ratings, constraints) → bundleId` (+ the orchestrators below) | See the scoring rules below. |
-| `ballot.ts` | `resolveApprovals(parse: BallotParse, shortlist: PublicBundle[]) → string[]` | Start from the `approvals` indices. Drop `exclude` indices. `end_before` drops bundles with `show_end_est > time`; `start_after` drops bundles with `dinner_time < time`. `none_of_these` → []. Digit-only replies call it with constraints []. A calls this. |
+| `ballot.ts` | `resolveApprovals(parse: BallotParse, shortlist: PublicBundle[], planTimeStart: string) → string[]` | Start from the `approvals` indices. Drop `exclude` indices. Times are minutes since `planTimeStart`, with +24 h for any time earlier than it. `end_before` drops `show_end_est > time`; `start_after` drops `dinner_time < time`. `none_of_these` → []. Digit-only replies call it with constraints []. A calls this. |
 
 **Scoring rules (`score.ts`):**
 - Rating r = clamp(rating, 0.05, 1); a missing rating counts as 0.5.
@@ -499,23 +496,18 @@ export const MAX_RATED = 15, SHORTLIST_N = 3;
 - Shortlist: sort by NW desc, then all_in asc, then id. Greedily take bundles that share no dinner or show id until there are 3.
 - Winner: approvals desc → NW desc → all_in asc → id. Non-voters approve nothing.
 
-Orchestrators inside `score.ts`. They load constraints through `repo/privateConstraints.ts` and **never log or emit constraint values**.
-- `runShortlist(planId, version)`:
-  1. options → compose → fitsPrefs → filter → persist `app.bundles` (`survived`) → selectForRating.
-  2. Per member, all in parallel: one `llm.rateBundles(prefs, candidates)` call with indices 1..n (C-1) → `app.ratings`.
-  3. shortlist → set `shortlist_rank`.
-  4. Emit `shortlist {plan_id, version, from_count, survived_count, bundles: PublicBundle[]}`.
-  5. If fewer than 3 bundles remain, return `{ok:false}`. A sends `T_NO_FIT`; the re-roll is a stretch goal.
-- `runWinner(planId, version)` → `pickWinner` → bundle id.
+Orchestrators inside `score.ts` (P1 allowlist). They load constraints through `repo/privateConstraints.ts` and never log or emit constraint values.
+- `computeShortlist(planId)`: options → compose → fitsPrefs → filter → selectForRating → one `llm.rateBundles(prefs, candidates)` per member in parallel (indices 1..n) → upsert `app.ratings` → shortlist. Returns `{from_count, survived_count, survivors, top3}`. It writes no `app.bundles`, emits no SSE and sends no message; A does all three after its transition. If `top3.length < 3`, A sends `T_NO_FIT`.
+- `computeWinner(planId, version)`: loads the version's shortlist (`app.bundles.shortlist_rank`), ballots, ratings and constraints → `pickWinner`.
 
-**`rateBundles`** (`llm.anthropic.ts`, @anthropic-ai/sdk 0.135.0). VERIFIED in the package source:
+**`rateBundles` / `repairScoutJson` request shape** (B specifies; A's `delegates/anthropicLLM.ts` sends it; @anthropic-ai/sdk 0.135.0). VERIFIED in the package source:
 - `zodOutputFormat` comes from `@anthropic-ai/sdk/helpers/zod`, and `output_config.effort` takes `'low'|'medium'|'high'|'xhigh'|'max'`.
 - **`messages.parse()` throws `AnthropicError` when the output fails JSON parsing or the zod schema.** It does not return `parsed_output: null`.
 - The helper moves unsupported constraints (regex `pattern`, `minItems` > 1, min/max) into the description and re-checks them client-side.
 - Thinking is on by default on Sonnet 5.5 and Haiku 5.5 (claude-api skill), and thinking tokens count toward `max_tokens`. Don't set `max_tokens` too low.
 
 ```ts
-const client = new Anthropic({ timeout: 30_000, maxRetries: 2 });   // TS timeout is in ms
+// A's adapter sends: messages.parse(body, { timeout: 30_000, maxRetries: 2 })  (RequestOptions, verified Context7)
 try {
   const r = await client.messages.parse({
     model: "claude-sonnet-5-5", max_tokens: 4096,
@@ -531,6 +523,8 @@ try {
 }
 ```
 
+`parse` forwards RequestOptions on the same SDK path as `create`. A's adapter gets one test that `{timeout: 1}` throws.
+
 The server-side refusal `fallbacks` beta is deliberately not used: a refusal only degrades to default ratings.
 
 `repairScoutJson`:
@@ -544,7 +538,7 @@ The server-side refusal `fallbacks` beta is deliberately not used: a refusal onl
 - `fitsPrefs.test.ts`: a vegan member drops a non-vegan dinner; `latest_end`.
 - `score.test.ts`: diversity (no shared dinner/show); a zero rating clamps to 0.05; comfort is monotonic; deterministic tie-break.
 - `winner.test.ts`: approvals beat NW; ties → NW; non-voters.
-- `ballot.test.ts`: "2, but not if it ends after 10" parsed → only bundle 2, and only if it ends ≤ 22:00.
+- `ballot.test.ts`: "2, but not if it ends after 10" → only bundle 2, and only if it ends ≤ 22:00; a `00:30` show end counts as after 22:00; `exclude` and `start_after` cases (moved from A).
 - `pricing.test.ts` (with C): `priceBundle` with TAX 0.1025.
 - `demo.fixture.test.ts`, using `fixtures/cached-options/*` and `fixtures/demo-seed.json`:
   - **At least 3 diverse bundles survive at a 3000-cent hard max** (PLAN §15). At TAX 0.1025 and TIP 0.18, this needs `ceil(dinner_high·1.2825 + show_high·1.1025) ≤ $30`. Seed at least 3 distinct cheap dinners and at least 3 cheap or free shows.
@@ -568,15 +562,10 @@ export function buildResearchBrief(category, plan, prefsList: Preferences[], par
 ```
 
 Wiring:
-- Wire A's `RESEARCHING` entry to `startResearch(planId)`, and the `check_research_ready` job to A's `onResearchReady(planId)`.
+- Wire A's `RESEARCHING` entry to `startResearch(planId)`, and the `check_research_ready` job to A's `plan.onOptionsReady(planId)`.
 - Run with `PLANNER_MODE=mock`, then `cached`. `pnpm sim:plan` must reach VOTING.
 
-**`xray.ts`:** `emitXray(planId)` builds these contexts:
-- `scout_input:dinner` / `scout_input:show`: `locked:false`, preview = the brief JSON;
-- `fanout`: preview = the last fan-out template id;
-- `delegate:lane-<n>`: `locked:true, preview:null`.
-
-Call it at research start. A calls it after each fan-out.
+**`xray.ts`:** `emitScoutXray(planId, briefs)` emits `xray {contexts:[scout_input:dinner, scout_input:show]}` (`locked:false`, preview = the brief JSON) at research start. A emits the `fanout` and `delegate:lane-<n>` entries. Each `xray` event carries a partial list, and `consoleReducer` merges contexts by `name`.
 
 ### T8 (9:30–10:15) `apps/web`: join page, then the create page
 
@@ -612,7 +601,8 @@ Next 16: `params` and `searchParams` are **Promises**. `await` them in Server Co
 | State | UI |
 |---|---|
 | submitting | Button disabled + spinner; inputs read-only |
-| 409/503 | "Tab is at capacity, try again in a minute" (PLAN §3.2) |
+| 503 / 429 | "Tab is at capacity, try again in a minute" (PLAN §3.2) |
+| 409 | "This plan isn't taking new people anymore." |
 | 404 | "That code doesn't match a plan" |
 | 422 | Field-level errors (`aria-live="polite"`) |
 | network | Retry button |
@@ -625,8 +615,6 @@ Privacy rules for the join page:
 UX rules:
 - Inputs at 16 px or larger; 44 px tap targets; a label on every input.
 - `tabular-nums` for money; no layout shift on error.
-
-Confirm the error status codes with A at 10:15 PM.
 
 **`/` (organizer):**
 - Form fields: title, area (text, 2–60), date, start, end, party_target (2–8), organizer phone + first name.
@@ -641,7 +629,7 @@ Confirm the error status codes with A at 10:15 PM.
 - `new EventSource(`${AGENT}/events?k=${encodeURIComponent(k)}`)`. The browser reconnects automatically with `Last-Event-ID` (the server sends `id:`). A's `/events` needs CORS for `WEB_ORIGIN`.
 - On open: `GET /events/snapshot?k=` (shape per C-6).
 - Each frame: `SseEvent.safeParse(JSON.parse(e.data))`. Drop invalid frames and count them in a debug badge.
-- `consoleReducer(state, event)` is a **pure** function in `apps/web/lib/consoleReducer.ts`, unit-tested with vitest 5.0.5. It ignores ids ≤ the last applied id, so the snapshot and the SSE replay don't double-apply.
+- `consoleReducer(state, event)` is a **pure** function in `apps/web/lib/consoleReducer.ts`, unit-tested with vitest 5.0.5. It ignores ids ≤ the last applied id, so the snapshot and the SSE replay don't double-apply. It merges `xray.contexts` by `name` (each event is partial).
 
 Layout: 16:9, readable from 5 m. Key numbers ≥28 px, IDs in mono, `tabular-nums`, `prefers-reduced-motion` respected.
 
@@ -715,7 +703,7 @@ const url = "url" in page ? page.url : `https://www.notion.so/${page.id.replaceA
 - `GET /p/:planRef/plan.ics`: `Content-Type: text/calendar; charset=utf-8`, `Content-Disposition: attachment; filename="tab-plan.ics"`.
 - Unknown ref → 404.
 
-Then call `notify(userId,"T_ITINERARY",{itinerary_url, ics_url})` once per participant. A's `tpl:` key keeps it once per user, whichever path delivered the itinerary.
+Then, per participant: `notify(userId, "T_ITINERARY", {itinerary_url, ics_url}, { planId, key: tplKey(planId, userId, "T_ITINERARY", plan.version) })`. Because the key is identical on both paths, each user gets it once whichever path delivered the itinerary.
 
 ### T12 (1:15–2:15 AM) Console evidence panels + ops bar
 
@@ -747,7 +735,7 @@ Then call `notify(userId,"T_ITINERARY",{itinerary_url, ics_url})` once per parti
 - The output keys of `buildResearchBrief` are exactly the contract keys.
 - `startScout` inputs are exactly `{plan_ref, category, brief}`.
 
-**`apps/agent/test/privacy.e2e.test.ts` (P7):** a full mocked run, using the foundation's test DB setup (`DATABASE_URL_TEST` if that is the convention). It must not import `@tab/shared/private` or contain the SQL string `private_constraints`. If the foundation's P1 grep also scans `test/**`, ask it to exempt nothing; this file needs neither.
+**`apps/agent/test/privacy.e2e.test.ts` (P7):** a full mocked run, using the foundation's test DB setup (`TEST_DATABASE_URL`, PLAN §11). It must not import `@tab/shared/private` or contain the SQL string `private_constraints`. If the foundation's P1 grep also scans `test/**`, ask it to exempt nothing; this file needs neither.
 
 1. **Recorders:**
    - LLM fake: records `(method, userId?, input)`. Its `parseBudget` regex-parses `\d+(\.\d\d)?` from the message, so values flow realistically into `private_constraints`.
@@ -785,7 +773,7 @@ Then call `notify(userId,"T_ITINERARY",{itinerary_url, ics_url})` once per parti
 ### T14 (3:30–4:00 AM) Demo readiness
 
 - `demo.fixture.test.ts` is green.
-- Make a table card with the QR code for `${WEB}/j/<demo code>`. The code is fixed per seed, but the plan ref is fresh each time (C-8). Ask A to keep the seeded **code** stable across Reset.
+- Make a table card with the QR code for `${WEB}/j/<demo code>`. The code is fixed per seed, but the plan ref is fresh each time (C-8). A's Reset frees and reuses `DEMO_CODE` (default 4821).
 - Print the pre-warm checklist.
 
 ### 4:00 AM Checkpoint 2 (§7)
@@ -816,7 +804,7 @@ Then call `notify(userId,"T_ITINERARY",{itinerary_url, ics_url})` once per parti
 
 ### T16 (7:00–9:30 AM) Video, fresh snapshot, Devpost draft
 
-- **8:00:** Scout runs for **Sunday's date (2026-10-18)** → `creao:snapshot` → `demo.fixture.test.ts` green. This is a data refresh, allowed after the freeze. Confirm `seed:demo` uses date 2026-10-18.
+- **8:00:** Scout runs for **Sunday's date (2026-10-18)** → `creao:snapshot` → `demo.fixture.test.ts` green. This is a data refresh, allowed after the freeze. `seed:demo` uses LA-local today (A T7), which is 2026-10-18 on Sunday.
 - **7:00–9:00 video (2:30 target):**
   - 0:00 hook (Zelle);
   - 0:15 judge-style join on a phone;
@@ -851,7 +839,7 @@ Steps:
   - `POST https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call` with header `xi-api-key: <ELEVENLABS_API_KEY>`.
   - Body: `{agent_id, agent_phone_number_id, to_number, conversation_initiation_client_data:{dynamic_variables:{first_name,title,deadline}}}`.
   - Response 200: `{success, message, conversation_id?, sip_call_id?}`. Endpoint, body fields, response and auth header are all VERIFIED with Context7 /websites/elevenlabs_io.
-  - A's re-ping ladder calls it at T-15m for the last holdout.
+  - A schedules the `voice_nudge` job at T-15m; B's handler calls the last holdout.
 - **V4 (45 min), `POST /voice/hook`** (post-call webhook, type `post_call_transcription`):
   - Verify the `ElevenLabs-Signature: t=<ts>,v0=<hex>` header, where `v0 = HMAC_SHA256(secret, "<ts>.<rawBody>")`, with a constant-time compare (format VERIFIED with Context7, ElevenLabs webhook docs).
   - Rejecting timestamps older than 30 min is our policy; the SDK's exact tolerance is UNVERIFIED.
@@ -868,7 +856,7 @@ Steps:
 |---|---|---|---|
 | CREAO (your own) | T4 done | Foundation `PlannerPort` mock (`PLANNER_MODE=mock`) | `PLANNER_MODE=live`; `cached` for rehearsals without credits |
 | Anthropic ratings | `ANTHROPIC_API_KEY` set | `LLM_MODE=mock` (deterministic) | `LLM_MODE=anthropic` |
-| A's state machine | 8:45 PM | Call `startResearch`/`runShortlist` from a vitest harness | A's RESEARCHING entry calls them |
+| A's state machine | 9:40 PM | Call `startResearch`/`computeShortlist` from a vitest harness | A's RESEARCHING entry calls them |
 | A's `/join`, `/plans`, `/events` | Foundation (6 PM) | Foundation dev server, `MESSAGING_MODE=mock` | `NEXT_PUBLIC_AGENT_URL=https://tab-agent.fly.dev` |
 | C's TAP/ledger events | ~1 AM | `apps/web/fixtures/sse-sample.ndjson` (hand-written valid `SseEvent`s, including a rejected `tap.verify`) fed to `consoleReducer`; `?replay=fixture` dev flag | Live SSE |
 | Agent `/agent/*` (before 6 PM) | 6:00 PM | `scratch/creao/stub.mjs` + cloudflared | Secret `TAB_API_BASE=https://tab-agent.fly.dev` |
@@ -881,11 +869,11 @@ Steps:
 |---|---|---|
 | **6:00 PM (F)** | Claude/all | Foundation pulled; `pnpm sim:plan` green; single zod copy; C-1..C-9 raised |
 | **6:45 PM gate** | all | Booth answers recorded. `agent.ping` hit from an **API** Scout run. Scout produced valid options via `tab options submit` (else the result.text path becomes primary). Voice go/no-go decided. |
-| 8:45 PM | A | Hook names agreed and wired: `startResearch`, `onResearchReady`, `runShortlist`, `runWinner`, `resolveApprovals`, `startConciergeFor`, `emitXray`, typing helper. Routes mounted and due_jobs kinds registered. A mock plan reaches VOTING with your shortlist. |
+| 9:40 PM | A | Hooks (PLAN §9 names) wired; `register.ts` mounted. `seedDemo` + `recompute` with your real `computeShortlist` on cached fixtures (mock LLM) → VOTING with 3 bundles and `shortlist` on the console. |
 | 9:30 PM | C | `TAX=0.1025` merged with C's ack; the venue's `priceBundle` equals the agent's prices in a shared test |
 | 10:15 PM | A | `/join` status codes; `/events/snapshot` shape (C-6); CORS for `/ops/*` with `Authorization`; `lane`/`vote.tally`/`plan.state` events flowing |
 | **11:00 PM Checkpoint 1** | all | 2 real phones: join → cached options → ballot → sandbox hold → TAP commit → capture. The console shows lanes and the CREAO lane. If red: swarm it; no voice. |
-| ~1:00 AM | C | `tap.signed`, `tap.verify` (accepted + tamper-rejected), `ledger` and `counters` render; the `/ops/tap-test` kinds work |
+| ~1:30 AM | C | `tap.signed`, `tap.verify` (accepted + tamper-rejected), `ledger` and `counters` render; the `/ops/tap-test` kinds work |
 | **4:00 AM Checkpoint 2** | all | 4 phones (at least 1 not a team phone), 3 clean runs in a row, Reset works, `privacy.e2e` green, the live Scout lane shows progress |
 | 7:00 AM | all | Feature freeze |
 | 9:30 AM | B | Devpost draft submitted |
@@ -912,7 +900,7 @@ Steps:
   - CLI options, then failed → stays live (no cached merge);
   - timeout → `cancel` called + cached;
   - two concurrent reconciles → one finish;
-  - two `check_research_ready` jobs → one `runShortlist`.
+  - two `check_research_ready` jobs → one `recompute` enqueued.
 - `creao/client.test.ts`: an empty-body cancel doesn't throw; artifact 302 and 307 both followed without `Authorization`.
 - `agentApi/routes.test.ts`:
   - bad token → 401;

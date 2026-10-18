@@ -50,12 +50,12 @@
 | `db/migrations/004_pay_links.sql` | A's additive table (T9). Announce before 8 PM. |
 | `scratch/photon/` | throwaway spikes, git-ignored |
 
-PLAN §5 lists no owner for `src/repo/` or `src/money/`. A takes both: post "A owns repo/ + money/holdGate.ts" in team chat at 6:00.
+PLAN §5 assigns `src/repo/`, `src/money/` and `src/dev/` to A. A mounts its routes and job kinds (including `/venue/hook` and `/ops/*`) in `src/plan/register.ts`.
 
 **Do not touch. Ping the owner instead:**
-- **B:** `apps/agent/src/{creao,decide,agentApi}/**`, `apps/web/**`, `skills/tab/**`, `fixtures/cached-options/*`.
+- **B:** `apps/agent/src/{creao,decide,agentApi,voice}/**`, `apps/web/**`, `skills/tab/**`, `fixtures/cached-options/*`.
 - **C:** `apps/agent/src/{tap,venueClient}/**`, `apps/venue/**`, `packages/shared/src/{tap,pricing}.ts`.
-- **Foundation (announce changes):** `packages/shared/src/{index,private}.ts`, `apps/agent/src/ports/**`, `db/migrations/00{1,2,3}_*.sql`.
+- **Foundation (announce changes):** `packages/shared/src/{index,private}.ts`, `apps/agent/src/ports/**`, `db/migrations/00{1,2}_*.sql`, `db/roles.sql`.
 
 **Never:**
 - commit `.env*` or anything under `scratch/`;
@@ -75,29 +75,29 @@ Contract names are exactly as in PLAN §8 and §9.
 | To | Interface | Contract |
 |---|---|---|
 | Everyone | `MessagingPort`, real implementation `PhotonMessaging` | PLAN §9 |
-| Everyone | `notify(userId, TemplateId, vars, { key, replyTo? })`. Also `notifyRaw(addr: DmAddress, "T_NOT_IN_PLAN", {}, key)`, for unknown senders only, defined in `notify.ts`. | `TemplateId` + vars schemas in `templates.ts` |
-| B (`decide`), C | `LLMPort`, real implementation `AnthropicLLM`: `parseBudget`, `parsePreferences`, `parseBallot`, `repairScoutJson`.<br>`rateBundles` is plumbed by A, but **B owns its prompt and model choice** (PLAN §18 "A (delegates), B (ratings)"). B exports `RATE_SYSTEM` and `buildRateUserMessage(prefs, bundles)` from `src/decide/ratePrompt.ts`; A's adapter only sends them. | `DelegateInput`, `BudgetParse`, `Preferences`, `BallotParse`, `Ratings`, `PublicBundle` |
+| Everyone | `notify(userId, TemplateId, vars, { key, planId?, replyTo? })`, `tplKey(planId, userId, templateId, version, suffix?)`, `replyKey(inboundId, n)`. Also `notifyRaw(addr: DmAddress, "T_NOT_IN_PLAN", {}, key)`, for unknown senders only, defined in `notify.ts`. | `TemplateId` + vars schemas in `templates.ts` |
+| B (`decide`), C | `LLMPort`, real implementation `AnthropicLLM`: `parseBudget`, `parsePreferences`, `parseBallot`, `repairScoutJson`.<br>`rateBundles` is plumbed by A, but **B owns its prompt and model choice** (PLAN §18 "A (adapter + delegates), B (rate/repair prompts)"). B exports `RATE_SYSTEM`, `buildRateUserMessage(prefs, candidates)` and `REPAIR_SYSTEM` from `src/decide/ratePrompt.ts`; A's adapter only sends them. Parameters: rate = sonnet, `max_tokens 4096`, `{timeout: 30_000, maxRetries: 2}`; repair = haiku, `max_tokens 12000`, `{timeout: 30_000, maxRetries: 2}`. | `DelegateInput`, `BudgetParse`, `Preferences`, `BallotParse`, `Ratings`, `PublicBundle` |
 | B (`creao`) | `plan.onOptionsReady(planId)`. B calls it once both categories have options (`live\|cached`); A enqueues `recompute`. | — |
 | B (`apps/web`) | `POST /join`, `POST /plans`, `POST /ops/*` | PLAN §18 |
 | C (`apps/venue`) | `POST /venue/hook` (HMAC) | `VenueEvent` |
-| B (console) | SSE events A emits:<br>• `plan.state`, `lane`, `shortlist`, `vote.tally`, `ledger`;<br>• `tap.verify` (relayed from the venue hook and from commit results);<br>• `counters`;<br>• `xray` (fan-out and delegate-🔒 entries; the console merges entries by `name`);<br>• `delivery`, `system`. | `SseEvent` |
+| B (console) | SSE events A emits:<br>• `plan.state`, `lane`, `shortlist`, `vote.tally`;<br>• `ledger`/`counters` by calling C's `emitLedger(ev)`/`emitCounters()` (`venueClient/ledger.ts`); `tap.*` is emitted inside C's `VenuePort.commit`;<br>• `xray` (fan-out and delegate-🔒 entries; the console merges entries by `name`);<br>• `delivery`, `system`. | `SseEvent` |
 
 ### 3.2 You consume
 
 | From | Interface | Use |
 |---|---|---|
 | Foundation | `sql` (postgres.js), `emit(SseEvent, tx?)`, `registerJob(kind, handler)`, `enqueue(kind, dedupeKey, dueAt, payload)`, `/dev/inbound`, mocks for all 4 ports, Hono `app`. | Everything. **If foundation names differ, use foundation's names and update this file.** |
-| B | `compose(options, plan)`, `filter(bundles, constraints)`, `shortlist(bundles, ratings, constraints)`, `pickWinner(shortlist, ballots, ratings, constraints)`, and `effectiveHardMax(c)` exported from `decide/filter.ts` | `plan/decision.ts`, `plan/ballots.ts`, `money/holdGate.ts` |
-| B | `research.start(planId)`, `research.cancelPlan(planId)`, `research.startLiveDemo()`, `research.onPlanConfirmed(planId)`. The last one starts Concierge, and B sends `T_ITINERARY` through `notify`. | These are proposed hook names; confirm them at the 6:00 sync |
+| B | `computeShortlist(planId)`, `computeWinner(planId, version)` (`decide/score.ts`), `resolveApprovals(parse, shortlist, planTimeStart)` (`decide/ballot.ts`), `effectiveHardMax(c)` (`decide/filter.ts`) | `plan/decision.ts`, `plan/ballots.ts`, `money/holdGate.ts` |
+| B | `startResearch(planId)`, `cancelResearch(planId)`, `startLiveScoutDemo()`, `startConciergeFor(planId)` (starts Concierge; B sends `T_ITINERARY` through `notify`) | Final names (PLAN §9) |
 | C | `VenuePort`: `checkAvailability`, `createOrder`, `getOrder`, `commit`, `cancel` | `plan/order.ts`, `commit.ts`, `cancel.ts`, `ops/tap-test` |
-| C | `canonicalConsent(order: OrderStatus) → ConsentSet` from `packages/shared/src/tap.ts` | `plan/commit.ts`. **Never hand-build the consent body.** Use C's name if it differs. |
+| C | `consentFromOrder(order: OrderStatus) → ConsentSet` from `@tab/shared/tap` (`VenuePort.commit` serializes it with `canonicalConsent(c) → string`) | `plan/commit.ts`. **Never hand-build the consent body.** |
 
 ### 3.3 Additive contract changes A will announce (before 8 PM; all additive)
 
 1. **New `TemplateId`s** (copy in T5):
    - `T_HELP`, `T_STATUS`, `T_OUT_ACK`, `T_RECEIPTS`, `T_FORGOTTEN`, `T_ORGANIZER_ONLY`;
    - `T_BALLOT_CLARIFY`, `T_BUDGET_CONFIRM_NOCAP`, `T_SMALL_GROUP`, `T_NOT_IN_PLAN`;
-   - `T_CARD_REMOVED` (stretch).
+   - `T_CARD_REMOVED` (stretch); voice go only: `T_VOICE_RECAP_IN`, `T_VOICE_RECAP_OUT`, `T_VOICE_RECAP_LATER` (B's C-4; A writes the copy).
 2. **`VenueEvent.data` keys requested from C:**
    - `card_brand` on `share.authorized`, for `T_HELD`;
    - `pay_url` + `expires_at` on `share.declined`, and on `share.released` after a timeout reversal, for `T_DECLINED_RETRY`.
@@ -106,7 +106,7 @@ Contract names are exactly as in PLAN §8 and §9.
    - `X-Tab-Timestamp` is in unix **seconds**.
    - `/checkout` runs the 6 TAP steps **before** any order-state check. That way `/ops/tap-test` still shows a full report on an order that is already captured.
 4. **Migration `004_pay_links.sql`** (app schema only).
-5. **PLAN clarification for P1 (raise at 6:00).** `plan/decision.ts` and `plan/ballots.ts` call `repo/privateConstraints.listForPlan()` and pass the array **opaquely** into B's `filter`, `shortlist` and `pickWinner`. That means no type import, and the array is never logged, serialized or emitted. PLAN §9's signatures take constraints as a parameter, so some caller has to load them. Proposed P1 wording: "values are *read* only by delegates, `decide/filter.ts`, `decide/score.ts` and `holdGate`; `plan/{decision,ballots}.ts` pass them through." Add both files to the allowlist of the `privacy.imports` SQL-string check only if they need it (they shouldn't; the SQL stays in `repo/`).
+5. (Withdrawn: constraints are loaded only inside B's `decide/score.ts` orchestrators, so P1 and its allowlist are unchanged.)
 6. **Stretch only:** `VenuePort.forgetPayer(payerRef)` → venue `POST /payers/{payer_ref}/forget`. C decides. If it is not built, "remove card" replies `T_HELP`.
 
 ---
@@ -269,7 +269,7 @@ The **money spine (T9) must be green by 11 PM**. If you are behind, cut free-tex
 ### T0. 6:00–6:10: pull, run, sync
 - `pnpm install && pnpm test && pnpm sim:plan` must be green on mocks.
 - 5-minute sync with B and C:
-  - confirm the hook names in §3.2 and the `canonicalConsent` export;
+  - hook names are final (PLAN §9); confirm C's `consentFromOrder` export;
   - post the §3.3 list.
 
 ### T1. 6:10–6:30: `PhotonMessaging` adapter (`src/photon/{client,messaging,errors}.ts`)
@@ -454,7 +454,7 @@ Body, parsed with zod:
 There is no request-body logging anywhere; the pino redact paths include `budget_usd`.
 
 Steps:
-1. Find the plan by code with state ∈ {COLLECTING, RESEARCHING, VOTING}. Otherwise return 409 `{error:"plan_closed"}`.
+1. Find the plan by code with state ∈ {COLLECTING, RESEARCHING, VOTING}. No plan with that code → 404 `{error:"not_found"}`. Code exists but state ∉ that set → 409 `{error:"plan_closed"}`. Zod failure → 422 `{error:"invalid", issues:[{path,message}]}`. Rate limit → 429 `{error:"rate_limited"}`.
 2. Upsert the user by `phone_e164`, with `payer_ref = createHmac('sha256', PAYER_REF_SECRET).update(userId).digest('hex').slice(0,32)`. This matches `^[0-9a-f]{32}$`.
 3. Upsert the participant as `INVITED`, with `lane = coalesce(max(lane),0)+1`. Emit `lane`.
 4. If `budget_usd` is present: convert dollars to cents, validate as in T6, then call `repo/privateConstraints.upsert(…, source:'form', confidence:'high')`. **No `@tab/shared/private` import here.**
@@ -523,7 +523,7 @@ Steps:
   - `T_VOTE_TALLY` `:<k>`;
   - `T_IN_COUNT` `:<k>`;
   - `T_REPING` `:1`;
-  - `T_DECLINED_RETRY` `:<new share token id or attempt>`;
+  - `T_DECLINED_RETRY` `:<VenueEvent.event_id>` (unique per declined/released event, stable on redelivery);
   - `T_HOLD_GATE` `:<amount_cents>`.
 
 **`fanout.ts`:**
@@ -541,7 +541,7 @@ Steps:
 `@anthropic-ai/sdk@0.135.0`. Verified in the claude-api skill and on unpkg:
 - `client.messages.parse` with `zodOutputFormat` from `@anthropic-ai/sdk/helpers/zod` (exported in 0.135.0; peer `zod ^3.25 || ^4`);
 - `output_config: { format, effort }`;
-- `response.parsed_output` is null on a parse failure;
+- `messages.parse()` throws `AnthropicError` when the output fails JSON/zod validation (B verified this in `helpers/zod.js`); `parsed_output` may still be null; both map to `null`;
 - check `stop_reason === "refusal"`;
 - no prefill and no forced `tool_choice` on 5.5 models;
 - **no `temperature`, `top_p` or `top_k`** (non-default values return 400 on Haiku 5.5 and Sonnet 5.5);
@@ -552,18 +552,18 @@ Steps:
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-const client = new Anthropic({ timeout: 10_000, maxRetries: 1 });   // worst case ~20 s, inside T2's 45 s
+const client = new Anthropic();                                     // per-call limits below (RequestOptions, verified)
 
 export async function delegateParse<T>(schema: z.ZodType<T>, system: string, input: DelegateInput, extra?: string,
-                                       model: "claude-haiku-5-5" | "claude-sonnet-5-5" = "claude-haiku-5-5"): Promise<T | null> {
+                                       o: { model?: "claude-haiku-5-5" | "claude-sonnet-5-5"; maxTokens?: number; timeoutMs?: number; maxRetries?: number } = {}): Promise<T | null> {
   const body = {
-    model, max_tokens: 2048, system,                  // thinking shares max_tokens; 1024 risks truncation
+    model: o.model ?? "claude-haiku-5-5", max_tokens: o.maxTokens ?? 2048, system,                  // thinking shares max_tokens; 1024 risks truncation
     messages: [{ role: "user" as const, content: (extra ? extra + "\n\n" : "") + JSON.stringify(input) }],
     output_config: { format: zodOutputFormat(schema), effort: "low" as const },  // NO tools / tool_choice / prefill / sampling
   };
   recorder?.(body);                                   // test hook for P5/P7
   try {
-    const r = await client.messages.parse(body);
+    const r = await client.messages.parse(body, { timeout: o.timeoutMs ?? 10_000, maxRetries: o.maxRetries ?? 1 });   // delegates: worst case ~20 s, inside T2's 45 s
     if (r.stop_reason === "refusal" || r.stop_reason === "max_tokens") return null;
     return (r.parsed_output as T | null) ?? null;
   } catch { return null; }                            // API or client-side validation failure → low confidence
@@ -611,8 +611,8 @@ All tier writes use source `'tier'` and confidence `'high'`.
   - Code fallback (always on, and the only path when `LLM_MODE=mock`): `/budget|afford|spend|max/i` **and** another participant's first name → `T_ONLY_YOURS`. The match runs in code only.
 - **`repairScoutJson` (B's caller):** the same wrapper with system prompt "Fix this JSON to match the schema; do not invent fields" and the `ScoutSubmission` schema. It sees Scout text only.
 - **`rateBundles`:**
-  - Call `delegateParse(Ratings, RATE_SYSTEM, …, "claude-sonnet-5-5")`.
-  - Build the user content with B's `buildRateUserMessage(prefs, bundles)`. Add a variant of the wrapper that takes a raw user string; keep the recorder.
+  - Call `delegateParse(Ratings, RATE_SYSTEM, …, { model: "claude-sonnet-5-5", maxTokens: 4096, timeoutMs: 30_000, maxRetries: 2 })`.
+  - Build the user content with B's `buildRateUserMessage(prefs, candidates)`. Add a variant of the wrapper that takes a raw user string; keep the recorder.
   - A null result means B's default scores.
 
 **UNVERIFIED — smoke-test first: zod regex and nullable with `zodOutputFormat`.** The skill says the SDK strips unsupported constraints and validates them client-side, but `pattern` is not listed as either supported or unsupported. Does `zodOutputFormat` accept the `HHMM` `.regex()` and `.nullable()` in `Preferences`?
@@ -651,7 +651,7 @@ If foundation's `emit` cannot take a transaction handle, call `emit` right after
   2. Send `T_JOIN_WELCOME {title, date}`.
   3. If a form budget exists: send `T_BUDGET_CONFIRM` (or `_NOCAP`) + `T_PREFS_ASK`, and set the stage to `BUDGET_LOCKED`. Otherwise send `T_BUDGET_ASK`.
 - **`onPrefsDone(planId)`:**
-  - **COLLECTING:** if the PREFS_DONE count = `party_target`, call `transition(COLLECTING→RESEARCHING)`. The winner calls `research.start(planId)` (B) and schedules `still_looking` at +90 s.
+  - **COLLECTING:** if the PREFS_DONE count = `party_target`, call `transition(COLLECTING→RESEARCHING)`. The winner calls `startResearch(planId)` (B) and schedules `still_looking` at +90 s.
   - **RESEARCHING:** nothing. Recompute runs when options are ready.
   - **VOTING:** enqueue `recompute` with dedupe `recompute:<planId>:<inboundEventId>`.
 - **Organizer GO** (organizer only, else `T_ORGANIZER_ONLY`):
@@ -663,22 +663,16 @@ If foundation's `emit` cannot take a transaction handle, call `emit` right after
 **Typing during RESEARCHING:** an in-memory interval per plan calls `safe(setTyping(true))` for every participant every `TYPING_REFRESH_MS` (from S4; default 5000). It stops when the plan leaves RESEARCHING. Losing it on restart is fine.
 
 **`decision.ts` → `recompute(planId)`** is a due_jobs handler, which keeps heavy work off the inbound path:
-1. Load the plan, options (`app.options`), members (stage ≥ PREFS_DONE, not DECLINED) and prefs.
-2. `constraints = await privateConstraints.listForPlan(planId)`. Pass it opaquely: no type import, never logged or serialized (§3.3 item 5).
-3. `bundles = compose(options, plan)`, then `survivors = filter(bundles, constraints)`.
-4. Ratings:
-   - For each member without cached ratings for these bundle ids, call `rateBundles(prefs, survivors.map(toPublic))` in parallel and upsert the results into `app.ratings`.
-   - Each call gets **only that member's prefs** (P2).
-5. `top3 = shortlist(survivors, ratings, constraints)`.
-6. Branch:
+1. `const { from_count, survived_count, survivors, top3 } = await computeShortlist(planId)` (B: loads options, members ≥ PREFS_DONE and not DECLINED, prefs and constraints; rates each member with only that member's prefs (P2); upserts `app.ratings`).
+2. Branch:
    - **`top3.length < 3`** → `transition([RESEARCHING, VOTING] → CANCELLED)` → fan-out `T_NO_FIT`. Never say who or why.
    - **State RESEARCHING** → `transition(RESEARCHING→VOTING)`. Then:
-     - write `app.bundles` for this version;
+     - write `app.bundles` for this version (every survivor with `survived=true`; `shortlist_rank` 1–3 for `top3`);
      - emit `shortlist`;
      - fan-out `T_PICKS`;
      - schedule `vote_deadline`.
    - **State VOTING, and the top3 ids differ from the current version's shortlist** → `transition(VOTING→VOTING, {version, bumpVersion:true})`. If it returns null, another recompute won, so return. Otherwise:
-     - write the new version's bundles (old ballots are ignored, because they are keyed by version);
+     - write the new version's bundles (every survivor with `survived=true`; `shortlist_rank` 1–3 for `top3`; old ballots are ignored, because they are keyed by version);
      - emit `shortlist`;
      - send `T_PICKS_REFRESH` to members who had the old version and `T_PICKS` to newcomers;
      - schedule `vote_deadline` for the new version.
@@ -687,12 +681,12 @@ If foundation's `emit` cannot take a transaction handle, call `emit` right after
 `plan.onOptionsReady(planId)` (called by B) enqueues `recompute` with key `recompute:<planId>:options`.
 
 **`seedDemo()` minimal** (needed for checkpoint 1; the self-check comes in T14):
-1. Plan "Dinner + show", area "Westwood / Sawtelle", today, 18:30–23:00, `party_target 4`, code `DEMO_CODE` (default `4821`).
-2. Create the team users from env `DEMO_TEAM`: JSON `[{phone_e164, first_name, target_pp_cents, hard_max_pp_cents}]`. Phones are PII, so they live only in Fly secrets and `.env.local`.
+1. Plan "Dinner + show", area "Westwood / Sawtelle", LA-local today (`new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date())`; Fly runs UTC), 18:30–23:00, `party_target 4`, code `DEMO_CODE` (default `4821`).
+2. Create the team users from env `DEMO_TEAM`: JSON `[{phone_e164, first_name}]` (PII: Fly secrets and `.env.local` only). Lane *i*'s synthetic demo budget and prefs come from `fixtures/demo-seed.json` `members[i] = {target_pp_cents, hard_max_pp_cents, prefs}`, so B's `demo.fixture.test.ts` uses the same values.
    - Budgets go through the repo with `source 'form'`.
    - Canned prefs come from `fixtures/demo-seed.json`.
    - Stage `PREFS_DONE`.
-3. Load B's cached options (with their real runId) into `app.options` and `research_runs(source 'cached', idempotency_key 'seed:<planId>:<category>')`.
+3. Per category insert `research_runs(kind 'scout', category, status 'completed', source 'cached', idempotency_key 'seed:<planId>:<category>', creao_run_id NULL, result {cached_from_run_id, share_url})`, then load B's cached options into `app.options` with `run_id` = that row's id. Never put the fixture's real runId in `creao_run_id` (it is unique, so the second Reset would fail).
 4. `transition(COLLECTING→RESEARCHING)`, then enqueue `recompute`.
 
 **Sends happen only in the agent process** (the due_jobs poller). `pnpm seed:demo` writes rows and enqueues; it never sends.
@@ -706,10 +700,7 @@ If foundation's `emit` cannot take a transaction handle, call `emit` right after
   - `ask_about_others` → `T_ONLY_YOURS`.
   - `none_of_these` → empty approvals.
 
-**Constraints are evaluated in code.** Times are compared as minutes since plan start; any time earlier than `time_start` gets +24 h, so post-midnight shows compare correctly. Drop approval *i* if any of these hold:
-- `show_end_est(i) > end_before.time`;
-- `dinner_time(i) < start_after.time`;
-- an `exclude.index === i`.
+**Constraints are evaluated in code by B's `resolveApprovals(parse, publicShortlist, plan.time_start)`** (minutes since plan start, +24 h for times before `time_start`). It drops *i* if `show_end_est(i) > end_before`, `dinner_time(i) < start_after`, or `exclude.index === i`. Digits-only replies call it with `constraints: []`. A never re-implements it.
 
 **Recording the ballot:**
 - Upsert `app.ballots(plan_id, user_id, plan_version, approvals = bundle ids, constraints, source)`.
@@ -717,7 +708,7 @@ If foundation's `emit` cannot take a transaction handle, call `emit` right after
 - Fan-out `T_VOTE_TALLY {k,n}` (key suffix `k`) and emit `vote.tally`.
 
 **Close** when every member (stage ≥ PREFS_DONE, not DECLINED) has a ballot for the current version, or when the `vote_deadline` job fires:
-1. `winnerId = pickWinner(shortlist, ballots, ratings, constraints)` (B). Non-voters approve nothing.
+1. `winnerId = await computeWinner(planId, version)` (B). Non-voters approve nothing.
 2. `transition(VOTING→ORDERING, {version})`. The winner then:
    - sets `chosen_bundle_id`;
    - fans out `T_WINNER {title}`;
@@ -752,7 +743,7 @@ create table app.pay_links (plan_id uuid references app.plans(id), user_id uuid 
    - `gate = holdGate.check(planId, userId, version, amount)`;
    - `'link'` → `T_PAY_LINK {title, amount: usd2, deadline, url}`, stage `LINK_SENT`;
    - `'ask'` → `T_HOLD_GATE {amount: usd2}`, stage `GATED`, awaiting flag `'holdgate'`.
-7. Schedule `approve_reping` (approve_at − 30 min; with `DEMO_TIMERS`, − 3 min) and `approve_deadline` (approve_at).
+7. Schedule `approve_reping` (approve_at − 30 min; with `DEMO_TIMERS`, − 3 min) and `approve_deadline` (approve_at). If `VOICE_ENABLED=1`, also schedule `voice_nudge` (`voice:<planId>:<v>`, approve_at − 15 min; B registers the handler).
 
 **Windows (our choice; PLAN fixes only the demo values):**
 
@@ -781,28 +772,27 @@ export async function check(planId: string, userId: string, planVersion: number,
 **`POST /venue/hook` (`venueHook.ts`):**
 
 ```ts
-const ts = c.req.header("X-Tab-Timestamp") ?? "", sig = c.req.header("X-Tab-Signature") ?? "";
-const raw = await c.req.text();
-if (!/^\d+$/.test(ts) || Math.abs(Date.now() / 1000 - Number(ts)) > 300) return c.body(null, 401);
-const exp = "sha256=" + createHmac("sha256", env.VENUE_HOOK_SECRET).update(`${ts}.${raw}`).digest("hex");
-if (sig.length !== exp.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(exp))) return c.body(null, 401);
-const ev = VenueEvent.parse(JSON.parse(raw));
+const raw = await c.req.text();                                   // raw bytes; never re-serialized JSON
+const ev = verifyVenueHook(raw, c.req.raw.headers);               // C: skew ≤300 s, sha256 HMAC, timingSafeEqual, VenueEvent.parse; null on failure
+if (!ev) return c.body(null, 401);
 // dedupe: app.inbound_events ('venue', ev.event_id) → already seen → 200. Insert after dispatch succeeds.
 ```
 
 Return 200 fast, then dispatch:
+
+In this table "emit `ledger`" means `emitLedger(ev)` and "emit `counters`" means `emitCounters()`, both from C's `venueClient/ledger.ts`.
 
 | `ev.type` | Action |
 |---|---|
 | `share.authorized` | 1. Stage `HELD`.<br>2. `T_HELD {amount, brand: displayBrand(data.card_brand) ?? "card", last4: data.card_last4}`.<br>3. Fan-out `T_IN_COUNT {k,n}`.<br>4. Emit `ledger`.<br>5. Enqueue `commit` with key **`commit:<planId>:<v>:<share_id>`** (one per share; see note). |
 | `share.declined` | `T_DECLINED_RETRY {url: data.pay_url}` to that person only; update `pay_links`; emit `ledger` |
 | `share.auth_unknown` | Emit `ledger` only (the venue sweep reverses it) |
-| `share.released` | If the plan is not CANCELLING/CANCELLED (a timeout reversal): `T_DECLINED_RETRY {url: data.pay_url}` and stage `LINK_SENT`. Otherwise stage `RELEASED`. Then `ledger`. |
+| `share.released` | If `data.retry === true` (timeout reversal on an OPEN order): `T_DECLINED_RETRY {url: data.pay_url}`, update `pay_links`, stage `LINK_SENT`. Otherwise stage `RELEASED`. Then `ledger`. |
 | `share.captured` | Stage `CAPTURED` → `ledger` |
 | `order.captured` | `confirm(planId)` (idempotent) |
 | `order.cancelled` | `transition(CANCELLING→CANCELLED)`. The winner fans out `T_CANCELLED` and emits `counters`. |
 | `order.needs_attention` | `system:error` "capture needs attention". **No DMs.** |
-| `tap.verified` | `tap.verify` SSE with `report = TapVerifyReport.parse(data)` |
+| `tap.verified` | Ignore: the venue never emits it (C's `commit` emits the `tap.verify` SSE) |
 
 `displayBrand` maps `VISA`/`visa`/`001` → "Visa", and the same for Mastercard and Amex.
 
@@ -811,12 +801,12 @@ Return 200 fast, then dispatch:
 **`commit` job (`commit.ts`):**
 1. `ord = venue.getOrder(orderId)`. If any share is not AUTHORIZED, return.
 2. `transition(APPROVING→COMMITTING, {version})`. Null → return.
-3. `res = venue.commit(orderId, canonicalConsent(ord))`, then emit `tap.verify` and branch on `res.result`:
+3. `res = venue.commit(orderId, consentFromOrder(ord))` (C's `commit` emits `tap.signed` + `tap.verify`), then branch on `res.result`:
    - **`captured`** → `confirm(planId)`, which runs `transition(COMMITTING→CONFIRMED)`. The winner:
      - fans out `T_CAPTURED {title, amount: usd2}`;
      - emits `counters`;
-     - calls `research.onPlanConfirmed(planId)`.
-   - **`rejected`** → `cancel(planId, "commit_rejected")`.
+     - calls `startConciergeFor(planId)`.
+   - **`rejected`** → `o = venue.getOrder(orderId)`. Only if `o.status === 'OPEN'` → `cancel(planId, "commit_rejected")`. `COMMITTING`/`CAPTURED` → do nothing (`order.captured` will confirm). `NEEDS_ATTENTION` → `system:error`. A `CommitPendingError` thrown by `commit` → do nothing (wait for `order.captured`).
    - **`partial`** → `system:error`, no DMs (the venue sets NEEDS_ATTENTION).
 
 **`cancel(planId, reason)` (`cancel.ts`):**
@@ -825,12 +815,9 @@ Return 200 fast, then dispatch:
 3. Otherwise call `venue.cancel(orderId, reason)`.
    - `status === 'CANCELLED'` → `transition(CANCELLING→CANCELLED)` + `T_CANCELLED` + `counters`.
    - Otherwise wait for `order.cancelled`.
-4. `research.cancelPlan(planId)` (B).
+4. `cancelResearch(planId)` (B).
 
-**`counters`** are computed from `app.events` and plan states:
-- `groups_converted` = the number of CONFIRMED plans;
-- `holds_released` = the number of `ledger` events with status RELEASED;
-- `fronted_by_individual_cents: 0`.
+**`counters`**: call C's `emitCounters()` (computed from the DB) after `order.captured`, `order.cancelled`, CONFIRMED and CANCELLED.
 
 Request details come from C's TAP docs and the VenuePort JSDoc. **A never builds TAP headers.**
 
@@ -853,7 +840,7 @@ Every handler is idempotent: a unique dedupe key plus a state and version guard.
 | `voice_nudge` (B, only if voice ships) | `voice:<planId>:<v>` | approve_at − 15 min | B |
 | `approve_deadline` | `approve:<planId>:<v>` | approve_at | If APPROVING → `cancel(planId,"deadline")` |
 | `commit` | `commit:<planId>:<v>:<shareId>` | now | T9 |
-| `venue_sweep` | `sweep:<floor(epoch_s/30)>` | every 30 s | Skip when `VENUE_MODE=mock`. Otherwise `fetch(VENUE_BASE_URL + "/ops/sweep", {method:"POST", headers:{Authorization:\`Bearer ${VENUE_OPS_KEY}\`}, signal: AbortSignal.timeout(10_000)})`. Insert the next bucket in `finally`; also insert the current bucket at boot. |
+| `venue_sweep` | `sweep:<floor(epoch_s/30)>` | every 30 s | Skip when `VENUE_MODE=mock`. Otherwise `await callVenueSweep()` (C, `venueClient/sweep.ts`; 10 s abort). Insert the next bucket in `finally`; also insert the current bucket at boot. |
 
 ### T11. 11:45 PM–12:15 AM: "I'm out", decline, cancel plan
 
@@ -899,20 +886,17 @@ A second test asserts that the intercept runs **before** markRead, the delegate 
 
 ### T14. 1:15–2:00 AM: Reset, Replay, seed self-check, seats (`src/ops/*`)
 
-All `/ops/*` routes require `Authorization: Bearer OPERATOR_KEY`, compared with `crypto.timingSafeEqual` after a length check.
+All `/ops/*` routes require `Authorization: Bearer OPERATOR_KEY`, compared with `crypto.timingSafeEqual` after a length check. Mount `cors({ origin: env.WEB_ORIGIN, allowHeaders: ["Authorization", "Content-Type"], allowMethods: ["POST"] })` before them (B's ops bar sends a preflight).
 
 | Route | Behaviour |
 |---|---|
-| `POST /ops/reset` | 1. For each non-terminal plan: if `venue_order_id`, call `venue.cancel(orderId,"reset")` (reverses holds). Then `transition(<any non-terminal> → CANCELLED)` **with no DMs**, and `research.cancelPlan`.<br>2. Free the demo code: `update app.plans set code = $new where code = $DEMO_CODE`, where `$new` is `'R'` + 3 random base36 characters. Retry on a unique violation (up to 10 times).<br>3. `seedDemo()`.<br>4. Emit `system:info "reset"`.<br>Returns `{ok}` in under 10 s; it never waits for CREAO or ratings. |
+| `POST /ops/reset` | 1. For each non-terminal plan: if `venue_order_id`, call `venue.cancel(orderId,"reset")` (reverses holds). Then `transition([COLLECTING, RESEARCHING, VOTING, ORDERING, APPROVING, COMMITTING, CANCELLING] → CANCELLED)` **with no DMs** (never touches `SHOWCASE`), and `cancelResearch(planId)`.<br>2. Free the demo code: `update app.plans set code = $new where code = $DEMO_CODE`, where `$new` is `'R'` + 3 random base36 characters. Retry on a unique violation (up to 10 times).<br>3. `seedDemo()`.<br>4. Emit `system:info "reset"`.<br>Returns `{ok}` in under 10 s; it never waits for CREAO or ratings. |
 | `POST /ops/replay` | Reset, then feed `fixtures/demo-script.json` (team members' scripted texts) through the same `route()` used by `/dev/inbound`, with synthetic event ids. Replies go to the real team phones, which have texted first. PLAN does not define Replay; this is A's definition, so confirm the button with B. |
-| `POST /ops/tap-test` `{kind: "tamper"\|"replay"\|"expired"\|"wrong_tag"}` | `venue.commit(orderId, canonicalConsent(await venue.getOrder(orderId)), kind)` on the current plan's order → emit `tap.verify`. **Never** triggers `cancel` (PLAN §3.2: only a real failure cancels). |
-| `POST /ops/live-scout` | `research.startLiveDemo()` (B) |
+| `POST /ops/tap-test` `{kind: "tamper"\|"replay"\|"expired"\|"wrong_tag"}` | `runTapTest(kind, orderId)` from C's `venueClient/tapTest.ts`, on the most recent plan's `venue_order_id`. C refuses `replay` while an OPEN order has every share AUTHORIZED, and C's `commit` emits the SSE. **Never** triggers `cancel` (PLAN §3.2). |
+| `POST /ops/live-scout` | `startLiveScoutDemo()` (B) |
 | `POST /ops/release-seats` | `seats.releaseAllExceptTeam()` → `{ok, released:n}` |
 
-**`seedDemo()` self-check (fail loudly; in memory, writes nothing):**
-1. With a synthetic 4th member capped at $30 (`target = hard_max = 3000`), at least 3 bundles survive.
-2. The resulting top 3 differs from v1.
-3. Every bundle in that top 3 has `show_end_est ≤ 22:00`, so "2, but not if it ends after 10" keeps an approval.
+**Seed check:** covered by B's `demo.fixture.test.ts` (≥3 survive at a $30 judge cap, the shortlist changes v1→v2, index 2 ends ≤ 22:00), run in `pnpm test` before every deploy. There is no runtime check: it would read constraints outside the P1 allowlist.
 
 ### T15. 2:00–2:20 AM: console events audit
 
@@ -939,7 +923,7 @@ All `/ops/*` routes require `Authorization: Bearer OPERATOR_KEY`, compared with 
 | B's pure functions | B ships them (~9 PM) | Foundation stubs: compose = first 9 combinations, filter = identity, shortlist = first 3, pickWinner = most approvals | Import from `src/decide/*` |
 | `PlannerPort` / `research.*` | B's real CREAO (after 6:45) | `PLANNER_MODE=mock` (fixtures after 5 s + fake progress) or `cached` | B sets `PLANNER_MODE=live` |
 | `VenuePort` | C's TAP-signed client (~10 PM) | `VENUE_MODE=mock`: in-memory venue with fake holds. To simulate a hold, use the mock's authorize helper. If it is missing, add `POST /dev/venue/authorize/:shareId` in `src/dev/` (mock mode only); it posts a correctly HMAC-signed `share.authorized` to `/venue/hook`. | `VENUE_MODE=live` + `VENUE_BASE_URL`, `TAP_*`, `VENUE_HOOK_SECRET`, `VENUE_OPS_KEY` |
-| `canonicalConsent` | C ships `tap.ts` | Foundation stub | Import C's export |
+| `consentFromOrder` | C ships `tap.ts` | Foundation stub | Import from `@tab/shared/tap` |
 
 ---
 
@@ -950,7 +934,7 @@ All `/ops/*` routes require `Authorization: Bearer OPERATOR_KEY`, compared with 
 | **6:00** | B, C | Foundation pulled; `pnpm sim:plan` green; hook names agreed (§3.2); §3.3 list posted |
 | **6:45 go/no-go** | all | S2 echo on a real phone; `PhotonMessaging.sendText` reaches a real phone; booth answers recorded |
 | 7:15 | — | JOIN → `T_JOIN_WELCOME` + `T_BUDGET_ASK` on a real phone through `route()` |
-| ~9:40 | B | `seedDemo` + `recompute` with B's real pure functions on cached fixtures (mock LLM) → VOTING with 3 bundles + `shortlist` in B's console |
+| ~9:40 | B | `seedDemo` + `recompute` with B's real `computeShortlist` on cached fixtures (mock LLM) → VOTING with 3 bundles + `shortlist` in B's console |
 | ~10:30 | C | `VENUE_MODE=live`: `createOrder` against the deployed `tab-venue` returns `pay_url`s; a signed `/venue/hook` `share.authorized` passes HMAC |
 | **11:00 PM checkpoint 1** | all | End to end on 2 real phones through capture (above) |
 | ~2:00 AM | C | Each path works:<br>• decline → `T_DECLINED_RETRY`;<br>• "I'm out" → reverse all → `T_CANCELLED`;<br>• AUTH_UNKNOWN → sweep → released → retry link;<br>• deadline → reverse all. |
@@ -979,11 +963,11 @@ Tests that need SQL semantics (race, notify, transition) run against `TEST_DATAB
 | `copy.lint.test.ts` (M9) | No template contains "$0 instantly" or "Visa-verified"; `T_CANCELLED` equals the PLAN copy byte for byte | A |
 | `luhn.test.ts` | T12 cases; intercept before any logger or LLM call | A |
 | `router.commands.test.ts` | Each command regex routes correctly (including "I’m out" with a curly apostrophe); digits ballots parse; "change budget" keeps the stage | A |
-| `ballot.constraints.test.ts` | "2, but not if it ends after 10" drops approval 2 iff `show_end_est > 22:00`; a `00:30` show end is treated as after 22:00 | A |
+| `ballot.constraints.test.ts` | Moved into B's `decide/ballot.test.ts` (same cases, including the `00:30` show end) | B |
 | `photon.consumer.test.ts` | Fake socket:<br>• cursor saved only after success;<br>• a duplicate `event.id` is handled once;<br>• seq ≤ cursor is skipped;<br>• a stale-epoch delivery is skipped;<br>• 3× poison → skipped + system event. | A |
 | `notify.idempotency.test.ts` | The same key twice → one `sendText`; a failed row → resent with the same key; no dm_route → `blocked_inbound`, no send | A |
 | `venuehook.hmac.test.ts` | Bad signature → 401; skew > 300 s → 401; duplicate `event_id` → handled once | A |
-| `join.test.ts` | Invalid E.164 → 400; `ASSIGNMENT_EXISTS` → adopts via list; `SHARED_LINE_CAP_EXCEEDED` → 503 `capacity` | A |
+| `join.test.ts` | Invalid E.164 → 422; unknown code → 404; `ASSIGNMENT_EXISTS` → adopts via list; `SHARED_LINE_CAP_EXCEEDED` → 503 `capacity` | A |
 
 ### 8.2 Smoke scripts
 - `scratch/photon/{assign,echo,…}.mjs` (§4.3). Record results in PLAN §19.

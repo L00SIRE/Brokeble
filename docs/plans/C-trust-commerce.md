@@ -44,7 +44,7 @@ Tab's money promise is **"nobody pays until everyone's in."** You build the merc
 | `apps/agent/src/tap/**` | `signer.ts`, `keygen.ts` |
 | `apps/agent/src/venueClient/**` | `index.ts` (the real `VenuePort`), `hook.ts`, `tapTest.ts`, `sweep.ts`, `ledger.ts` |
 | `packages/shared/src/tap.ts` | The bodies of the consent canonicalization, the signature-base builder and the parsers. The foundation creates the file. **Announce any signature change; additive-only after 11 PM.** Import it via the subpath `@tab/shared/tap` so `node:crypto` never reaches `apps/web` bundles (confirm the export map with the foundation). |
-| `db/migrations/00N_venue_*.sql` | New additive venue migrations only. Never edit `002_venue.sql` after it has been applied. |
+| `db/migrations/005_venue_*.sql` onward (004 is A's) | New additive venue migrations only. Never edit `002_venue.sql` after it has been applied. |
 
 **Co-owned (announce before editing):**
 - `packages/shared/src/pricing.ts`, with B. B confirms `TAX`.
@@ -55,8 +55,8 @@ Tab's money promise is **"nobody pays until everyone's in."** You build the merc
 | Path | Owner |
 |---|---|
 | `apps/agent/src/{photon,router,delegates,plan,notify,jobs,join,ops,money,repo}` | A (`money/holdGate.ts` is A's; see §3.3) |
-| `apps/agent/src/{creao,decide,agentApi}`, `apps/web/**`, `skills/tab/**` | B |
-| `packages/shared/src/{private.ts,templates.ts}`, `db/migrations/001_app.sql`, `003_roles.sql` | foundation / A |
+| `apps/agent/src/{creao,decide,agentApi,voice}`, `apps/web/**`, `skills/tab/**` | B |
+| `packages/shared/src/{private.ts,templates.ts}`, `db/migrations/001_app.sql`, `db/roles.sql` | foundation / A |
 
 **Hard rules for your code** (PLAN §4, M1–M9):
 - No Cybersource credentials, TMS tokens or card data outside `apps/venue` / schema `venue`.
@@ -103,11 +103,7 @@ Tab's money promise is **"nobody pays until everyone's in."** You build the merc
 
 The venue does **not** emit `tap.verified`, although it is in the enum. The agent emits SSE `tap.verify` from the synchronous `CommitResult.tap` (or the 401/409 body), so nothing is duplicated.
 
-**[→ PLAN, with A/foundation] `payer_ref` length.**
-- PLAN §6 says `payer_ref` = "hex HMAC(PAYER_REF_SECRET, id)", which is 64 hex characters for HMAC-SHA256.
-- PLAN §8 `CreateOrderRequest.payer_refs` requires `/^[0-9a-f]{32}$/`.
-- Proposal: `payer_ref = hmacSha256Hex(PAYER_REF_SECRET, userId).slice(0, 32)` (128 bits).
-- Confirm this with A before the foundation seeds users.
+`payer_ref` = `hmacSha256Hex(PAYER_REF_SECRET, userId).slice(0, 32)` (PLAN §6, settled).
 
 ### 3.2 You consume
 
@@ -128,12 +124,7 @@ holdGate lives **in the agent** (`apps/agent/src/money/holdGate.ts`, A's file), 
 3. Own the Visa framing: "a spending limit only you can lift".
 
 **Open items with A (confirm at 6:45):**
-- **Pay URLs are returned once.** A must store each person's current `pay_url` for `T_REPING`, for example in the re-ping due_job payload, and overwrite it on `share.declined` / `share.released{retry:true}`.
-- **[→ PLAN §11] Link TTL vs. re-ping.**
-  - `token_expires_at = least(now()+PAY_LINK_TTL_MIN, deadline_at)`.
-  - With `PAY_LINK_TTL_MIN=30` and an approval window longer than about 60 min, the link has expired by the time of the T-30m `T_REPING`.
-  - This is fine with `DEMO_TIMERS=1` (approval window 10 min).
-  - For real plans, set `PAY_LINK_TTL_MIN` ≥ the approval window (for example `1440`). The token is still single-use and amount-bound.
+- Settled: A stores current pay URLs in `app.pay_links` (A's migration 004) and overwrites them on `share.declined` and `share.released{retry:true}`. `PAY_LINK_TTL_MIN=1440` (PLAN §11), so links live until `deadline_at`.
 
 ---
 
@@ -408,6 +399,11 @@ export function canonicalConsent(c: ConsentSet): string {        // PLAN §8: ex
     .map(s => ({ share_id: s.share_id, cybs_payment_id: s.cybs_payment_id, amount_cents: s.amount_cents }));
   return JSON.stringify({ order_id: c.order_id, total_cents: c.total_cents, shares });
 }
+export function consentFromOrder(o: OrderStatus): ConsentSet {   // agent-side builder; never hand-build
+  return { order_id: o.order_id, total_cents: o.total_cents, shares: o.shares.map(s => {
+    if (!s.cybs_payment_id) throw new Error(`share ${s.share_id} has no cybs_payment_id`);
+    return { share_id: s.share_id, cybs_payment_id: s.cybs_payment_id, amount_cents: s.amount_cents }; }) };
+}
 export const contentDigest = (body: Uint8Array) =>
   `sha-256=:${createHash('sha256').update(body).digest('base64')}:`;              // RFC 9530 syntax (verified)
 export function signatureParams(components: string[], p: { created: number; expires: number; keyid: string; nonce: string; tag: string }) {
@@ -550,7 +546,7 @@ export function sign(method: 'GET' | 'POST', url: URL, body: Uint8Array | null,
 ```
 
 **`src/venueClient/index.ts` implements `VenuePort` (PLAN §9).** On every call it:
-- builds the URL from `VENUE_BASE_URL`, whose host must equal `VENUE_PUBLIC_HOST` (assert this at boot);
+- builds the URL from `VENUE_BASE_URL`, which must be the venue's production origin (= the venue's `VENUE_PUBLIC_URL`); `@authority` = `new URL(VENUE_BASE_URL).host`;
 - sends `content-type: application/json` on POSTs;
 - uses `AbortSignal.timeout(30_000)`, or **90 000** for `commit` and `cancel`, since they run several sequential Cybersource calls;
 - zod-parses the response.
@@ -572,15 +568,15 @@ export function sign(method: 'GET' | 'POST', url: URL, body: Uint8Array | null,
 
 **Replay safety:** `tapTest.ts` refuses `replay` while the order is OPEN with all shares AUTHORIZED, because the first leg would capture. In every other state the first leg is a no-op: the business check fails, or the order is CAPTURED and the idempotent path makes no Cybersource call.
 
-**Timeout safety:** on a network timeout during `commit`, call `getOrder` before any retry. A retry with a fresh signature is safe because of the venue's row lock and conditional UPDATE (T7).
+**Timeout safety:** on a network timeout during `commit`, call `getOrder`. OPEN → retry once with a fresh signature (safe: row lock + conditional UPDATE, T7). COMMITTING/CAPTURED → throw `CommitPendingError` (A waits for `order.captured`). Never retry more than once.
 
-**`src/venueClient/hook.ts`** exports `verifyVenueHook(rawBody: string, headers)`. A's route must pass `await c.req.text()`; the HMAC covers raw bytes, never re-serialized JSON. It:
+**`src/venueClient/hook.ts`** exports `verifyVenueHook(rawBody: string, headers: Headers): VenueEvent | null` (null on any failure). A's route must pass `await c.req.text()`; the HMAC covers raw bytes, never re-serialized JSON. It:
 1. checks `|now − ts| ≤ 300`;
 2. compares the HMAC with `timingSafeEqual` on equal-length buffers;
 3. runs `VenueEvent.parse(JSON.parse(rawBody))`;
 4. returns the event. A dedupes it on `inbound_events('venue', event_id)` and dispatches it.
 
-**`src/venueClient/ledger.ts`:** for each `VenueEvent`:
+**`src/venueClient/ledger.ts`:** exports `emitLedger(ev)` and `emitCounters()`; A calls them from its hook dispatch and transitions. For each `VenueEvent`:
 - Map `payer_ref` → `app.users.payer_ref` → `app.participants.lane`.
 - Emit SSE `ledger {order_id, lane, status, amount_cents, cybs_id_short:'…'+id.slice(-8)}`.
 - Emit `counters`, computed from the DB so restarts don't zero them:
@@ -659,7 +655,7 @@ UI rules (apply `vercel-react-best-practices`, `vercel-composition-patterns` and
 
 | # | Time | Task | Files |
 |---|---|---|---|
-| T8 | 45 min | Negative TAP modes end to end. `tapTest.ts` (`runTapTest(kind)`): latest demo order → `getOrder` → consent → commit with `test`. A wires it at `POST /ops/tap-test {kind}`. Check each mode lands on its expected step on the live venue. | `src/venueClient/tapTest.ts` |
+| T8 | 45 min | Negative TAP modes end to end. `tapTest.ts` (`runTapTest(kind, orderId)`; A passes the most recent plan's `venue_order_id`): `getOrder` → `consentFromOrder` → commit with `test`. A wires it at `POST /ops/tap-test {kind}`. Check each mode lands on its expected step on the live venue. | `src/venueClient/tapTest.ts` |
 | T9 | 45 min | `app/ops/sweep/route.ts` (Bearer `VENUE_OPS_KEY`, constant-time compare, `maxDuration = 120`). Every action is a conditional UPDATE, so overlapping sweeps are safe. Actions listed below the table. | `apps/venue/app/ops/sweep/route.ts`, `src/sweep.ts` |
 | T10 | 30 min | NEEDS_ATTENTION path: a console flag (data only) and `scripts/check-share.ts <shareId>` → `getTransaction(cybs_payment_id)` → print the status. **Never auto-retry a capture.** | `scripts/check-share.ts` |
 | T11 | 30 min | `ledger.ts` + `counters` with B watching the console. Confirm `cybs_id_short` shows real sandbox IDs. | `src/venueClient/ledger.ts` |
@@ -714,8 +710,9 @@ T9 sweep actions:
 | Time | With | Must work |
 |---|---|---|
 | **6:00 F** | all | Foundation pulled; `pnpm dev:venue` boots; `002_venue.sql` applied; shared contracts compile in the venue |
-| **6:45 go/no-go** | all | A real sandbox hold from **an iPhone** on the production venue URL (else the labelled test-card fallback). Booth answers recorded. With A, settle: `pay_url` persistence for `T_REPING`; `PAY_LINK_TTL_MIN` vs. the approval window; the `payer_ref` length; who mounts `/venue/hook` (raw body) and `/ops/tap-test`. |
-| **9:30 PM** | A | With `VENUE_MODE=live` on Fly: `checkAvailability` → `createOrder` → `getOrder` pass TAP on the live venue; `share.*` hooks reach the agent with a valid HMAC; A's due_job calls `/ops/sweep` |
+| **6:45 go/no-go** | all | A real sandbox hold from **an iPhone** on the production venue URL (else the labelled test-card fallback). Booth answers recorded. With A, settle: `pay_url` persistence for `T_REPING`; `PAY_LINK_TTL_MIN` vs. the approval window; the `payer_ref` length. (Settled: A mounts `/venue/hook` and `/ops/tap-test` in `src/plan/register.ts`; C mounts nothing in the agent except via `src/venueClient/register.ts` if needed.) |
+| **9:30 PM** | — | C alone: `scripts/agent-sim.ts` with the agent's real `VenuePort` (`checkAvailability` → `createOrder` → `getOrder`) passes TAP on the live venue; `hook-echo.ts` verifies HMAC. |
+| **10:30 PM** | A | `VENUE_MODE=live` on Fly: A's `create_order` gets `pay_url`s; signed `share.*` hooks reach `/venue/hook`. Sweep due_job by 11:45. |
 | **11:00 PM checkpoint 1** | all | On 2 real phones: join → cached options → ballot → **sandbox hold** → TAP commit → **capture**, with real Cybersource IDs in `GET /orders/{id}`. If red, all 3 swarm it. |
 | **~1:30 AM** | B | TAP panel: a valid commit shows 6 ✓; Tamper → step 6; Replay → step 4; Expired → step 3; Wrong tag → step 1; ledger lanes and counters live |
 | **4:00 AM checkpoint 2** | all | 4 phones (≥1 non-team); 3 clean runs in a row; "I'm out" → all RELEASED; Reset leaves no live sandbox holds (cancel + sweep reverse) |
@@ -765,8 +762,8 @@ T9 sweep actions:
 **Cut in this order if behind:**
 1. OG image.
 2. Saved-card one-tap (keep TOKEN_CREATE off; every hold uses Microform).
-3. Automatic fresh links after timeout reversals, `share.released{retry:true}`. Keep the reversal; A re-sends via `T_DECLINED_RETRY` on the next order event.
-4. `GET /availability` (keep it only as a TAP demo if there's time).
+3. Automatic fresh links after timeout reversals: send `share.released{retry:false}`. That share stays RELEASED and the plan cancels at the approval deadline (all-or-nothing still holds).
+4. (Removed: the route is 3 lines and A's `create_order` calls it.)
 5. Sweep actions (a), (f) and (h): restart-safety extras.
 6. The storefront page beyond one line.
 
@@ -843,9 +840,7 @@ T9 sweep actions:
 | Double-capture reason | S2 second capture | before T7 |
 | Supavisor login as `tab_venue.<ref>` (A's §19 item; affects you) | `psql` with the transaction-pooler URL; fallback: single role | 6:00 |
 | Visa: mock key directory OK; `@method` + `content-digest` extension OK; tag usage; `/icc/v1` for hackathon sandboxes | Booth (§4.2) | 6:45 |
-| `TAX = 0.0975` (B confirms) | CDTFA lookup | 11 PM |
-| [→ PLAN] `payer_ref` 64-hex HMAC vs. the 32-hex contract regex | Agree on `.slice(0,32)` with A | 6:45 |
-| [→ PLAN §11] `PAY_LINK_TTL_MIN=30` vs. the approval window / `T_REPING` | Agree on TTL ≥ approval window with A | 6:45 |
+| `TAX = 0.1025` (B's PR; C acks venue prices) | CDTFA address lookup | 9:30 PM |
 
 **Docs used:**
 - **Cybersource:**

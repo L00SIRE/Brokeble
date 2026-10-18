@@ -139,13 +139,13 @@ The work only starts after the 11 PM checkpoint passes.
 
 | # | Step | System behaviour | Owner |
 |---|---|---|---|
-| 0 | **Demo prep** | 3 team phones assigned; each has sent ≥3 messages to Tab. `pnpm seed:demo` creates the demo plan (title "Dinner + show", area, date, 18:30–23:00, party target 4), seeds 3 members with budgets and prefs, and loads cached options from a real earlier Scout run (stored with its real runId). | A |
+| 0 | **Demo prep** | 3 team phones assigned; each has sent ≥3 messages to Tab. `pnpm seed:demo` creates the demo plan (title "Dinner + show", area, date, 18:30–23:00, party target 4), seeds 3 members with budgets and prefs, and loads cached options from a real earlier Scout run (its real runId kept in `research_runs.result.cached_from_run_id`). | A |
 | 1 | **Create plan** (non-demo) | Organizer opens `apps/web /` → `POST /plans` → gets code `4821`, join link `/j/4821` and a QR. The organizer pastes the link into **their own existing group chat**; Tab is never in it. | A + B |
 | 2 | **Join** | `/j/4821`: phone (E.164), first name, optional private budget field, consent checkbox → `POST /join`. Then: (a) the agent upserts the user and participant; (b) it calls `assignments.create` (idempotency key `join:<planId>:<userId>`); (c) the page shows a "Text Tab" button `sms:<assignedNumber>&body=JOIN%204821` **and** the number and code in plain text (iOS prefilled-body behaviour is **UNVERIFIED**). | A (API), B (page) |
 | 3 | **First DM** (user texts first) | Inbound `JOIN 4821` → route stored (spaceId, receivedBy.id) → markRead → typing → template `T_JOIN_WELCOME` + `T_BUDGET_ASK`. Text only, no links (Apple suppresses link-clicking until a reply lands). | A |
 | 4 | **Private budget** | The reply goes to **that person's delegate** (Haiku, stateless; input is only this message plus the stage) → `BudgetParse` → code validates and writes `private_constraints` → template `T_BUDGET_CONFIRM` ("Just between us: aim ~$30, never over $30. Text 'change budget' anytime."). Low confidence → `T_BUDGET_TIERS` ("Reply 1: under $25, 2: $25–50, 3: $50–80, 4: no cap"), mapped in code. | A |
 | 5 | **Prefs** | `T_PREFS_ASK` → delegate `parsePreferences` → `Preferences` (no money fields, enums for dietary and vibe). | A |
-| 6 | **Research** | Plan reaches its research trigger (≥3 members prefs-done and organizer `go`, or party target reached, or the demo seed): (a) the code builds a `ResearchBrief` (enums + area/date/time + party size only); (b) **two parallel Scout runs** start (`dinner`, `show`); (c) the CREAO lane shows progress; (d) DMs get a typing refresh plus at most one `T_STILL_LOOKING` after 90 s. Webhook → re-fetch; poll every 15 s; 6-min timeout → cached options. | B |
+| 6 | **Research** | Plan reaches its research trigger (organizer GO with ≥2 prefs-done (under 3 → one `T_SMALL_GROUP` warning, then GO again), or party target reached, or the demo seed): (a) the code builds a `ResearchBrief` (enums + area/date/time + party size only); (b) **two parallel Scout runs** start (`dinner`, `show`); (c) the CREAO lane shows progress; (d) DMs get a typing refresh plus at most one `T_STILL_LOOKING` after 90 s. Webhook → re-fetch; poll every 15 s; 6-min timeout → cached options. | B |
 | 7 | **Compose + filter + shortlist** (pure code) | (a) Compose bundles: dinner open at plan start T, show start ∈ [T+1.5h, T+2.5h], same area. (b) Price each bundle with `priceBundle()`, shared by agent and venue. (c) **Hard filter:** `all_in_pp ≤ effectiveHardMax` for **every** member, plus dietary and time windows. (d) Each delegate rates surviving bundles for its own person from prefs only (Sonnet). (e) Code picks **3 diverse bundles** (no shared dinner or show) by max Nash welfare of `rating × comfort` (comfort is code-only, against target). Fewer than 3 survive → one re-roll (stretch) or `T_NO_FIT`. | B (pure fns), A (wiring) |
 | 8 | **Private ballot** | Each DM gets `T_PICKS` (3 numbered bundles: names, times, all-in per person, Scout pitch). Replies: digits ("2", "1 3"), or free text ("2, but not if it ends after 10") parsed by that person's delegate into `BallotParse`. `T_VOTE_TALLY` goes to all ("3 of 4 voted", no names). A membership or constraint change before the vote closes → recompute; if the shortlist changed, version+1, ballots reset, `T_PICKS_REFRESH` ("The group changed, so here are fresh picks that work for everyone"). | A |
 | 9 | **Winner** | All voted or vote deadline → most approvals (conditional approvals evaluated in code), ties broken by Nash → `T_WINNER` to all. | A |
@@ -173,7 +173,7 @@ The work only starts after the 11 PM checkpoint passes.
 | Approval deadline passes | Re-ping at T-30m (`T_REPING`, to pending people only, no names to others) → voice at T-15m (if shipped) → at the deadline, cancel as above | `T_REPING`, `T_CANCELLED` |
 | Card declined | Share → `DECLINED` → `PENDING` with a new link (old token consumed); the deadline still applies | `T_DECLINED_RETRY` to that person only |
 | Auth outcome unknown (timeout/5xx) | Share `AUTH_UNKNOWN`. **Never blind-retry.** A venue sweep at ≥60 s → `POST /pts/v2/reversals` (mitReversal) with the persisted `clientReferenceInformation.transactionId` → `RELEASED` → new link. | `T_DECLINED_RETRY` |
-| TAP verify fails or a business check fails at checkout | No capture. Order stays OPEN. The agent logs `tap.verify rejected`. A real failure (not a demo test button) → cancel the plan (reverse all). | `T_CANCELLED` |
+| TAP verify fails or a business check fails at checkout | No capture. Order stays OPEN. The agent logs `tap.verify rejected`. A real failure (not a demo test button) on an order that is still OPEN → cancel the plan (reverse all). If the order is COMMITTING or CAPTURED, wait for `order.captured`. | `T_CANCELLED` |
 | Capture fails mid-loop | Order `NEEDS_ATTENTION`; check `GET /tss/v2/transactions/{id}` before any retry; console flag. Double-capture behaviour is **UNVERIFIED**. | none until resolved |
 | Photon redelivery / reconnect | `inbound_events` insert-or-ignore on `(photon, event.id)`; cursor saved only after a successful handle; outbound idempotency key `reply:<inboundMessageId>:<n>` or `tpl:<planId>:<userId>:<templateId>:<version>` | — |
 | `SHARED_LINE_CAP_EXCEEDED` / `POOL_EXHAUSTED` on join | The join page shows "Tab is at capacity, try again in a minute"; operator releases judge seats | page |
@@ -189,7 +189,7 @@ The work only starts after the 11 PM checkpoint passes.
 |---|---|---|---|
 | P1 | A person's budget lives **only** in `app.private_constraints`. It is read only by: (a) that person's delegate, (b) the filter/score module, (c) holdGate. | `PrivateConstraints` type exported only from `@tab/shared/private`. The only SQL touching `private_constraints` is in `apps/agent/src/repo/privateConstraints.ts`. | `privacy.imports.test.ts`: greps imports of `@tab/shared/private` and the SQL string `private_constraints`; fails outside the allowlist (`src/delegates/**`, `src/decide/filter.ts`, `src/decide/score.ts`, `src/money/holdGate.ts`, `src/repo/privateConstraints.ts`) |
 | P2 | Delegate context = **one person's own inbound message + stage + that person's own parsed state**. No other person's data, no DM history of others. | `buildDelegateInput(userId, msg)` | `privacy.e2e.test.ts` (below) |
-| P3 | **No group-coordinator LLM.** Every group-facing or fan-out message is a template, plus Scout copy (`pitch`, ≤140 chars, sanitized). | `notify(userId, TemplateId, vars)` is the only path to `MessagingPort.sendText` | `templates.only.test.ts`: `sendText` is imported only by `src/notify/notify.ts` |
+| P3 | **No group-coordinator LLM.** Every group-facing or fan-out message is a template, plus Scout copy (`pitch`, ≤140 chars, sanitized). | `notify(userId, TemplateId, vars, { key, planId?, replyTo? })` is the only path to `MessagingPort.sendText`; keys come from `tplKey(planId, userId, templateId, version, suffix?)` or `replyKey(inboundId, n)` (both exported from `src/notify/notify.ts`) | `templates.only.test.ts`: `sendText` is imported only by `src/notify/notify.ts` |
 | P4 | Money and privacy messages are fixed templates; no LLM-generated text is ever sent to a user | P3 | P3 |
 | P5 | No LLM call ever carries `tools` (no LLM can pay, sign, commit, cancel or filter). The filter is a pipeline step, not a callable. | `AnthropicLLM` adapter builds requests without `tools` | `llm.notools.test.ts` asserts that no recorded Anthropic request body has a `tools` key |
 | P6 | CREAO inputs contain only enums, area, date, times and party size. No names, phones, budgets or free text from users. | `ResearchBrief` is a strict zod object with enums | `privacy.e2e.test.ts` + `brief.schema.test.ts` |
@@ -239,22 +239,24 @@ CREAO agent.creao.ai: Tab Scout, Tab Concierge ──(tab CLI: TAB_API_BASE + TA
 ```
 /
 ├─ apps/
-│  ├─ agent/            # A owns src/{photon,router,delegates,plan,notify,jobs,join,ops}; B owns src/{creao,decide,agentApi}; C owns src/{tap,venueClient}
+│  ├─ agent/            # A owns src/{photon,router,delegates,plan,notify,jobs,join,ops,money,repo,dev}, scripts/seedDemo.ts, fixtures/demo-*.json; B owns src/{creao,decide,agentApi,voice}, fixtures/cached-options/; C owns src/{tap,venueClient}. src/index.ts (foundation, then frozen) calls registerA (src/plan/register.ts), registerB (src/agentApi/register.ts), registerC (src/venueClient/register.ts); each owner mounts routes and due_jobs kinds only in its own register.ts
 │  │  ├─ src/index.ts   # Hono app + serve(); starts consumer + poller
 │  │  ├─ src/ports/     # MessagingPort, PlannerPort, LLMPort, VenuePort + mocks (foundation)
 │  │  ├─ src/dev/       # POST /dev/inbound simulator (MESSAGING_MODE=mock only)
+│  │  ├─ src/{plan,agentApi,venueClient}/register.ts  # foundation stubs: (app, jobs) => void
 │  │  ├─ fixtures/      # cached-options/*.json, demo-seed.json
 │  │  ├─ Dockerfile, fly.toml
-│  ├─ venue/            # C owns. Next.js App Router. src/{tap,cybs,pricing-bridge,db}, app/{pay,api,...}
+│  ├─ venue/            # C owns. Next.js App Router. src/{tap,cybs,pricing-bridge,db,outbox,ids,token,sweep}, app/{pay,api,availability,orders,checkout,keys,ops}, scripts/, test/
 │  └─ web/              # B owns. Next.js. app/{page.tsx, j/[code], console}
 ├─ packages/shared/     # zod contracts (§8). Changes: announce in chat; additive-only after 11 PM
 │  ├─ src/index.ts      # public contracts
 │  ├─ src/private.ts    # PrivateConstraints (restricted import, P1)
 │  ├─ src/pricing.ts    # priceBundle() + constants (used by agent AND venue)
-│  ├─ src/tap.ts        # consent canonicalization, signature-base builder (shared by signer & verifier)
-│  └─ src/templates.ts  # TemplateId enum + vars schemas (copy owned by A)
+│  ├─ src/tap.ts        # C owns. canonicalConsent, consentFromOrder, signature-base builder. Imports node:crypto: export ONLY via subpath "@tab/shared/tap", never re-export from index.ts (keeps it out of apps/web)
+│  ├─ src/templates.ts  # TemplateId enum + vars schemas (copy owned by A)
+│  └─ package.json      # exports: ".", "./private", "./tap", "./pricing", "./templates"
 ├─ skills/tab/          # B owns. SKILL.md + tab (stdlib-only Python 3 CLI) + schema/*.json (generated via z.toJSONSchema)
-├─ db/migrations/       # 001_app.sql, 002_venue.sql, 003_roles.sql
+├─ db/migrations/       # 001_app.sql, 002_venue.sql, 004_pay_links.sql (A), 005+_venue_*.sql (C); db/roles.sql run once via psql
 ├─ scratch/             # throwaway spikes (git-ignored except README)
 ├─ docs/PLAN.md, docs/plans/{A-platform-conversation,B-intelligence-experience,C-trust-commerce}.md, docs/research/
 ├─ CLAUDE.md, AGENTS.md, .env.example, .gitignore, pnpm-workspace.yaml, package.json
@@ -296,7 +298,7 @@ create table app.users (
   phone_e164 text not null unique,
   first_name text not null,
   photon_user_id text unique,
-  payer_ref text not null unique,          -- hex HMAC(PAYER_REF_SECRET, id); the ONLY identity the venue sees
+  payer_ref text not null unique,          -- hmacSha256Hex(PAYER_REF_SECRET, id).slice(0,32) (128 bits; matches ^[0-9a-f]{32}$); the ONLY identity the venue sees
   created_at timestamptz not null default now());
 
 create table app.dm_routes (                 -- reply routing: always reply with these, never a guessed number
@@ -451,13 +453,16 @@ create table venue.outbox (id bigserial primary key, event jsonb not null, attem
 ```
 
 ```sql
--- 003_roles.sql  (UNVERIFIED: custom-role login through Supavisor "role.projectref". Smoke test: psql with each role.
+-- db/roles.sql (NOT in db/migrations; run once as postgres: psql "$OWNER_DATABASE_URL" -v AGENT_DB_PW=… -v VENUE_DB_PW=… -f db/roles.sql). UNVERIFIED: custom-role login through Supavisor "role.projectref". Smoke test: psql with each role.
 -- Fallback: one role, discipline enforced by tests M1/P1.)
 revoke all on schema app, venue from anon, authenticated;
 create role tab_agent login password :'AGENT_DB_PW';  grant usage on schema app to tab_agent;
 grant all on all tables in schema app to tab_agent; grant all on all sequences in schema app to tab_agent;
 create role tab_venue login password :'VENUE_DB_PW';  grant usage on schema venue to tab_venue;
 grant all on all tables in schema venue to tab_venue; grant all on all sequences in schema venue to tab_venue;
+alter default privileges in schema app   grant all on tables to tab_agent;  alter default privileges in schema app   grant all on sequences to tab_agent;
+alter default privileges in schema venue grant all on tables to tab_venue;  alter default privileges in schema venue grant all on sequences to tab_venue;
+-- migrations must run as the same owner role (postgres) for these defaults to apply
 ```
 
 **Connections (Supabase docs, verified):**
@@ -482,6 +487,12 @@ APPROVING ──(I'm out | holdGate NO | approval deadline)──▶ CANCELLING
 COMMITTING ──(CommitResult.result='captured')──▶ CONFIRMED  [T_CAPTURED; start Concierge]
 COMMITTING ──(rejected by a real verify/business failure)──▶ CANCELLING
 CANCELLING ──(venue order CANCELLED)──▶ CANCELLED  [T_CANCELLED to all]
+VOTING ──(shortlist <3 after a change)──▶ CANCELLED  [T_NO_FIT]
+ORDERING ──(bundle unavailable)──▶ CANCELLED  [T_NO_FIT]
+ORDERING ──(I'm out | cancel plan)──▶ CANCELLING
+COLLECTING|RESEARCHING|VOTING ──(<2 members remain | ops reset)──▶ CANCELLED
+any non-terminal ──(ops reset)──▶ CANCELLED  [no DMs]
+SHOWCASE: B's live-Scout showcase row only. It never transitions; the router, Reset and jobs ignore it.
 ```
 Example: `update app.plans set state='COMMITTING', updated_at=now() where id=$1 and state='APPROVING' and version=$2 returning id`.
 
@@ -577,6 +588,7 @@ export const PublicBundle = z.strictObject({    // what delegates, fan-out and c
   dinner_time: HHMM, show_start: HHMM, show_end_est: HHMM,
   all_in_pp_cents: Cents, dietary_fit: z.array(DietaryTag), pitch: z.string().max(280),
 });
+export const RateCandidate = PublicBundle.extend({ index: z.number().int().min(1).max(20) });  // rating input only
 
 // ---------- delegate I/O (LLM-facing schemas: only types/enums; code validates ranges after) ----------
 export const DelegateInput = z.strictObject({
@@ -677,7 +689,7 @@ export const VenueEvent = z.strictObject({                 // venue → agent PO
   type: z.enum(["share.authorizing","share.authorized","share.declined","share.auth_unknown",
     "share.released","share.captured","order.captured","order.cancelled","order.needs_attention","tap.verified"]),
   share_id: z.string().nullable(), payer_ref: z.string().nullable(),
-  data: z.record(z.string(), z.unknown()),  // e.g. {cybs_payment_id_short, card_last4} | TapVerifyReport
+  data: z.record(z.string(), z.unknown()),  // per C §3.1: share.authorized {amount_cents, card_brand, card_last4, cybs_payment_id_short ('…'+last 8)}; share.declined {pay_url, expires_at}; share.released {retry, pay_url?, expires_at?}; share.captured {amount_cents, cybs_capture_id_short}; order.captured {total_cents}; order.cancelled {reason}; order.needs_attention {share_ids}. The venue never emits tap.verified. pay_url travels only on this HMAC hook; never written to app.events/SSE/logs
 });
 
 // ---------- inbound (normalized Photon event) ----------
@@ -746,7 +758,7 @@ export const SseEvent = z.discriminatedUnion("type", [
     fronted_by_individual_cents: z.literal(0), holds_released: z.number().int() }),
   z.strictObject({ type: z.literal("xray"), contexts: z.array(z.strictObject({
     name: z.string(),                   // "scout_input:dinner" | "fanout" | "delegate:lane-2"
-    locked: z.boolean(), preview: z.string().nullable() })) }),   // delegates: locked=true, preview=null
+    locked: z.boolean(), preview: z.string().nullable() })) }),   // delegates: locked=true, preview=null. Partial list; console merges by name. B emits scout_input:*, A emits fanout + delegate:*
   z.strictObject({ type: z.literal("delivery"), lane: z.number().int().nullable(), message_id_short: z.string(),
     status: z.enum(["accepted","dispatched","delivered","failed"]) }),
   z.strictObject({ type: z.literal("system"), level: z.enum(["info","warn","error"]), msg: z.string().max(200) }),
@@ -755,7 +767,7 @@ export const SseEvent = z.discriminatedUnion("type", [
 
 **`priceBundle()`** (`packages/shared/src/pricing.ts`, used by agent filter **and** venue order pricing):
 - `all_in_pp_cents = ceilToDollar( dinner.est_high_pp_usd*100*(1 + TAX + TIP) + show.est_high_pp_usd*100*(1 + TAX) )`
-- `TAX = 0.0975` (**UNVERIFIED** LA rate; confirm before 11 PM). `TIP = 0.18`.
+- `TAX = 0.1025` (CDTFA Special Notice L-1037: LA County 9.750% → 10.250% from Oct 1, 2026. City of LA by address lookup is **UNVERIFIED**; smoke test: CDTFA lookup for 325 Westwood Plaza, 90095, before 11 PM). `TIP = 0.18`.
 - Share = `all_in_pp_cents`; total = share × party_size (no remainder).
 
 **TAP header and consent-digest format** (`packages/shared/src/tap.ts`, used by both signer and verifier):
@@ -836,11 +848,11 @@ export interface PlannerPort {                         // B. real: CREAO REST. m
   downloadArtifact(runId: string, artifactId: string): Promise<Uint8Array>; // follows redirect; never forwards Bearer cross-origin
 }
 
-export interface LLMPort {                             // A (delegates) + B (ratings). real: Anthropic. mock: deterministic canned parses
+export interface LLMPort {                             // A owns the one adapter (src/delegates/anthropicLLM.ts, one recorder for P5/P7); B owns rate/repair prompts (src/decide/ratePrompt.ts). mock: deterministic canned parses
   parseBudget(i: DelegateInput): Promise<BudgetParse>;          // claude-haiku-5-5
   parsePreferences(i: DelegateInput): Promise<Preferences>;     // claude-haiku-5-5
   parseBallot(i: DelegateInput, shortlist: PublicBundle[]): Promise<BallotParse>; // claude-haiku-5-5
-  rateBundles(prefs: Preferences, bundles: PublicBundle[]): Promise<Ratings>;      // claude-sonnet-5-5, effort "low"
+  rateBundles(prefs: Preferences, candidates: RateCandidate[]): Promise<Ratings>;      // claude-sonnet-5-5, effort "low"
   repairScoutJson(raw: string, category: "dinner" | "show"): Promise<unknown>;    // claude-haiku-5-5; Scout text only
 }
 
@@ -852,12 +864,20 @@ export interface VenuePort {                           // C. real: TAP-signed fe
          test?: "tamper" | "replay" | "expired" | "wrong_tag"): Promise<CommitResult>; // POST /checkout/{id}   agent-payer-auth
   cancel(orderId: string, reason: string): Promise<OrderStatus>;                   // POST /orders/{id}/cancel  agent-payer-auth
 }
-// pure (B): compose(options, plan) → Bundle[]; filter(bundles, constraints: PrivateConstraints[]) → Bundle[];
-//           shortlist(bundles, ratings, constraints) → Bundle[3]; pickWinner(shortlist, ballots, ratings, constraints) → bundleId
+// pure (B, src/decide): compose(options, plan) → Bundle[]; fitsPrefs(bundles, prefs[]) → Bundle[];
+//   filter(bundles, constraints) → Bundle[]; effectiveHardMax(c) → cents; selectForRating(bundles) → Bundle[≤15];
+//   shortlist(bundles, ratings, constraints) → Bundle[≤3]; pickWinner(shortlist, ballots, ratings, constraints) → bundleId;
+//   resolveApprovals(parse: BallotParse, shortlist: PublicBundle[], planTimeStart: HHMM) → bundleId[]  (minutes since plan start, +24 h wrap)
+// orchestrators (B, src/decide/score.ts; P1 allowlist, the ONLY place constraints are loaded for decisions):
+//   computeShortlist(planId) → { from_count, survived_count, survivors: Bundle[], top3: Bundle[] }  (rates + upserts app.ratings; writes nothing else, emits nothing)
+//   computeWinner(planId, version) → bundleId   (shortlist = app.bundles rows with shortlist_rank for that version)
+// hooks (final): A → B: startResearch(planId), cancelResearch(planId), startConciergeFor(planId), startLiveScoutDemo()
+//                B → A: plan.onOptionsReady(planId)  (enqueues recompute `recompute:<planId>:options`)
+// A owns plan transitions, app.bundles writes, the `shortlist` SSE, T_STILL_LOOKING, research-phase typing and every fan-out.
 ```
 
 **Anthropic call shape** (verified in the claude-api skill):
-- `client.messages.parse({ model, max_tokens, system, messages, output_config: { format: zodOutputFormat(Schema), effort: "low" } })`, then read `response.parsed_output` (null on failure → treat as low confidence).
+- `client.messages.parse({ model, max_tokens, system, messages, output_config: { format: zodOutputFormat(Schema), effort: "low" } })`, then read `response.parsed_output`. `parse()` **throws** `AnthropicError` on JSON/zod failure (verified: `@anthropic-ai/sdk@0.135.0` `helpers/zod.js`), so wrap it in try/catch. A throw, a null `parsed_output`, or `stop_reason` `refusal`/`max_tokens` all count as low confidence. Per-call limits go in the second argument: `messages.parse(body, { timeout, maxRetries })`.
 - **No `tools`. No assistant prefill (400 on 5.5 models). No forced `tool_choice` (400).**
 - Check `stop_reason === "refusal"` and treat it as low confidence.
 - Haiku 5.5 effort default is `medium`, so set `low` explicitly. Sonnet 5.5 default is `high`, so set `low`.
@@ -904,7 +924,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 - Timeout reversal: `ReversalApi.mitReversal(body)` → `POST /pts/v2/reversals` with the original `clientReferenceInformation.transactionId`.
 - Status: `GET /tss/v2/transactions/{id}`.
 - Test card 4111 1111 1111 1111, any future expiry.
-- Holds: Visa AI13522 allows 10 days CIT CNP. We release at our own deadline.
+- Holds: Visa Business News AI13522 (effective Apr 2024): 10-calendar-day authorization-to-clearing window for cardholder-initiated card-not-present transactions. We release at our own deadline.
 
 **TAP** (developer.visa.com spec):
 - Tags `agent-browser-auth` and `agent-payer-auth`.
@@ -924,8 +944,9 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 |---|---|
 | `PORT` | `8080` |
 | `PUBLIC_BASE_URL` | `https://tab-agent.fly.dev` |
-| `WEB_ORIGIN` | `https://<web>.vercel.app` (CORS for /join, /plans, /events) |
+| `WEB_ORIGIN` | `https://<web>.vercel.app` (CORS for /join, /plans, /events, /events/snapshot; /ops/* uses `cors({ origin: WEB_ORIGIN, allowHeaders: ["Authorization","Content-Type"], allowMethods: ["POST"] })`, verified Context7 /honojs/website) |
 | `DATABASE_URL` | Supabase session pooler :5432, role `tab_agent` |
+| `OWNER_DATABASE_URL` | local/CI only: postgres-role URL for migrations; never on Fly or Vercel |
 | `MESSAGING_MODE` | `photon` \| `mock` |
 | `PHOTON_API_KEY` | `pho_sk_…` (project:read, project:write, platforms:write, platforms:read) |
 | `PHOTON_PROJECT_ID` | `pho_prj_…` |
@@ -947,6 +968,12 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | `CONSOLE_KEY` | read-only SSE key |
 | `OPERATOR_KEY` | reset, replay, tap-test, seat release |
 | `DEMO_TIMERS` | `1` → vote 5 min, approve 10 min, re-ping at T-3 min |
+| `AGENT_API_ALLOW_TEST_REF` | `0` (B; `1` only during CREAO agent building) |
+| `DEMO_TEAM` | `[{phone_e164, first_name}]` JSON (PII; secret) |
+| `DEMO_CODE` | `4821` |
+| `TYPING_REFRESH_MS` | `5000` until A's S4 result |
+| `TEST_DATABASE_URL` | local/CI only |
+| `VOICE_ENABLED`, `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`, `ELEVENLABS_WEBHOOK_SECRET` | voice go only |
 | `NOTION_TOKEN`, `NOTION_PARENT_PAGE_ID` | fallback only |
 | `LOG_LEVEL` | `info` |
 
@@ -962,7 +989,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | `TAP_KEY_DIRECTORY_JSON` | `{"tab-agent-ed25519-1":{"kty":"OKP","crv":"Ed25519","x":"…"}}`, served at `/keys/[keyid]` labelled **mock** |
 | `AGENT_HOOK_URL` | `https://tab-agent.fly.dev/venue/hook` |
 | `VENUE_HOOK_SECRET`, `VENUE_OPS_KEY` | same values as the agent |
-| `PAY_LINK_TTL_MIN` | `30` |
+| `PAY_LINK_TTL_MIN` | `1440` (token expiry = `least(now()+TTL, deadline_at)`, so in practice the deadline; still single-use and amount-bound) |
 
 **apps/web** (Vercel project root `apps/web`): `NEXT_PUBLIC_AGENT_URL`, `NEXT_PUBLIC_VENUE_URL`. The console key is passed as `?k=` in the URL and never baked into the bundle.
 
@@ -999,7 +1026,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | **4:25–4:45** | Starts the foundation from this doc | Photon booth (§17); create Photon project and key; Supabase, Fly app, GitHub repo, Anthropic key; DM secrets to Claude's operator | CREAO booth (send the account email for the upgrade); Devpost team; Notion page | Cybersource signup **now**, then the Visa booth; Vercel team and 2 projects | — |
 | **4:45–6:00** | Builds: monorepo, shared contracts, migrations, 4 ports + mocks, `/dev/inbound`, due_jobs poller, events + SSE, Fly/Vercel config, `.env.example`, `.gitignore`, CLAUDE.md, AGENTS.md, `pnpm sim:plan` | `scratch/photon/`: Socket.IO echo to own phone; assignment create/release; typing refresh; markRead; record whether name/avatar shows | Build **Tab Scout** in the CREAO UI by chatting → Create Agent; write the `tab` skill (SKILL.md + CLI) and install it; curl smoke tests: run with idempotencyKey (replay returns the same run), latency, credits per run | `scratch/cybs/`: auth→capture, auth→reverse, timeout reversal against apitest; capture-context call; Ed25519 keygen + sign/verify spike with `node:crypto` | — |
 | **6:00** | Foundation pushed and deployed (Fly + both Vercel); `pnpm sim:plan` green on mocks | pull | pull | pull | **F: foundation** |
-| 6:00–6:45 | On call for foundation fixes | Real `PhotonMessaging` adapter; route table; JOIN path on a real phone | Real `CreaoPlanner`; webhook + poll; `/agent/*` live; Scout calls `tab ping` from an API run | Venue Cybersource service; Microform page on the **production** Vercel URL | — |
+| 6:00–6:45 | On call for foundation fixes | Real `PhotonMessaging` + consumer; JOIN through `route()` on a real phone by 7:15 | `/agent/*` live + final skill; Scout calls `tab ping` from an API run (CreaoPlanner 6:35–7:15, webhook/poll 7:15–7:45) | Venue Cybersource service; Microform page on the **production** Vercel URL | — |
 | **6:45** | | | | | **Go/no-go:** booth answers in hand; Photon echo on a real phone; Scout returns valid options via the CLI (else result.text); Microform works on a phone (else a labelled sandbox test-card button); voice go/no-go |
 | 6:45–11:00 | | Join → delegates (budget, prefs, ballot) → state machine → templates → holdGate call | Compose/filter/score/pickWinner with unit tests; join page; console skeleton (lanes, CREAO lane) | Orders/shares/pay links; 7 pay-page states; COF flags; capture-all/reverse-all; TAP verifier with 6 steps; agent-side signer + VenuePort | — |
 | **11:00 PM** | | | | | **Checkpoint 1:** end to end on 2 real phones: join → cached options → ballot → sandbox hold → TAP commit → capture. If red, all 3 swarm it and no stretch work starts |
@@ -1008,7 +1035,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | 4–7 AM | | Copy polish; agent avatar | PNG cards (stretch); README; Devpost text | Pay-page polish; OG image | Rests: C 4:00–5:30, A 5:00–6:30, B 5:30–7:00. Stretch order: threadId re-roll → refund → plan page |
 | **7:00 AM** | | | | | **FEATURE FREEZE** (bug fixes only) |
 | 7–9:30 | | Drives recordings | Records the 2–3 min video and backup clips; README with both run links and both appIds | Verifies ledger and TAP shots | **Devpost draft submitted by 9:30** |
-| 9:30–11:30 | | Table demo ×5, stage ×5, Q&A drill | Release judge-test seats | | |
+| 9:30–11:30 | | Table demo ×5, stage ×5, Q&A drill; Reset before and `/ops/release-seats` after each judge | Record backup clips | | |
 | **11:30** | | | | | **No deploys after 11:30** |
 | **11:45** | | | | | **Final Devpost submit** (12:00 code stop) |
 
@@ -1097,7 +1124,7 @@ export interface VenuePort {                           // C. real: TAP-signed fe
    - It proves which agent is acting, with what intent, for which venue-priced order and exact consent set, with replay and expiry protection.
    - We verify the spec's six steps ourselves. The key directory is a labelled mock; the production path is Visa agent registration.
    - We send no Agentic Payment Container: each human pays their own share.
-8. **"Capturing at booking for a restaurant?"** The merchant sells a prepaid, ticketed dinner + show bundle, so capture at booking is standard. Holds are released at our deadline, well inside Visa's 10-day CIT window (AI13522).
+8. **"Capturing at booking for a restaurant?"** The merchant sells a prepaid, ticketed dinner + show bundle, so capture at booking is standard. Holds are released at our deadline, well inside Visa's 10-calendar-day authorization-to-clearing window for cardholder-initiated card-not-present transactions (AI13522).
 9. **"Double charges on network failure?"** Cybersource has no idempotency header. We use unique attempt rows, deterministic reference codes, a persisted transactionId and a timeout reversal at 60 s. Never a blind retry. Status is checked before any capture retry.
 10. **"Are you a money transmitter?"** The merchant charges each friend directly via split tender; we never hold or move funds. A pooled-card variant is what would raise that question. (Not legal advice.)
 11. **"Why DMs, not the group chat?"** Money talk only works in private. The group gets only what everyone may see. (Also true: group chats need Photon's paid dedicated line.)
@@ -1140,20 +1167,20 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 |---|---|---|---|
 | iPhone → Photon → agent | Socket.IO `delivery` (Bearer pho_sk_), cursor `startSeq` | `message.received` → `InboundEvent` | A |
 | agent → Photon | REST `sendMessage` / `setSpaceTyping` / `markMessageRead` / assignments (Bearer pho_sk_, idempotency keys) | §10 | A |
-| web `/j/[code]` → agent | `POST /join` (CORS WEB_ORIGIN, rate-limited per IP) | `{code, phone_e164 (z.e164), first_name, budget_usd?:{target, hard_max?}, consent:true}` → `{assigned_number, sms_href, join_text}` | B ↔ A |
+| web `/j/[code]` → agent | `POST /join` (CORS WEB_ORIGIN, rate-limited per IP) | `{code, phone_e164 (z.e164), first_name, budget_usd?:{target, hard_max?}, consent:true}` → 200 `{assigned_number, sms_href, join_text}` \| 404 not_found \| 409 plan_closed \| 422 invalid \| 429 \| 503 capacity | B ↔ A |
 | web `/` → agent | `POST /plans` | `{title, area, date, time_start, time_end, party_target, organizer:{phone_e164, first_name}}` → `{code, join_url, qr_svg}` | B ↔ A |
-| web `/console` → agent | `GET /events?k=CONSOLE_KEY` SSE (`Last-Event-ID` replay) + `GET /events/snapshot` | `SseEvent` | B ↔ A |
-| console ops → agent | `POST /ops/{reset\|replay\|tap-test\|live-scout\|release-seats}` (Bearer OPERATOR_KEY) | `{kind?}` → `{ok}` | B ↔ A/C |
+| web `/console` → agent | `GET /events?k=CONSOLE_KEY` SSE (`Last-Event-ID` replay) + `GET /events/snapshot?k=` → `{ last_id: number, events: { id: number, data: SseEvent }[] }` (last 500; foundation builds both) | `SseEvent` | B ↔ A |
+| console ops → agent | `POST /ops/{reset\|replay\|tap-test\|live-scout\|release-seats}` (Bearer OPERATOR_KEY) | reset: cancel every plan in a non-terminal state (COLLECTING…CANCELLING) (venue cancel → reverse holds, `cancelResearch`, no DMs), free `DEMO_CODE`, `seedDemo()` (new plan row, so a fresh `plans.ref`); replay: reset, then feed `fixtures/demo-script.json` through `route()`; tap-test `{kind}`: C's `runTapTest`; live-scout: B's `startLiveScoutDemo()`; release-seats → `{ok, released}`. All Bearer OPERATOR_KEY; CORS preflight for `Authorization`. | A routes; B UI; C tap-test |
 | agent → CREAO | `POST /api/v1/runs`, `GET /api/v1/runs/{id}`, cancel, artifact download (Bearer capi_) | `ResearchBrief`/`ConciergeInput` as inputs; `CreaoRun` | B |
 | CREAO → agent | `POST /creao/hook/:CREAO_HOOK_SECRET` (unsigned → re-fetch) | `{runId,…}` → always 200 within 1 s | B |
 | CREAO sandbox `tab` CLI → agent | `/agent/*` (Bearer TAB_AGENT_TOKEN, active-run check) | §8 table | B |
-| agent → Anthropic | `messages.parse` (no tools) | delegate schemas §8 | A (delegates), B (ratings) |
-| agent → venue | TAP-signed HTTPS: `GET /availability/{key}`, `POST /orders`, `GET /orders/{id}`, `POST /checkout/{id}`, `POST /orders/{id}/cancel` | `CreateOrderRequest/Response`, `OrderStatus`, `ConsentSet`→`CommitResult` | C (both sides), A (calls) |
+| agent → Anthropic | `messages.parse` (no tools) | delegate schemas §8 | A (adapter + delegates), B (rate/repair prompts) |
+| agent → venue | TAP-signed HTTPS: `GET /availability/{key}`, `POST /orders`, `GET /orders/{id}`, `POST /checkout/{id}`, `POST /orders/{id}/cancel` | `CreateOrderRequest/Response`, `OrderStatus`, `ConsentSet`→`CommitResult`; cancel body `{"reason": string}`, signed agent-payer-auth with content-digest | C (both sides), A (calls) |
 | venue → agent | `POST /venue/hook`, headers `X-Tab-Timestamp`, `X-Tab-Signature: sha256=<hex HMAC(VENUE_HOOK_SECRET, ts + "." + body)>`, reject if skew >300 s; outbox retry | `VenueEvent` | C → A |
-| agent due_jobs → venue | `POST /ops/sweep` every 30 s (Bearer VENUE_OPS_KEY) | timeout reversals (AUTH_UNKNOWN >60 s), expired-deadline reversals, outbox redelivery | A ↔ C |
+| agent due_jobs → venue | `POST /ops/sweep` every 30 s (Bearer VENUE_OPS_KEY) | → `{ok, timeout_reversed, expired_cancelled, outbox_delivered, nonces_purged}`: timeout reversals (AUTH_UNKNOWN >60 s), expired-deadline reversals, stuck REVERSING, outbox redelivery, nonce purge | A ↔ C |
 | phone browser → venue | `GET /pay/[token]` (server-rendered, mints capture context); `POST /api/pay/[token]/authorize` | `{transientTokenJwt?, save_card, bill_to}` → page state | C |
 | venue → Cybersource | SDK, JWT shared secret | §10 | C |
-| verifier → key dir | `GET /keys/[keyid]` (labelled "mock Visa key directory") | JWK | C |
+| verifier → key dir | in-process read of `TAP_KEY_DIRECTORY_JSON`; `GET /keys/[keyid]` publishes the same JWK for judges (labelled "mock Visa key directory") | JWK | C |
 
 ---
 
@@ -1181,5 +1208,5 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | Required `billTo` fields in sandbox | Auth with name + ZIP + email only | C | |
 | Refund vs void on a same-day sandbox capture (stretch) | Scratch | C | |
 | Supavisor login with custom roles | psql with `tab_agent.<ref>` | A | |
-| LA sales-tax rate for `TAX` | Official CDTFA lookup | B | |
+| LA sales-tax rate for `TAX` (0.1025 per L-1037) | CDTFA address lookup, 325 Westwood Plaza | B | |
 | Applied Intelligence track text | live.lahacks.com/tracks | B | |
