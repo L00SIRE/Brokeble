@@ -8,7 +8,8 @@ const schema = z.object({
   CYBS_MERCHANT_ID: z.string().optional(),
   CYBS_KEY_ID: z.string().optional(),
   CYBS_SECRET_KEY: z.string().optional(),
-  CYBS_RUN_ENV: z.string().default("apitest.cybersource.com"),
+  CYBS_RUN_ENV: z.string().default("apitest.cybersource.com"), // or testrest.cybersource.com (some test merchants only work there)
+  CYBS_AUTH_TYPE: z.enum(["jwt", "http_signature"]).default("jwt"), // both use the same Key ID + shared secret
   TAP_KEY_DIRECTORY_JSON: z.string().min(2),
   AGENT_HOOK_URL: z.url(),
   VENUE_HOOK_SECRET: z.string().min(16),

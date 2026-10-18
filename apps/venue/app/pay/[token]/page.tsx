@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { cybsService } from "@/cybs";
+import { isSandboxHost } from "@/cybs/config";
 import { env } from "@/env";
 import { loadByToken, savedCard, pageStateOf } from "./load";
 import { PayForm } from "./PayForm";
@@ -62,7 +63,7 @@ export default async function PayPage({ params }: PageProps<"/pay/[token]">) {
         capture={capture}
         initialFailed={captureFailed}
         saved={customer ? { brand: customer.card_brand, last4: customer.card_last4 } : null}
-        sandboxFallback={live && env().CYBS_RUN_ENV === "apitest.cybersource.com"}
+        sandboxFallback={live && isSandboxHost(env().CYBS_RUN_ENV)}
       />
     </Shell>
   );

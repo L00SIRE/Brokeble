@@ -1,6 +1,6 @@
 import cybs from "cybersource-rest-client";
 import { env } from "../env";
-import { cybsConfig } from "./config";
+import { cybsConfig, isSandboxHost } from "./config";
 import type { AuthResp, AuthorizeArgs, CybsOutcome, CybsService } from "./service";
 
 const usd = (cents: number) => (cents / 100).toFixed(2);
@@ -37,7 +37,7 @@ const client = () => {
 };
 
 export function authBody(a: AuthorizeArgs) {
-  if (a.sandboxTestCard && env().CYBS_RUN_ENV !== "apitest.cybersource.com") throw new Error("sandboxTestCard is sandbox-only");
+  if (a.sandboxTestCard && !isSandboxHost(env().CYBS_RUN_ENV)) throw new Error("sandboxTestCard is sandbox-only");
   const oneTap = !a.transientTokenJwt && !!a.customerId && !a.sandboxTestCard;
   const save = a.saveCard && !oneTap;
   const b = a.billTo;

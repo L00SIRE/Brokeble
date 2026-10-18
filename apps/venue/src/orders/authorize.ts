@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { sql } from "../db";
 import { cardFromAuth, classifyAuth, cybsService, reversalDone, type CybsOutcome, type AuthResp } from "../cybs";
+import { isSandboxHost } from "../cybs/config";
 import { env } from "../env";
 import { hashToken } from "../token";
 import { deliver, enqueue } from "../outbox";
@@ -64,7 +65,7 @@ export async function authorize(token: string, body: AuthorizeBody): Promise<Pay
   const live = env().CYBS_MODE === "live";
   const usable = !!body.transientTokenJwt || !!customer || body.sandbox_test_card || !live;
   if (!usable) return { error: "card_required", status: 400 };
-  if (body.sandbox_test_card && env().CYBS_RUN_ENV !== "apitest.cybersource.com") return { error: "not_allowed", status: 400 };
+  if (body.sandbox_test_card && !isSandboxHost(env().CYBS_RUN_ENV)) return { error: "not_allowed", status: 400 };
 
   // Consume the token atomically; every precondition rides on the same statement.
   const hash = hashToken(token);

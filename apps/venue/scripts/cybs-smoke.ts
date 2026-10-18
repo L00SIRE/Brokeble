@@ -1,9 +1,9 @@
 // Sandbox smoke (PLAN §19 spikes S1/S2/S3/S5). Run: pnpm --filter @tab/venue exec tsx --env-file=../../.env scripts/cybs-smoke.ts
-// Uses the sandbox test card server-side. Prints status codes and key NAMES only; never tokens, PANs or credentials.
+// Override with CYBS_RUN_ENV=testrest.cybersource.com CYBS_AUTH_TYPE=http_signature. Uses the sandbox test card server-side. Prints status codes and key NAMES only; never tokens, PANs or credentials.
 import { randomBytes } from "node:crypto";
 
 Object.assign(process.env, {
-  CYBS_MODE: "live", CYBS_RUN_ENV: "apitest.cybersource.com", VENUE_PUBLIC_URL: "http://localhost:3001", VENUE_PUBLIC_HOST: "localhost:3001",
+  CYBS_MODE: "live", CYBS_RUN_ENV: process.env.CYBS_RUN_ENV ?? "apitest.cybersource.com", CYBS_AUTH_TYPE: process.env.CYBS_AUTH_TYPE ?? "jwt", VENUE_PUBLIC_URL: "http://localhost:3001", VENUE_PUBLIC_HOST: "localhost:3001",
   DATABASE_URL: "postgres://unused", TAP_KEY_DIRECTORY_JSON: "{}", AGENT_HOOK_URL: "http://localhost:9/hook",
   VENUE_HOOK_SECRET: "x".repeat(16), VENUE_OPS_KEY: "x".repeat(16),
 });
