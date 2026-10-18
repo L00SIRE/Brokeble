@@ -37,6 +37,11 @@ class FieldPiece implements GlyphPiece {
   grid: GlyphGrid | null = null;
   now = 0;
 
+  /** With no rings the field is static, so the engine stops its loop; pushing a ring is followed by repaint(). */
+  idle(): boolean {
+    return this.rings.length === 0;
+  }
+
   layout(grid: GlyphGrid): void {
     this.grid = grid;
     this.mask = null;
