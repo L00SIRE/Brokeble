@@ -58,6 +58,7 @@ export const TemplateId = z.enum([
   "T_JOIN_WELCOME_NAME",
   "T_BUDGET_ASK_NAMED",
   "T_ALREADY_IN_PLAN", // the /start pre-fill from someone still in an open plan: offer 'new plan' or 'status'
+  "T_BUDGET_TOO_LOW", // private: the cheapest plan found is over this member's max; only that member is told
 ]);
 export type TemplateId = z.infer<typeof TemplateId>;
 
@@ -124,6 +125,8 @@ export const COPY = {
     "Nice to meet you, {name}. Next: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it.",
   T_ALREADY_IN_PLAN:
     "You're still in {title} ({ready} of {total} ready). Text 'new plan' to start fresh, or 'status' to keep going.",
+  T_BUDGET_TOO_LOW:
+    "Heads up: the cheapest dinner + show I found tonight is ${price} all-in per person, a bit over the max you gave me. Text 'change budget' to raise it, or 'I'm out' to sit this one out. Nobody else sees your number.",
 } as const satisfies Record<TemplateId, string>;
 
 const s = z.string().min(1);
@@ -182,6 +185,7 @@ export const VARS = {
   T_JOIN_WELCOME_NAME: z.strictObject({ title: s, date: s }),
   T_BUDGET_ASK_NAMED: z.strictObject({ name: s }),
   T_ALREADY_IN_PLAN: z.strictObject({ title: s, ready: count, total: count }),
+  T_BUDGET_TOO_LOW: z.strictObject({ price: s }), // the cheapest plan's price (public data), never the member's own or anyone's budget
 } as const satisfies Record<TemplateId, z.ZodObject>;
 
 export type TemplateVars<T extends TemplateId> = z.infer<(typeof VARS)[T]>;

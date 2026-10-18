@@ -4,7 +4,7 @@
 import { jobKeys, type Jobs } from "../dueJobs";
 import { env } from "../env";
 import { errInfo, log } from "../log";
-import { recomputeJob } from "../plan/decision";
+import { budgetDeadlineJob, recomputeJob } from "../plan/decision";
 import { voteDeadlineJob } from "../plan/ballots";
 import { createOrderJob } from "../plan/order";
 import { commitJob, postConfirmJob } from "../plan/commit";
@@ -24,6 +24,7 @@ export const A_JOB_KINDS = {
   postConfirm: "post_confirm",
   postCancel: "post_cancel",
   staleSweep: "stale_sweep",
+  budgetDeadline: "budget_deadline",
 } as const;
 
 /**
@@ -48,6 +49,7 @@ export type APayloads = {
   post_confirm: { version: number };
   post_cancel: { version: number };
   stale_sweep: Record<string, never>;
+  budget_deadline: { version: number };
 };
 
 /** Dedupe keys (A plan T10 table). recompute(planId, "options") === jobKeys.recomputeOptions(planId). */
@@ -68,6 +70,8 @@ export const aJobKeys = {
   postCancel: (planId: string, version: number) => `postcancel:${planId}:${version}`,
   /** 5-minute bucket. */
   staleSweep: (epochMs: number) => `stale:${Math.floor(epochMs / 300_000)}`,
+  /** One per plan version: a re-run recompute never extends the window. */
+  budgetDeadline: (planId: string, version: number) => `budget:${planId}:${version}`,
 } as const;
 
 /** Registers every A kind once at boot and inserts the current stale_sweep bucket; in VENUE_MODE=live also venue_sweep. */
@@ -84,6 +88,7 @@ export function registerAJobs(jobs: Jobs): void {
   jobs.register(A_JOB_KINDS.postConfirm, postConfirmJob);
   jobs.register(A_JOB_KINDS.postCancel, postCancelJob);
   jobs.register(A_JOB_KINDS.staleSweep, staleSweepJob);
+  jobs.register(A_JOB_KINDS.budgetDeadline, budgetDeadlineJob);
   bootstrapStaleSweep(jobs).catch((e) => log.error(errInfo(e), "stale_sweep bootstrap"));
   if (env.VENUE_MODE === "live") bootstrapVenueSweep(jobs).catch((e) => log.error(errInfo(e), "venue_sweep bootstrap"));
 }

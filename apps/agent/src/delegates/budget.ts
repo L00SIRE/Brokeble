@@ -10,6 +10,7 @@ import { usd0 } from "../notify/render";
 import { stageAtLeast } from "../plan/machine";
 import { setStage } from "../plan/membership";
 import { ports } from "../ports";
+import { optionsReady } from "../repo/options";
 import * as privateConstraints from "../repo/privateConstraints";
 import type { MemberContext } from "../repo/types";
 import { clearAwaiting, setAwaiting } from "./awaiting";
@@ -91,7 +92,7 @@ export async function applyTier(ctx: MemberContext, tier: Tier, e: InboundEvent)
 /**
  * Locks a budget: privateConstraints.upsert(confidence 'high', confirmed_at now) → T_BUDGET_CONFIRM
  * {target: usd0(target), max: usd0(effectiveHardMax)} (or _NOCAP) → clear awaiting → JOINED ⇒ BUDGET_LOCKED + T_PREFS_ASK;
- * plan VOTING ⇒ enqueue recompute (key recompute:<planId>:<e.event_id>); order exists and not HELD ⇒ holdGate.recheck.
+ * plan VOTING, or RESEARCHING with options in ⇒ enqueue recompute (key recompute:<planId>:<e.event_id>); order exists and not HELD ⇒ holdGate.recheck.
  * Replies use replyKey(e.message_id, 1|2), so a re-delivered inbound never double-sends and a later "change budget"
  * (a new inbound) always gets its own confirmation.
  */
@@ -113,7 +114,9 @@ export async function confirmBudget(ctx: MemberContext, c: Budget, source: "dm" 
     await setStage(plan.id, user.id, "BUDGET_LOCKED");
     await notify(user.id, "T_PREFS_ASK", {}, { key: replyKey(e.message_id, 2), planId: plan.id });
   }
-  if (plan.state === "VOTING") {
+  // RESEARCHING only once both categories have options: a recompute earlier would find nothing and call the plan off.
+  // This is what unsticks a budget-blocked plan after "change budget"; the stage is never moved here.
+  if (plan.state === "VOTING" || (plan.state === "RESEARCHING" && (await optionsReady(plan.id)))) {
     await enqueue(A_JOB_KINDS.recompute, aJobKeys.recompute(plan.id, e.event_id), new Date(), {}, { planId: plan.id });
   }
   // holdGate.recheck guards state (APPROVING) and stage (GATED/LINK_SENT) itself, so HELD/CAPTURED members are untouched.
