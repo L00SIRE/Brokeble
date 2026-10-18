@@ -15,7 +15,7 @@ LA Hacks AI Hackathon, UCLA, Oct 17-18, 2026. All code in this repo was written 
 - Demo video: see the Devpost submission (link added there when uploaded).
 - Live agent: https://tab-agent.fly.dev/healthz
 - Live web (create a plan, join, Trust Console): https://tab-web-ten.vercel.app
-- Live partner venue (sandbox merchant of record): https://tab-venue.vercel.app
+- Live partner venue (Cybersource sandbox, the one the production agent uses): https://squadtab-venue.vercel.app
 
 ## Architecture
 
