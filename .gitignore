@@ -1,0 +1,19 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+# deps / build
+node_modules/
+.next/
+dist/
+.turbo/
+.vercel/
+coverage/
+*.tsbuildinfo
+__pycache__/
+# misc
+.DS_Store
+p.html
+scratch/
