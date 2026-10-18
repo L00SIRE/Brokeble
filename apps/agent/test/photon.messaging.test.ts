@@ -39,7 +39,7 @@ const assignment = (id: string, handle: string, extra: Record<string, unknown> =
 const problem = (status: number, code: string) => ({ type: `https://photon.codes/docs/problems/${code.toLowerCase()}`, title: code, status, code });
 
 describe("PhotonMessaging wire format", () => {
-  it("sendText posts plain text with the idempotency key and parent message", async () => {
+  it("sendText posts plain text with the idempotency key and never threads (shared lines reject parentMessageId)", async () => {
     const { client, calls } = fake(() => json(202, message("msg_1")));
     const m = new PhotonMessaging({ client, projectId: PROJECT });
     await expect(m.sendText(to, "hi", { idempotencyKey: "tpl:p:u:T:1", replyTo: "msg_in" })).resolves.toEqual({ messageId: "msg_1" });
@@ -47,7 +47,7 @@ describe("PhotonMessaging wire format", () => {
     expect(c?.method).toBe("POST");
     expect(c?.path).toBe(`/v1/projects/${PROJECT}/messages`);
     expect(c?.headers.get("idempotency-key")).toBe("tpl:p:u:T:1");
-    expect(c?.body).toEqual({ spaceId: "spc_1", senderId: "usr_agent", parentMessageId: "msg_in", content: { type: "text", format: "plain", text: "hi" } });
+    expect(c?.body).toEqual({ spaceId: "spc_1", senderId: "usr_agent", content: { type: "text", format: "plain", text: "hi" } });
   });
 
   it("sendText omits parentMessageId without replyTo", async () => {

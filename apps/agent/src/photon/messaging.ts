@@ -49,17 +49,16 @@ export class PhotonMessaging implements MessagingPort {
     await this.#consumer.start();
   }
 
-  /** projects.sendMessage({spaceId, senderId: agentUserId, parentMessageId?, content:{type:"text",format:"plain",text}}) → 202 Message.id. */
+  /**
+   * projects.sendMessage({spaceId, senderId: agentUserId, content:{type:"text",format:"plain",text}}) → 202 Message.id.
+   * `replyTo` is intentionally not sent as parentMessageId: shared iMessage lines reject threaded replies with
+   * 409 SPACE_NOT_SENDABLE "Replies are not supported for this Space" (verified live 2026-10-17).
+   */
   async sendText(to: DmAddress, text: string, o: { idempotencyKey: string; replyTo?: string }): Promise<{ messageId: string }> {
     const m = await this.#client.projects.sendMessage({
       path: { id: this.#id },
       headers: { "idempotency-key": o.idempotencyKey },
-      body: {
-        spaceId: to.spaceId,
-        senderId: to.agentUserId,
-        ...(o.replyTo ? { parentMessageId: o.replyTo } : {}),
-        content: { type: "text", format: "plain", text },
-      },
+      body: { spaceId: to.spaceId, senderId: to.agentUserId, content: { type: "text", format: "plain", text } },
     });
     // Message is an open union (an UNKNOWN-platform variant has no typed id); a resend with the same key replays safely.
     if (typeof m.id !== "string") throw new Error("Photon sendMessage response carried no message id");
