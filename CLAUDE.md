@@ -6,9 +6,9 @@ Tab is an iMessage group planner. Each friend DMs Tab privately, Tab finds a din
 - **Then your plan:** `docs/plans/A-platform-conversation.md`, `docs/plans/B-intelligence-experience.md` or `docs/plans/C-trust-commerce.md`.
 - **Research:** `docs/research/*`.
 - **Ownership:**
-  - A: `apps/agent` platform and conversation.
-  - B: CREAO, `decide/`, `apps/web`, `skills/tab`.
-  - C: `apps/venue`, TAP, VenuePort.
+  - A: `apps/agent/src/{photon,router,delegates,plan,notify,jobs,join,ops,money,repo,dev}`, `packages/shared/src/templates.ts`, migration 004.
+  - B: `apps/agent/src/{creao,decide,agentApi,voice}`, `apps/web`, `skills/tab`, cached-options fixtures, README/Devpost.
+  - C: `apps/venue`, `apps/agent/src/{tap,venueClient}`, `packages/shared/src/{tap,pricing}.ts` (B may change `TAX` with C's ack), migrations 005+.
 - Ping the owner before editing their files.
 - `packages/shared` changes must be announced and are additive-only after 11 PM.
 
@@ -19,7 +19,7 @@ Tab is an iMessage group planner. Each friend DMs Tab privately, Tab finds a din
    - Import `@tab/shared/private` only from those files.
 2. A delegate sees only its own person's inbound message plus that person's own state. **There is no group-coordinator LLM.**
 3. **No LLM ever has tools** (no payment, commit, cancel or filter tools). The filter is a pipeline step, never a callable.
-4. **Money and privacy messages are templates** (`notify(userId, TemplateId, vars)`). Only `src/notify/notify.ts` may call `MessagingPort.sendText`.
+4. **Money and privacy messages are templates** (`notify(userId, TemplateId, vars, { key })`, keys from `tplKey()`/`replyKey()`). Only `src/notify/notify.ts` may call `MessagingPort.sendText`.
 5. CREAO inputs are `ResearchBrief` only: enums, area, date, times, party size. No names, phones, budgets or user free text.
 6. `app.events` and SSE never carry constraint values. The X-ray shows delegates as 🔒.
 7. **Cybersource credentials, TMS tokens and card data live only in `apps/venue`** (schema `venue`). Card data lives only inside Microform iframes.
@@ -81,11 +81,11 @@ pnpm dev:agent | dev:web | dev:venue
 pnpm sim:plan                    # full mocked plan through POST /dev/inbound
 pnpm test                        # vitest (includes privacy.e2e, tap.verify, statemachine.race)
 pnpm typecheck
-pnpm db:migrate                  # applies db/migrations/*.sql to $DATABASE_URL
+pnpm db:migrate                  # applies db/migrations/*.sql in order to $OWNER_DATABASE_URL (postgres role); roles: psql -f db/roles.sql once
 pnpm seed:demo                   # demo plan + 3 members + cached options
 fly deploy -c apps/agent/fly.toml --remote-only --ha=false   # exactly 1 machine (auto_stop_machines="off")
 fly secrets set -a tab-agent KEY=value
 # Vercel: projects tab-venue (root apps/venue) and tab-web (root apps/web); push to main deploys
 ```
-Microform only works on the venue's production HTTPS origin, so test payments there, not on preview URLs.
+Microform `targetOrigins` must match exactly: use the venue's production HTTPS origin, never preview URLs. Localhost works in the official sample but is UNVERIFIED for us (C's S6).
 Before reporting work done: tests green, `git status` clean of `.env*` and secrets.
