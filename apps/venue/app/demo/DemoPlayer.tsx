@@ -22,107 +22,145 @@ type Ev =
   | { at: number; kind: "counters"; converted: number; released: number }
   | { at: number; kind: "end" };
 
-const FRIENDS = ["Alex", "Priya", "Sam"] as const;
+const FRIENDS = ["Christian", "Dawson", "Suman"] as const;
 const S = 1000;
 const TAP_NAMES = ["tag", "params", "timestamps", "nonce", "key", "signature"];
+const AMT = 29; // all-in per person, the same for everyone
+const TITLE = "Noodle Lab → Open Mic at The Cellar";
+const EVERY: Who[] = [0, 1, 2];
+const C = 0 as Who, D = 1 as Who, SU = 2 as Who;
+
+// Message copy below is the agent's real template text (packages/shared/src/templates.ts).
+const me = (at: number, who: Who, text: string): Ev[] => [{ at: at * S, kind: "msg", who, from: "me", text }];
+const tab = (at: number, who: Who, text: string): Ev[] => [
+  { at: at * S - 700, kind: "typing", who, on: true },
+  { at: at * S, kind: "msg", who, from: "tab", text },
+];
+const tabAll = (at: number, text: (who: Who) => string, gap = 0.25): Ev[] => EVERY.flatMap((w, i) => tab(at + i * gap, w, text(w)));
+const lane = (at: number, who: Who, stage: Stage): Ev[] => [{ at: at * S, kind: "lane", who, stage }];
+const laneAll = (at: number, stage: Stage): Ev[] => EVERY.flatMap((w) => lane(at, w, stage));
+
+const PICKS =
+  "Okay, found 3 plans that work for everyone:\n" +
+  "1. Noodle Lab → Open Mic at The Cellar · dinner 6:30 PM → show 8:30 PM · $29 pp all-in\n" +
+  "2. Taco Garage → Rooftop Movie Night · dinner 6:45 PM → show 8:45 PM · $27 pp all-in\n" +
+  "3. Curry Corner → Improv Jam · dinner 7:00 PM → show 9:00 PM · $30 pp all-in\n" +
+  "Tell me which ones you'd be happy with (like '1 3'), or just say it in your own words.";
+
+function holdFlow(at: number, who: Who, idTail: string): Ev[] {
+  return [
+    ...tab(at, who, `Here's your share for ${TITLE}: $${AMT}. It's only a hold, and it turns into a charge only if everyone's in by Sat 5:00 PM. Otherwise it's released. tab-venue.vercel.app/pay/•••`),
+    ...lane(at, who, "LINK_SENT"),
+    { at: at * S + 700, kind: "pay", who, state: "open" },
+    { at: at * S + 1300, kind: "pay", who, state: "typing" },
+    { at: at * S + 1900, kind: "pay", who, state: "processing" },
+    { at: at * S + 2400, kind: "pay", who, state: "held" },
+    ...lane(at + 2.4, who, "HELD"),
+    { at: at * S + 2400, kind: "ledger", who, status: "AUTHORIZED", id: idTail },
+    { at: at * S + 3300, kind: "pay", who, state: "closed" },
+    ...tab(at + 3.6, who, `All set, I'm holding $${AMT} on your Visa ••1111. Not charged yet.`),
+  ];
+}
 
 const EVENTS: Ev[] = [
+  // 1 · joining
   { at: 0, kind: "scene", title: "1 · Everyone texts SquadTab privately" },
-  { at: 0, kind: "caption", text: "Three friends want dinner and a show on Saturday. Each one texts SquadTab in a private DM." },
-  { at: 0, kind: "lane", who: 0, stage: "INVITED" }, { at: 0, kind: "lane", who: 1, stage: "INVITED" }, { at: 0, kind: "lane", who: 2, stage: "INVITED" },
-  { at: 0.8 * S, kind: "msg", who: 0, from: "me", text: "planning sat w/ priya + sam. dinner + a show?" },
-  { at: 1.4 * S, kind: "typing", who: 0, on: true },
-  { at: 2.4 * S, kind: "msg", who: 0, from: "tab", text: "On it! I'll ask everyone privately. Your budget stays between you and me 🔒" },
-  { at: 2.4 * S, kind: "lane", who: 0, stage: "JOINED" },
-  { at: 3.2 * S, kind: "msg", who: 1, from: "me", text: "I'm in! keep it under $45 pls" },
-  { at: 3.2 * S, kind: "lane", who: 1, stage: "JOINED" },
-  { at: 3.6 * S, kind: "typing", who: 1, on: true },
-  { at: 4.4 * S, kind: "msg", who: 1, from: "tab", text: "Locked 🔒 Nobody else in the group can see that." },
-  { at: 4.4 * S, kind: "lane", who: 1, stage: "BUDGET_LOCKED" },
-  { at: 4.9 * S, kind: "msg", who: 2, from: "me", text: "max 40. and I'm vegetarian" },
-  { at: 4.9 * S, kind: "lane", who: 2, stage: "JOINED" },
-  { at: 5.3 * S, kind: "typing", who: 2, on: true },
-  { at: 6.1 * S, kind: "msg", who: 2, from: "tab", text: "Got it 🔒 Vegetarian noted for the whole group, budget stays private." },
-  { at: 6.1 * S, kind: "lane", who: 2, stage: "BUDGET_LOCKED" },
-  { at: 6.6 * S, kind: "msg", who: 0, from: "me", text: "~$50 works for me" },
-  { at: 7.3 * S, kind: "msg", who: 0, from: "tab", text: "Locked 🔒" },
-  { at: 7.3 * S, kind: "lane", who: 0, stage: "BUDGET_LOCKED" },
+  { at: 0, kind: "caption", text: "Midterms are over. Christian just got his first paycheck. Dawson wants to celebrate. Suman has 27 dollars until Friday." },
+  ...laneAll(0, "INVITED"),
+  ...me(0.6, C, "JOIN 4821"), ...lane(0.6, C, "JOINED"),
+  ...tab(1.5, C, "Hey, you're in for Post-midterms night out, Sat Oct 24! Two quick questions and I'll get planning. Whatever you tell me stays between us."),
+  ...me(1.2, D, "JOIN 4821"), ...lane(1.2, D, "JOINED"),
+  ...tab(2.1, D, "Hey, you're in for Post-midterms night out, Sat Oct 24! Two quick questions and I'll get planning. Whatever you tell me stays between us."),
+  ...me(1.8, SU, "JOIN 4821"), ...lane(1.8, SU, "JOINED"),
+  ...tab(2.7, SU, "Hey, you're in for Post-midterms night out, Sat Oct 24! Two quick questions and I'll get planning. Whatever you tell me stays between us."),
+  ...tabAll(3.8, () => "First up: what's the most you'd want to spend tonight, all-in? Totally private. Nobody in the group, and no other agent, ever sees it."),
+  { at: 5 * S, kind: "caption", text: "Each one answers in their own DM. Nobody in the group sees anyone else's number. Not the friends, not their agents." },
+  ...me(5.2, C, "just got my first paycheck 💸 100 max, let's go big"),
+  ...me(5.8, SU, "ok real talk. I have $27 to my name until friday 😭 like 30 max"),
+  ...me(6.2, D, "50ish?"),
+  ...tab(6.6, C, "Got it. Just between us: aim ~$80, never over $100. Text 'change budget' anytime."), ...lane(6.6, C, "BUDGET_LOCKED"),
+  ...tab(7.1, SU, "Got it. Just between us: aim ~$25, never over $30. Text 'change budget' anytime."), ...lane(7.1, SU, "BUDGET_LOCKED"),
+  ...tab(7.5, D, "Got it. Just between us: aim ~$45, never over $55. Text 'change budget' anytime."), ...lane(7.5, D, "BUDGET_LOCKED"),
 
-  { at: 8.5 * S, kind: "scene", title: "2 · Agents scout, a private filter decides" },
-  { at: 8.5 * S, kind: "caption", text: "Scout agents find real options. A private filter keeps only bundles everyone can afford, without revealing anyone's number." },
-  { at: 9 * S, kind: "scout", text: "Scouting dinner + shows near Westwood…" },
-  { at: 10.5 * S, kind: "scout", text: "24 options found · checking every budget privately…" },
-  { at: 12 * S, kind: "scout", text: "3 bundles fit everyone · budgets never left their owner 🔒" },
-  ...([0, 1, 2] as Who[]).map((who, i) => ({
-    at: 12.6 * S + i * 250, kind: "msg" as const, who, from: "tab" as const,
-    text: "Top 3 for Sat:\n1) Lumen Kitchen → Blue Door Comedy · $38\n2) Saffron Room → Starlight Cinema · $36\n3) Harbor Noodle → Echo Jazz Club · $42\nReply with the ones you'd do.",
-  })),
-  { at: 14.4 * S, kind: "msg", who: 0, from: "me", text: "1 or 3" }, { at: 14.4 * S, kind: "lane", who: 0, stage: "VOTED" },
-  { at: 14.9 * S, kind: "msg", who: 1, from: "me", text: "1!!" }, { at: 14.9 * S, kind: "lane", who: 1, stage: "VOTED" },
-  { at: 15.4 * S, kind: "msg", who: 2, from: "me", text: "1 or 2" }, { at: 15.4 * S, kind: "lane", who: 2, stage: "VOTED" },
-  ...([0, 1, 2] as Who[]).map((who, i) => ({
-    at: 16.4 * S + i * 200, kind: "msg" as const, who, from: "tab" as const,
-    text: "It's #1 🎉 Lumen Kitchen 6:30 → Blue Door Comedy 8:30. $38 all-in. Nobody pays until everyone's in.",
-  })),
+  // 2 · scouting + private filter
+  { at: 8.6 * S, kind: "scene", title: "2 · Agents scout, a private filter decides" },
+  ...tabAll(8.8, () => "Last one: anything you're craving, can't eat, or want to steer clear of tonight?"),
+  ...me(10.2, C, "omakase 🍣🍣🍣"),
+  ...me(10.6, D, "no seafood, I'm allergic lol"),
+  ...me(11.0, SU, "anything with free refills"),
+  ...tabAll(11.8, () => "Still on it! Checking what's actually open and fun tonight."),
+  { at: 11.8 * S, kind: "caption", text: "A scout agent searches the real web. Then plain code keeps only plans that fit everyone's private cap, and never says whose." },
+  { at: 12.2 * S, kind: "scout", text: "Scout: 24 dinner + show combos near Westwood…" },
+  { at: 13.6 * S, kind: "scout", text: "Private filter: 21 removed (omakase included). Nobody learns why." },
+  { at: 15.0 * S, kind: "scout", text: "3 plans fit everyone · budgets never left their owner 🔒" },
+  ...tabAll(15.6, () => PICKS),
+  ...me(17.6, C, "wait where's the omakase 😭 ok which one of you is broke"),
+  { at: 17.6 * S, kind: "caption", text: "The omakase got quietly filtered out. Christian wants a name. SquadTab won't give one." },
+  ...tab(18.6, C, "I only know yours. Everyone's budget stays between them and me."),
+  ...me(19.4, SU, "1 3"), ...lane(19.4, SU, "VOTED"),
+  ...me(19.9, D, "1 or 2, no fish pls"), ...lane(19.9, D, "VOTED"),
+  ...me(20.4, C, "fine. 1 actually sounds fun"), ...lane(20.4, C, "VOTED"),
+  ...tabAll(21.4, () => `We have a winner: ${TITLE}! Your hold link is on its way. Nobody's charged unless everyone's in.`),
 
-  { at: 18.5 * S, kind: "scene", title: "3 · Each friend holds only their own share" },
-  { at: 18.5 * S, kind: "caption", text: "Each friend gets a single-use link and authorizes only their own share on the merchant's Cybersource card form. It's a hold, not a charge." },
-  ...([0, 1, 2] as Who[]).flatMap((who, i) => {
-    const t = 19 * S + i * 2200;
-    return [
-      { at: t, kind: "msg" as const, who, from: "tab" as const, text: "Hold your $38 here 👉 tab-venue.vercel.app/pay/•••" },
-      { at: t, kind: "lane" as const, who, stage: "LINK_SENT" as Stage },
-      { at: t + 500, kind: "pay" as const, who, state: "open" as const },
-      { at: t + 1000, kind: "pay" as const, who, state: "typing" as const },
-      { at: t + 1600, kind: "pay" as const, who, state: "processing" as const },
-      { at: t + 2100, kind: "pay" as const, who, state: "held" as const },
-      { at: t + 2100, kind: "lane" as const, who, stage: "HELD" as Stage },
-      { at: t + 2100, kind: "ledger" as const, who, status: "AUTHORIZED", id: ["…33303814", "…48903813", "…93403812"][i]! },
-    ];
-  }),
-  ...([0, 1, 2] as Who[]).map((who) => ({ at: 26.4 * S, kind: "pay" as const, who, state: "closed" as const })),
-  { at: 26.6 * S, kind: "msg", who: 0, from: "tab", text: "Held ✓ 3 of 3 in. Locking it in…" },
-  { at: 26.6 * S, kind: "msg", who: 1, from: "tab", text: "Held ✓ 3 of 3 in. Locking it in…" },
-  { at: 26.6 * S, kind: "msg", who: 2, from: "tab", text: "Held ✓ 3 of 3 in. Locking it in…" },
+  // 3 · holds
+  { at: 23 * S, kind: "scene", title: "3 · Each friend holds only their own share" },
+  { at: 23 * S, kind: "caption", text: "Everyone gets a single-use link and holds only their own share on the merchant's Cybersource card form. A hold, not a charge." },
+  ...holdFlow(23.2, D, "…48903813"),
+  ...tab(27.4, C, "1 of 3 are in!"), ...tab(27.4, SU, "1 of 3 are in!"),
+  ...holdFlow(27.8, C, "…33303814"),
+  ...tab(32.0, D, "2 of 3 are in!"), ...tab(32.0, SU, "2 of 3 are in!"),
+  ...me(32.6, SU, "my bank app just asked if I'm okay"),
+  ...holdFlow(33.2, SU, "…93403812"),
 
-  { at: 27.5 * S, kind: "scene", title: "4 · The agent commits, with proof" },
-  { at: 27.5 * S, kind: "caption", text: "SquadTab's agent signs the exact consent set with the Visa Trusted Agent Protocol. The merchant rebuilds it from its own records and runs six checks." },
-  { at: 28 * S, kind: "tapStart", route: "POST /checkout/ord_ggznhykcfe", plan: "Plan #1" },
+  // 4 · commit with proof
+  { at: 37.6 * S, kind: "scene", title: "4 · The agent commits, with proof" },
+  { at: 37.6 * S, kind: "caption", text: "Everyone's held. SquadTab's agent signs the exact consent set with the Visa Trusted Agent Protocol. The merchant rebuilds it and runs six checks." },
+  { at: 38 * S, kind: "tapStart", route: "POST /checkout/ord_ggznhykcfe", plan: `Plan #1 · ${TITLE}` },
   ...TAP_NAMES.map((_, i) => ({
-    at: 28.8 * S + i * 650, kind: "tap" as const, n: i + 1, ok: true,
+    at: 38.6 * S + i * 600, kind: "tap" as const, n: i + 1, ok: true,
     detail: ["agent-payer-auth on POST", "created, expires, keyid, alg, nonce, tag", "valid for 119 s more", "nonce unseen", "tab-agent-ed25519-1 (mock directory)", "Ed25519 signature verified"][i]!,
   })),
-  { at: 32.8 * S, kind: "business", ok: true },
-  ...([0, 1, 2] as Who[]).map((who, i) => ({ at: 33.6 * S + i * 300, kind: "ledger" as const, who, status: "CAPTURED", id: ["…34103814", "…94403812", "…34303814"][i]! })),
-  ...([0, 1, 2] as Who[]).map((who, i) => ({ at: 33.6 * S + i * 300, kind: "lane" as const, who, stage: "CAPTURED" as Stage })),
-  { at: 34.6 * S, kind: "counters", converted: 1, released: 0 },
-  ...([0, 1, 2] as Who[]).map((who) => ({ at: 34.8 * S, kind: "msg" as const, who, from: "tab" as const, text: "Everyone's in 🎉 Charged $38. See you at Lumen Kitchen, 6:30!" })),
-
-  { at: 37 * S, kind: "scene", title: "5 · Tamper-proof" },
-  { at: 37 * S, kind: "caption", text: "What if someone changes the agent's request after it's signed, even by one dollar? The signature no longer matches, and nothing is captured." },
-  ...([0, 1, 2] as Who[]).flatMap((who, i) => [
-    { at: 37.2 * S, kind: "lane" as const, who, stage: "HELD" as Stage },
-    { at: 37.2 * S, kind: "ledger" as const, who, status: "AUTHORIZED", id: ["…94703812", "…95203812", "…34603814"][i]! },
+  { at: 42.4 * S, kind: "business", ok: true },
+  ...EVERY.flatMap((w, i) => [
+    { at: 43 * S + i * 300, kind: "ledger" as const, who: w, status: "CAPTURED", id: ["…34103814", "…94403812", "…34303814"][i]! },
+    ...lane(43 + i * 0.3, w, "CAPTURED"),
   ]),
-  { at: 37.8 * S, kind: "tapStart", route: "POST /checkout/ord_llglatyr6y", plan: "Plan #2 · tampered (+$1 on one share)" },
+  { at: 44 * S, kind: "counters", converted: 1, released: 0 },
+  ...tabAll(44.2, () => `Everyone's in, so you're booked for ${TITLE}! Charged $${AMT}.`),
+  ...tabAll(45.6, () => "Your night, all planned: squadtab.app/i/••• · Add it to your calendar: squadtab.app/ics/•••"),
+  ...me(47.0, SU, "first group plan where I didn't have to fake a stomachache 🙏"),
+  { at: 47 * S, kind: "caption", text: "Suman is in. Nobody fronted money, nobody chased anyone, and nobody ever knew who set the cap." },
+
+  // 5 · tamper
+  { at: 50.5 * S, kind: "scene", title: "5 · Next weekend: someone tampers with the request" },
+  { at: 50.5 * S, kind: "caption", text: "Plan #2. If anyone changes the agent's signed request, even by one dollar, the signature no longer matches and nothing is captured." },
+  ...EVERY.flatMap((w, i) => [
+    ...lane(50.7, w, "HELD"),
+    { at: 50.7 * S, kind: "ledger" as const, who: w, status: "AUTHORIZED", id: ["…94703812", "…95203812", "…34603814"][i]! },
+  ]),
+  { at: 51.2 * S, kind: "tapStart", route: "POST /checkout/ord_llglatyr6y", plan: "Plan #2 · tampered (+$1 on one share)" },
   ...TAP_NAMES.map((_, i) => ({
-    at: 38.4 * S + i * 550, kind: "tap" as const, n: i + 1, ok: i < 5,
+    at: 51.8 * S + i * 500, kind: "tap" as const, n: i + 1, ok: i < 5,
     detail: ["agent-payer-auth on POST", "created, expires, keyid, alg, nonce, tag", "valid for 120 s more", "nonce unseen", "tab-agent-ed25519-1 (mock directory)", "content-digest mismatch: body changed after signing"][i]!,
   })),
-  { at: 42 * S, kind: "business", ok: false },
+  { at: 55 * S, kind: "business", ok: false },
 
-  { at: 44 * S, kind: "scene", title: "6 · One friend is out → everyone is released" },
-  { at: 44 * S, kind: "caption", text: "And if anyone drops out, every hold is released. Nobody ever fronts money for the group." },
-  { at: 44.6 * S, kind: "msg", who: 2, from: "me", text: "ugh, can't make it anymore 😞" },
-  ...([0, 1, 2] as Who[]).flatMap((who, i) => [
-    { at: 46 * S + i * 300, kind: "lane" as const, who, stage: "RELEASED" as Stage },
-    { at: 46 * S + i * 300, kind: "ledger" as const, who, status: "RELEASED", id: ["…94703812", "…95203812", "…34603814"][i]! },
-    { at: 46.4 * S + i * 300, kind: "msg" as const, who, from: "tab" as const, text: "Plan cancelled. Nobody was charged; your pending authorization was released." },
+  // 6 · I'm out
+  { at: 57 * S, kind: "scene", title: "6 · Christian gets called into a shift → everyone is released" },
+  { at: 57 * S, kind: "caption", text: "And when someone bails, every hold is released. Nobody's told why, and nobody's out a single dollar." },
+  ...me(57.4, C, "I'm out 😩 manager called me in for a double"),
+  ...tab(58.4, C, "No problem, you're out of Taco Garage → Rooftop Movie Night. Nobody's told why."),
+  ...EVERY.flatMap((w, i) => [
+    ...lane(59 + i * 0.3, w, "RELEASED"),
+    { at: 59 * S + i * 300, kind: "ledger" as const, who: w, status: "RELEASED", id: ["…94703812", "…95203812", "…34603814"][i]! },
   ]),
-  { at: 47.2 * S, kind: "counters", converted: 1, released: 3 },
-  { at: 50 * S, kind: "end" },
+  ...tab(59.8, D, "Plan's off. Nobody was charged; your pending authorization was released."),
+  ...tab(60.1, SU, "Plan's off. Nobody was charged; your pending authorization was released."),
+  { at: 60.4 * S, kind: "counters", converted: 1, released: 3 },
+  ...me(61.4, SU, "honestly the most financially responsible group chat I've ever been in"),
+  { at: 64 * S, kind: "end" },
 ];
-const DURATION = 54 * S;
+const DURATION = 68 * S;
 
 type Msg = { from: "me" | "tab"; text: string; key: number };
 type View = {
@@ -262,7 +300,7 @@ export function DemoPlayer() {
             {FRIENDS.map((name, i) => (
               <div key={name} className="flex items-center justify-between py-1 text-sm">
                 <span>{name}</span>
-                <span className="tabular-nums text-zinc-300">$38.00 <span className={v.ledger[i]!.status === "CAPTURED" ? "text-emerald-400" : v.ledger[i]!.status === "RELEASED" ? "text-zinc-400" : "text-amber-300"}>{v.ledger[i]!.status}</span> <span className="font-mono text-xs text-zinc-500">{v.ledger[i]!.id}</span></span>
+                <span className="tabular-nums text-zinc-300">{"$" + AMT}.00 <span className={v.ledger[i]!.status === "CAPTURED" ? "text-emerald-400" : v.ledger[i]!.status === "RELEASED" ? "text-zinc-400" : "text-amber-300"}>{v.ledger[i]!.status}</span> <span className="font-mono text-xs text-zinc-500">{v.ledger[i]!.id}</span></span>
               </div>
             ))}
             <div className="mt-2 grid grid-cols-3 gap-2 border-t border-zinc-800 pt-2 text-center">
@@ -353,26 +391,33 @@ function Phone({ name, msgs, typing, pay }: { name: string; msgs: Msg[]; typing:
 }
 
 function PaySheet({ state }: { state: View["pay"][number] }) {
+  // Mirrors app/pay/[token] (PayForm + StateCard) on the shared Cybersource sandbox merchant.
   const typed = state !== "open";
+  const field = "h-8 rounded-lg border border-zinc-300 bg-white px-2 text-[12px] leading-8 text-zinc-700";
   return (
-    <div className="absolute inset-x-0 bottom-0 top-10 rounded-t-2xl border-t border-zinc-200 bg-white p-3 shadow-2xl">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">SquadTab Partner Venue (demo) · Cybersource sandbox</p>
-      <p className="mt-1 text-xs text-zinc-600">Prepaid dinner + show · Sat · party of 3</p>
-      <p className="mt-2 text-3xl font-semibold tabular-nums">$38.00</p>
-      <p className="mt-1 text-[11px] leading-snug text-zinc-600">A hold, charged only if everyone&apos;s in. Otherwise it&apos;s released.</p>
+    <div className="absolute inset-x-0 bottom-0 top-10 overflow-hidden rounded-t-2xl border-t border-zinc-200 bg-white px-3 pt-3 shadow-2xl">
+      <p className="text-[9px] font-medium uppercase leading-tight tracking-wide text-zinc-500">SquadTab Partner Venue (demo) · Cybersource sandbox · shared public test merchant</p>
+      <p className="mt-1 text-[12px] font-semibold">Prepaid dinner + show bundle</p>
+      <p className="text-[11px] leading-snug text-zinc-600">2026-10-24 · dinner 6:30 PM · show 8:30 PM · party of 3</p>
+      <p className="mt-1 text-3xl font-semibold tabular-nums">${AMT}.00</p>
+      <p className="text-[10px] leading-snug text-zinc-600">This is a hold. It&apos;s charged only if everyone&apos;s in by Sat 5:00 PM; otherwise it&apos;s released.</p>
       {state === "held" ? (
-        <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-3">
-          <p className="text-sm font-semibold">Held $38.00 on Visa ••1111.</p>
-          <p className="text-xs text-zinc-700">Not charged yet. You&apos;ll get a text when everyone&apos;s in.</p>
+        <div aria-live="polite" className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+          <p className="text-[13px] font-semibold">Held ${AMT}.00 on Visa ••1111.</p>
+          <p className="text-[11px] text-zinc-700">Not charged yet. You&apos;ll get a text when everyone&apos;s in.</p>
         </div>
       ) : (
-        <div className="mt-3 space-y-2">
-          <div className="h-9 rounded-lg border border-zinc-300 px-2 text-sm leading-9 text-zinc-700">{typed ? "4111 1111 1111 1111" : <span className="text-zinc-400">Card number</span>}</div>
-          <div className="flex gap-2">
-            <div className="h-9 flex-1 rounded-lg border border-zinc-300 px-2 text-sm leading-9 text-zinc-700">{typed ? "12 / 2028" : <span className="text-zinc-400">MM / YY</span>}</div>
-            <div className="h-9 w-16 rounded-lg border border-zinc-300 px-2 text-sm leading-9 text-zinc-700">{typed ? "•••" : <span className="text-zinc-400">CVC</span>}</div>
+        <div className="mt-2 space-y-1.5">
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[9px] leading-snug text-amber-900">Test cards only. This is Cybersource&apos;s shared public sandbox: use 4111 1111 1111 1111, any future expiry, any CVC, and a made-up name.</p>
+          <div className={field}>{typed ? "Test Payer" : <span className="text-zinc-400">Name on card</span>}</div>
+          <div className={field}>{typed ? "4111 1111 1111 1111" : <span className="text-zinc-400">Card number</span>}</div>
+          <div className="flex gap-1.5">
+            <div className={`${field} flex-1`}>{typed ? "12" : <span className="text-zinc-400">MM</span>}</div>
+            <div className={`${field} flex-1`}>{typed ? "2028" : <span className="text-zinc-400">YYYY</span>}</div>
+            <div className={`${field} flex-1`}>{typed ? "•••" : <span className="text-zinc-400">CVC</span>}</div>
           </div>
-          <div className="h-10 rounded-lg bg-zinc-900 text-center text-sm font-semibold leading-10 text-white">{state === "processing" ? "Holding…" : "Hold $38.00"}</div>
+          <div className={field}>{typed ? "90024" : <span className="text-zinc-400">ZIP</span>}</div>
+          <div className="h-9 rounded-xl bg-zinc-900 text-center text-[13px] font-semibold leading-9 text-white">{state === "processing" ? "Holding…" : `Hold $${AMT}.00`}</div>
         </div>
       )}
     </div>
