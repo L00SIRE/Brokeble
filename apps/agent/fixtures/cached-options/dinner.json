@@ -1,0 +1,121 @@
+{
+  "plan_ref": "00000000-0000-4000-8000-000000000000",
+  "category": "dinner",
+  "options": [
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner A",
+      "address": "100 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-a",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 10,
+      "est_high_pp_usd": 14,
+      "price_evidence_url": "https://example.com/placeholder/dinner-a/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder dinner option A: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-a/hours"
+    },
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner B",
+      "address": "101 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-b",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 14,
+      "est_high_pp_usd": 18,
+      "price_evidence_url": "https://example.com/placeholder/dinner-b/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder dinner option B: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-b/hours"
+    },
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner C",
+      "address": "102 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-c",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 26,
+      "est_high_pp_usd": 32,
+      "price_evidence_url": "https://example.com/placeholder/dinner-c/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder dinner option C: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-c/hours"
+    },
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner D",
+      "address": "103 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-d",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 34,
+      "est_high_pp_usd": 42,
+      "price_evidence_url": "https://example.com/placeholder/dinner-d/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder dinner option D: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-d/hours"
+    },
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner E",
+      "address": "104 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-e",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 52,
+      "est_high_pp_usd": 60,
+      "price_evidence_url": "https://example.com/placeholder/dinner-e/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder dinner option E: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-e/hours"
+    },
+    {
+      "category": "dinner",
+      "name": "Placeholder Dinner F",
+      "address": "105 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/dinner-f",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 65,
+      "est_high_pp_usd": 75,
+      "price_evidence_url": "https://example.com/placeholder/dinner-f/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder dinner option F: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "opens": "17:00",
+      "closes": "22:30",
+      "hours_evidence_url": "https://example.com/placeholder/dinner-f/hours"
+    }
+  ],
+  "run_id": "placeholder-not-a-real-run",
+  "share_url": null,
+  "captured_at": "2026-10-17T00:00:00.000Z",
+  "brief": null
+}

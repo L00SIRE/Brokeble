@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/* Single source of design tokens. The console is read from 5 m on a 16:9 projector,
+   so its scale is much larger than the mobile join page's. */
+@theme {
+  --color-bg: #0b0f14;
+  --color-surface: #131a22;
+  --color-surface-2: #1b2530;
+  --color-border: #2a3644;
+  --color-fg: #e8eef5;
+  --color-muted: #93a1b3;
+  --color-accent: #4cc3ff;
+  --color-ok: #3ddc97;
+  --color-warn: #ffc857;
+  --color-danger: #ff6b6b;
+  --color-lock: #b69cff;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Page scale (inputs stay >= 16px to prevent iOS zoom). */
+  --text-body: 1rem;
+  --text-title: 1.75rem;
+  /* Console scale: key numbers >= 28px. */
+  --text-console-label: 1.125rem;
+  --text-console-body: 1.375rem;
+  --text-console-key: 2.25rem;
+  --text-console-hero: 3.5rem;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

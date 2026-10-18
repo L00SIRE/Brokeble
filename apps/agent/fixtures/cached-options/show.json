@@ -1,0 +1,121 @@
+{
+  "plan_ref": "00000000-0000-4000-8000-000000000000",
+  "category": "show",
+  "options": [
+    {
+      "category": "show",
+      "name": "Placeholder Show A",
+      "address": "100 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-a",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 10,
+      "est_high_pp_usd": 14,
+      "price_evidence_url": "https://example.com/placeholder/show-a/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder show option A: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "20:00",
+      "show_end_est": "21:45",
+      "showtime_evidence_url": "https://example.com/placeholder/show-a/showtimes"
+    },
+    {
+      "category": "show",
+      "name": "Placeholder Show B",
+      "address": "101 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-b",
+      "price_tier": "<$25",
+      "est_low_pp_usd": 14,
+      "est_high_pp_usd": 18,
+      "price_evidence_url": "https://example.com/placeholder/show-b/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder show option B: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "20:15",
+      "show_end_est": "22:00",
+      "showtime_evidence_url": "https://example.com/placeholder/show-b/showtimes"
+    },
+    {
+      "category": "show",
+      "name": "Placeholder Show C",
+      "address": "102 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-c",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 26,
+      "est_high_pp_usd": 32,
+      "price_evidence_url": "https://example.com/placeholder/show-c/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder show option C: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "20:30",
+      "show_end_est": "22:00",
+      "showtime_evidence_url": "https://example.com/placeholder/show-c/showtimes"
+    },
+    {
+      "category": "show",
+      "name": "Placeholder Show D",
+      "address": "103 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-d",
+      "price_tier": "$25-50",
+      "est_low_pp_usd": 34,
+      "est_high_pp_usd": 42,
+      "price_evidence_url": "https://example.com/placeholder/show-d/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder show option D: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "20:30",
+      "show_end_est": "22:15",
+      "showtime_evidence_url": "https://example.com/placeholder/show-d/showtimes"
+    },
+    {
+      "category": "show",
+      "name": "Placeholder Show E",
+      "address": "104 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-e",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 52,
+      "est_high_pp_usd": 60,
+      "price_evidence_url": "https://example.com/placeholder/show-e/prices",
+      "dietary_fit": [
+        "vegetarian",
+        "gluten_free"
+      ],
+      "pitch": "Placeholder show option E: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "20:45",
+      "show_end_est": "22:30",
+      "showtime_evidence_url": "https://example.com/placeholder/show-e/showtimes"
+    },
+    {
+      "category": "show",
+      "name": "Placeholder Show F",
+      "address": "105 Placeholder Way, Los Angeles, CA 90024",
+      "area": "Westwood / Sawtelle",
+      "url": "https://example.com/placeholder/show-f",
+      "price_tier": "$50+",
+      "est_low_pp_usd": 65,
+      "est_high_pp_usd": 75,
+      "price_evidence_url": "https://example.com/placeholder/show-f/prices",
+      "dietary_fit": [
+        "vegetarian"
+      ],
+      "pitch": "Placeholder show option F: replace with a real Tab Scout snapshot (pnpm creao:snapshot).",
+      "show_start": "21:00",
+      "show_end_est": "23:00",
+      "showtime_evidence_url": "https://example.com/placeholder/show-f/showtimes"
+    }
+  ],
+  "run_id": "placeholder-not-a-real-run",
+  "share_url": null,
+  "captured_at": "2026-10-17T00:00:00.000Z",
+  "brief": null
+}

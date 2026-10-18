@@ -17,3 +17,5 @@ __pycache__/
 .DS_Store
 p.html
 scratch/
+# next typegen / dev output
+next-env.d.ts

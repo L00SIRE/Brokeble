@@ -1,0 +1,25 @@
+{
+  "name": "tab",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.21.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:agent": "pnpm --filter @tab/agent dev",
+    "dev:web": "pnpm --filter @tab/web dev",
+    "dev:venue": "pnpm --filter @tab/venue dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "sim:plan": "pnpm --filter @tab/agent sim:plan",
+    "seed:demo": "pnpm --filter @tab/agent seed:demo",
+    "db:migrate": "pnpm --filter @tab/agent db:migrate",
+    "gen:skill-schema": "pnpm --filter @tab/shared gen:skill-schema"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
+}

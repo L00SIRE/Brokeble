@@ -1,0 +1,14 @@
+# Paths are relative to the build context (repo root). BuildKit reads <Dockerfile>.dockerignore; fly.toml points at it too.
+**/node_modules
+**/.next
+**/.vercel
+**/*.tsbuildinfo
+**/.env*
+!.env.example
+.git
+.claude
+.cursor
+docs
+hackathon-context
+scratch
+p.html
