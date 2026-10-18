@@ -187,6 +187,17 @@ A safety check before any pay link is sent. If your share ends up above your pri
 
 **Merchant honesty (always say it).** "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours." Never put a real restaurant's name on the pay page.
 
+**Which Cybersource account (changed Sat night).**
+- **What broke:** our own sandbox merchant can't authorize anything. Cybersource reports a processor setup problem on its side (reason 150) that we can't fix ourselves.
+- **What we use now:** payments run on **Cybersource's published sample test merchant ("testrest")**, which Cybersource puts in its own code samples. We still make real sandbox calls (hold, charge, release, and real Microform), but the account is **shared and public**.
+- **Rules on the shared account:**
+  - test cards only (4111 1111 1111 1111);
+  - made-up names;
+  - placeholder billing details;
+  - no Business Center, so we show the transaction lookup instead.
+- **Backup:** a **labelled simulation** (one setting on the merchant app). It keeps the same pay page, signed commit and all-or-nothing logic; only the call to Cybersource is stubbed. The page and ledger then say "Simulated" and "SIM". A Visa rep told us Visa can't give hackathon teams sandbox access and said to feel free to simulate.
+- **Never claim** this is our merchant account, that Visa provided it, or that anyone approved it. Details: C plan §0.
+
 ### LA Hacks main judging (Applied Intelligence track + Overall)
 The criteria and our answer to each:
 - **Technical Depth:** the context-isolation boundary; the filter as a step no AI can call; a commit that happens exactly once even under races; our own TAP verifier.
@@ -254,7 +265,8 @@ Keep the console as backup evidence. Judges remember the phone.
 6. **"Why both Anthropic and CREAO?"** CREAO does the minutes-long open-world research. Per-message parsing needs about 1 s responsiveness, so it stays local, and each person's parse is isolated.
 7. **"What does the TAP signature prove? Is your agent Visa-approved?"** It proves which agent is acting, with what intent, for which venue-priced order and exact consent set, with replay and expiry protection. We verify the spec's six steps ourselves. The key directory is a labelled **mock**; Visa agent registration is the production path. No Agentic Payment Container: each human pays their own share.
 8. **"Charging at booking for a restaurant?"** The merchant sells a prepaid, ticketed dinner + show bundle, so capture at booking is standard. Holds are released at our deadline, well inside Visa's 10-day window.
-9. **"Is the merchant real?"** No, and we say so: it is our **sandbox merchant of record**. "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours." The Cybersource calls are real sandbox calls.
+9. **"Is the merchant real?"** No, and we say so: it is our **sandbox merchant of record**. "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours." The Cybersource calls are real sandbox calls, made on **Cybersource's published sample test merchant**. That account is shared and test-only, because our own sandbox merchant is stuck on a Cybersource-side processor setting. If the run is in simulation mode, say so: "this run is our labelled simulation."
+   - **"Why not just simulate?"** We do have a labelled simulation as a backup. But real sandbox calls show the hold, charge and release behaviour, and that card numbers stay inside Cybersource's form. A mock can't show either. It proves the integration, not real-bank settlement.
 10. **"Is that CREAO run live?"** A fresh run really starts at the beginning of the demo, and you can watch its progress. The options in the flow come from a **pre-warmed run** that finished earlier, because runs take minutes. We say so up front.
 11. **"Double charges on a network failure?"** Cybersource has no built-in retry key, so we never blindly retry: unique attempt records, fixed reference codes, and if a hold's outcome is unknown we release it after 60 s and send a fresh link. We check status before any capture retry.
 12. **"Are you a money transmitter?"** The merchant charges each friend directly via split tender; we never hold or move funds. A pooled-card version is what would raise that question. (Not legal advice.)

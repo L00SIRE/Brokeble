@@ -16,6 +16,269 @@ Anything these sources don't confirm is tagged **UNVERIFIED** and has a smoke te
 
 ---
 
+## 0. URGENT: Cybersource account issue: testrest primary, simulation backup
+
+**Written Sat ~10:45 PM. This section overrides anything below it that conflicts.** Evidence: about 45 live REST calls to `testrest` tonight made with C's own `liveCybs` / `authBody`, two real-browser Microform runs, the installed SDK source (`cybersource-rest-client@0.0.84`), and the code at the line numbers cited. No secret values appear here.
+
+**TL;DR**
+- **Primary:** testrest. Switching to it is env-only, with no auth code change.
+- **Backup:** `CYBS_MODE=mock`.
+- **Code work:** 4 correctness fixes + labels (§0.3), about 2.5 h.
+- **11 PM checkpoint 1:** run it on testrest if the env switch (§0.9 P0) is done by then; otherwise run it in mock.
+
+### 0.1 What happened and why
+
+- Every authorization on our own sandbox merchant `lahacksshopexp_1792286686` fails:
+  - The REST API returns `502 SERVER_ERROR / SYSTEM_ERROR` on `POST /pts/v2/payments`, even with a minimal valid body.
+  - Business Center shows **reason 150**: "The following property is either invalid or missing: usd_outlet_id, usd_terminal_id", on processor **fdiglobal**.
+- **Why:** the processor outlet/terminal config is set on Cybersource's side, and merchants can't edit it. Community threads show the same reason-150 pattern on new fdiglobal sandboxes, with no staff fix posted (search snippets only; the thread pages returned 403).
+- **What still works:** Microform capture context, which never touches a processor.
+- **Fix timing:** a Cybersource-side fix will not land before the Sunday 12:00 PM code stop.
+- **Support request.**
+  - **Routes:** the developer portal "Contact us" (https://developer.cybersource.com/support/contact-us.html), a support case at support.cybersource.com, and a post on the developer community forum.
+  - **`developer@cybersource.com` is NOT a published support address.** Its only source is the PyPI maintainer field of the developer-MCP package (`docs/research/mcp-tooling.json`). Don't rely on it.
+  - **Timing:** "1–2 business days" is our own estimate, not Cybersource's.
+  - **Text** (fill in the brackets; never paste keys):
+  > **Subject:** Sandbox merchant lahacksshopexp_1792286686: every authorization fails with reason 150 (usd_outlet_id, usd_terminal_id missing, processor fdiglobal)
+  >
+  > Our sandbox merchant lahacksshopexp_1792286686 returns 502 SERVER_ERROR/SYSTEM_ERROR on POST /pts/v2/payments with a minimal valid body. Business Center shows reason 150 [property invalid or missing: usd_outlet_id, usd_terminal_id] on processor fdiglobal. Microform capture context works. Please configure the processor outlet/terminal for this merchant or move it to a working simulated processor. Request IDs: [2–3 from Business Center]. Timestamps (UTC): [..]. Endpoint: apitest.cybersource.com. Our hackathon deadline is Sunday 12:00 PM PT; we are using a fallback in the meantime.
+- **Record** when it was sent and the case or post link in PLAN §19. The pitch may say "waiting on a fix from Cybersource" **only if this was actually sent.**
+
+### 0.2 Decision and switch matrix
+
+**Decision.**
+- **Primary: Cybersource's published sample merchant `testrest`.** It gives real sandbox auth, capture, reversal and timeout reversal, plus real Microform and TMS.
+- **Backup: `CYBS_MODE=mock`**, labelled "Simulated".
+- **Alternate:** the team merchant, used only if Cybersource fixes it. Switching to it is env-only.
+
+**Auth scheme: no code change.**
+- C's existing `apps/venue/src/cybs/config.ts:4-15` (`authenticationType "jwt"`, `jwtKeyType "SHARED_SECRET"`) **works on testrest**. Verified twice tonight, by two independent runs: a 201 capture context and an auth returning 201 AUTHORIZED.
+- The earlier note "testrest JWT needs a P12" is **wrong**. A P12 is needed only for `jwtKeyType: P12`. The header comment of Cybersource's `Data/Configuration.js` says JWT works "with the same shared secret credentials … no P12 certificate needed. HTTP Signature is being deprecated."
+- `http_signature` also works, but we **don't add a `CYBS_AUTH` switch**: it adds code and moves us toward a deprecated scheme. Cybersource's Aug 14 2026 release notes set the migration deadline as March 2027.
+
+| Var (apps/venue) | **testrest (primary)** | **team merchant (alternate; blocked)** | **mock (backup)** |
+|---|---|---|---|
+| `CYBS_MODE` | `live` | `live` | `mock` |
+| `CYBS_MERCHANT_ID` | `testrest` | `lahacksshopexp_1792286686` | leave the testrest value (ignored in mock) |
+| `CYBS_KEY_ID` | the public `MerchantKeyId` from github.com/CyberSource/cybersource-rest-samples-node `Data/Configuration.js` | team Key ID (password manager; repo-root `.env.local`) | leave (ignored) |
+| `CYBS_SECRET_KEY` | the public `MerchantSecretKey` from the same file | team shared secret (same places) | leave (ignored) |
+| `CYBS_RUN_ENV` | `apitest.cybersource.com` | `apitest.cybersource.com` | `apitest.cybersource.com` |
+| `VENUE_PUBLIC_URL` | exact https origin, **no path, no trailing slash** (live: a path → 400) | same | same |
+| config.ts auth | JWT SHARED_SECRET (unchanged) | JWT SHARED_SECRET (unchanged) | n/a |
+
+Leaving the credentials in place in mock means the flip is **one variable** each way.
+
+**Where to set the values:**
+1. **Vercel, project `tab-venue`** (Production env).
+   - Set the column's values, then **Redeploy**. Env edits apply only to a new deployment.
+   - The redeploy time is **UNVERIFIED**; time it once tonight (§0.4 C).
+2. **Local: `apps/venue/.env.local`.**
+   - The file doesn't exist yet, so create it. `next dev` loads `.env*` only from the app dir (`apps/venue`), not the repo root. Source: Next.js `next-env` (`path.join(dir, envFile)`).
+   - The file is git-ignored by `.env.*`.
+   - Copy the non-CYBS vars from PLAN §11. Use `VENUE_PUBLIC_URL=http://localhost:3001` and `VENUE_PUBLIC_HOST=localhost:3001`. **Use `localhost`, not `127.0.0.1`**: Microform rejects `http://127.0.0.1` (live 400).
+3. **Never** put the testrest key or secret into `.env.example` or any tracked file. They are public, but secret scanners will still flag them, and the guardrail applies.
+4. **Agent (Fly):** unchanged. `VENUE_MODE=live` in all three columns. The agent never reads `CYBS_*` (M1, `secrets.layout.test.ts`).
+
+**Switch runbook (any direction; at a plan boundary only):**
+1. Operator **Reset**, then wait one sweep (30 s).
+2. Check that this returns **0 rows** (Supabase SQL editor):
+   ```sql
+   select status, count(*) from venue.shares
+   where status in ('AUTHORIZING','AUTHORIZED','AUTH_UNKNOWN','TIMEOUT_REVERSING','REVERSING','CAPTURING') group by 1;
+   select id from venue.orders where status in ('OPEN','COMMITTING','CANCELLING');
+   ```
+   - **Why:** a capture or reverse sent to the wrong merchant (or to mock) silently "succeeds". Mock `capture`/`reverse` return ok for any id (`mock.ts:26-31`), and a wrong-merchant live reverse returns `MISSING_AUTH`/`INVALID_DATA`, which the §0.3 fixes treat as released.
+3. Run `delete from venue.customers;`.
+   - The table has no merchant column (`002_venue.sql:25-28`). A `mock_cus_*` or other-merchant TMS id would be sent as a one-tap customer and rejected, and the user would see "That card didn't go through".
+   - **Do this before the first testrest run tonight:** mock-era rows already exist.
+4. Change the env column on Vercel, Redeploy, then wait for "Ready".
+5. Run `cybs-smoke.ts` against the new env (live columns only); see §0.4 A.
+6. Issue **fresh pay links**: a page opened before the flip holds a capture context from the old merchant. Live: a cross-merchant transient token → `400 INVALID_DATA tokenInformation.jti`.
+
+### 0.3 Code changes (minimal; exact files and lines as of `2267c2e`)
+
+**P0 means do it before checkpoint 2 (4 AM). Each P0 item is ≤ 20 min, and each has a unit test.**
+
+| # | P | File: lines | Change |
+|---|---|---|---|
+| C1 | P0 | `apps/venue/src/cybs/classify.ts:24-27` `reversalDone` | Return true for a rejected reason of `AUTH_ALREADY_REVERSED` **or `MISSING_AUTH`**. Comment: "testrest: a 2nd reversal of the same auth → 400 MISSING_AUTH (verified 2026-10-17)". **Bug today:** if the first reversal succeeds but its reply is lost, every retry gets `MISSING_AUTH`. The share then stays REVERSING forever (`cancel.ts:26-28`), the order never closes (`cancel.ts:52-55`), and sweep (e) (`sweep/index.ts:64-66`) calls testrest every 30 s per share. The same function guards the MAY_HOLD path (`authorize.ts:113-117`). Test: add the two cases to `test/payments.idempotency.test.ts:47-51`. |
+| C2 | P0 | `apps/venue/src/cybs/classify.ts` (new) + `apps/venue/src/sweep/index.ts:32` | Add a pure `timeoutReversalDone(o)`: `ok` → `status === "REVERSED"`; `rejected && http === 400` → reason ∈ {`INVALID_DATA` (never-sent, verified), `AUTH_ALREADY_REVERSED`, `MISSING_AUTH`}; everything else → false. In the sweep, replace `outcome.kind === "ok" \|\| outcome.kind === "rejected"` with `timeoutReversalDone(outcome)`. **Bug today:** `invoke()` maps every HTTP status < 500 to `rejected` (`live.ts:24`), so a 401/403 from a mistyped key during a switch, a 404 or a 429 marks an AUTH_UNKNOWN share RELEASED and sends a fresh link while a hold may still exist. Optional: skip shares with ≥ 5 `timeout_reverse` rows in the step (b) select, so a stuck share stops hitting testrest. Test: one case per branch. |
+| C3 | P0 | `apps/venue/src/cybs/classify.ts:36-45` `cardFromAuth` | Read the Microform v2 payload: `const n = p?.content?.paymentInformation?.card?.number; num = n?.maskedValue ?? p?.data?.number; type = n?.detectedCardTypes?.[0] ?? p?.data?.type`. **Bug today:** a v2 (`mf-2.1.0`) transient token has **no `data` key**; card data is at `content.paymentInformation.card.number.{maskedValue,detectedCardTypes,bin}` (verified in a real browser). Auth responses carry `card:{type:"001"}` only, with no suffix. As a result, last4 is null on every Microform hold, in `share.authorized`, in `venue.customers.card_last4` and on the one-tap button ("Hold $30 on Visa ••"). Also, in `authorize.ts:124`, set `last4 ?? (body.sandbox_test_card ? "1111" : null)`; the PAN is hardcoded at `live.ts:61`. Test: a fixture JWT with the v2 shape (no real token). |
+| C4 | P0 | `apps/venue/src/cybs/live.ts:63-76` `authBody` | When `env().CYBS_MERCHANT_ID === "testrest"`, send a fixed `billTo`: `{firstName:"Test", lastName:"Payer", postalCode:"94105", country:"US", email:"noreply@example.com", address1:"1 Market St", locality:"San Francisco", administrativeArea:"CA"}` instead of the typed name and ZIP. **Why:** anyone holding the public keys can read TSS (verified: buyer, billTo, card prefix/suffix/expiry) and the TMS customers. The change lives in `live.ts`, not `authorize.ts`, so mock keeps reading `first_name` (`mock.ts:12`). Test: `authBody` under testrest contains no typed name or ZIP. |
+| C5 | P1 | `apps/venue/src/cybs/index.ts` (new export) | `cybsSource()`, from env only: mock → `{id:"sim", label:"Simulated payments (no Cybersource call)"}`; `CYBS_MERCHANT_ID==="testrest"` → `{id:"testrest", label:"Cybersource sandbox · shared public test merchant"}`; else `{id:"sandbox", label:"Cybersource sandbox · team merchant"}`. |
+| C6 | P1 | `apps/venue/src/orders/authorize.ts:142`, `apps/venue/src/orders/checkout.ts:71` | Add `cybs_source: cybsSource().id` to the `share.authorized` / `share.captured` `data`. `VenueEvent.data` is a free record, so no contract change is needed. |
+| C7 | P1 | `apps/agent/src/venueClient/ledger.ts:23-26` (C's file) | `cybs_id_short` = `${ev.data.cybs_source === "sim" ? "SIM " : ev.data.cybs_source === "testrest" ? "sandbox " : ""}…${short}`. It stays a string, so the strict SSE `ledger` schema (`packages/shared/src/index.ts:381-384`) and B's `Ledger.tsx` need no change. Today the mock id `mock_pay_<12hex>` loses its prefix in `.slice(-8)` and looks real. **Do not read `CYBS_*` in the agent** (M1). |
+| C8 | P1 | `apps/venue/app/pay/[token]/StateCard.tsx:10-13`, `page.tsx:17,47,58-66`, `PayForm.tsx:14-17,127-146` | `Shell` takes `source` and renders "SquadTab Partner Venue (demo) · {source}". `page.tsx` passes `cybsSource().label` in both `Shell` uses, plus `sharedSandbox={live && CYBS_MERCHANT_ID==="testrest"}` to `PayForm`. When `sharedSandbox` is set, `PayForm` shows above the card fields: **"Test cards only. This is Cybersource's shared public sandbox: use 4111 1111 1111 1111, any future expiry, any CVC, and a made-up name."** Save-card copy (`:146`): "Save this card with SquadTab Partner Venue for one-tap holds next time (stored as a Cybersource sandbox token)". Apply the three UI skills (CLAUDE.md). |
+| C9 | P2 | `apps/venue/app/page.tsx:4-6`, `app/layout.tsx:6-7`; `page.tsx:27`, `PayForm.tsx:98` | Mode-neutral copy: "SquadTab Partner Venue (demo merchant). Payments run on the Cybersource sandbox, or a labelled simulation. No real charges." Change "Text Tab" to "Text SquadTab" (matches `2267c2e`). |
+| C10 | P1 | `apps/venue/scripts/cybs-smoke.ts:1` and its body | Fix the env file in the doc comment: the script runs from `apps/venue`, so it is `--env-file=.env.local`, or `../../.env.local` for team creds. Print `cybsSource().label`. Expect `MISSING_AUTH` on the 2nd capture/reverse, `INVALID_DATA` on the never-sent timeout reversal, and a 2nd auth (not `DUPLICATE_REQUEST`) on a repeated code. **Add one probe:** a 2nd timeout reversal of the same transactionId, and record its reason. That reply is **UNVERIFIED**, and C2's reason set depends on it. |
+| C11 | P2 | `apps/venue/scripts/check-share.ts:13` | Retry `getTransaction` on 404 (3 tries, 3 s apart): TSS returned 404 about 1–2 s after an auth and 200 about 3 s later. This script is the demo evidence in place of Business Center (§0.5). |
+| C12 | cut | migration `db/migrations/005_venue_customers_merchant.sql` | Add `cybs_merchant_id` to `venue.customers` and filter `savedCard()` (`authorize.ts:53-57`) by it. Not needed while runbook step 3 is followed. |
+| C13 | cut | `merchantDescriptor` `live.ts:77` | Stale "TAB PARTNER VENUE". Changing it to "SQUADTAB PARTNER VENUE" (22 chars) needs a re-smoke, and rendering can't be checked without Business Center. Leave it. |
+
+**Not needed (verified):**
+- No team-merchant id is hardcoded in code.
+- Capture context and authorize already share one config: `cybsConfig()` is used at `live.ts:84,102,105,113,121,129`. `env()` is cached per instance (`env.ts:24-28`), so a redeploy flips everything together.
+- `DUPLICATE_REQUEST` is not relied on anywhere. The local `payment_ops` unique constraints are the only dedupe, which is correct: testrest re-authorizes a repeated `code`.
+- TAP, `tap.ts`, `pricing.ts` and the consent set work unchanged with numeric testrest ids and `mock_pay_*` ids.
+- The throwaway `_testrest.tmp.ts` has already been deleted.
+
+### 0.4 Test checklist
+
+**A. Live results on testrest (Sat 2026-10-17, ~10:00–10:35 PM PT; C's `live.ts` bodies, JWT SHARED_SECRET unless noted)**
+
+| # | Check | Result | Impact |
+|---|---|---|---|
+| 1 | Auth scheme: C's unchanged `cybsConfig()` | capture context 201; auth 201 AUTHORIZED (`processorInformation.responseCode` 00) | env-only switch |
+| 2 | `http_signature` (auth type patched only) | capture context OK; auth 201 AUTHORIZED | not adopted (deprecated) |
+| 3 | `generateCaptureContext` v2 | 201; `iss` Flex API; ctx `mf-2.1.0`; `clientLibrary` `https://testflex.cybersource.com/microform/bundle/v2.12.1/flex-microform.min.js` + integrity; `exp − iat` = 900 s; 2 `targetOrigins` accepted | none |
+| 4 | `targetOrigins` rules | `http://localhost:3000` ✓; `https://localhost:3000` ✓; `https://abc.vercel.app` ✓; `http://example.com` 400; `http://127.0.0.1:3000` 400; `https://example.com/pay` 400 (path) | https origin only; local = `localhost` |
+| 5 | Microform in a real browser (throwaway page, `Referrer-Policy: strict-origin`) → `authorize({transientTokenJwt})` | 201 AUTHORIZED, without and with `save_card` | redo in the real app (B) |
+| 6 | Cross-merchant token (team-merchant context → testrest auth) | 400 `INVALID_DATA`, field `tokenInformation.jti` | flip all CYBS_* together; fresh links |
+| 7 | Transient-token payload | keys `iss, exp, type, iat, jti, content`; card at `content.paymentInformation.card.number.{maskedValue "XXXXXXXXXXXX1111", detectedCardTypes ["001"], bin}`; **no `data`** | C3 |
+| 8 | Auth `capture:false`, card block | `card: {type:"001"}` only; no suffix | C3 |
+| 9 | TOKEN_CREATE | ids for `customer`, `paymentInstrument`, `instrumentIdentifier` (+ `instrumentidentifierNew`, `thirdPartyToken`) | tokens live in a shared account |
+| 10 | One-tap COF (`customer.id` + `initiator {type:customer, storedCredentialUsed:true}`) | 201 AUTHORIZED | none |
+| 11 | Capture #1 / #2 | 201 `PENDING` / 400 `MISSING_AUTH` | none (never retried) |
+| 12 | Reverse #1 / #2 | 201 `REVERSED` / 400 `MISSING_AUTH` (**not** `AUTH_ALREADY_REVERSED`) | C1 |
+| 13 | Timeout reversal: known / never-sent `transactionId` | 201 `REVERSED` / 400 `INVALID_DATA` | C2 |
+| 14 | TSS `GET /tss/v2/transactions/{id}` | 404 at ~1–2 s, then 200 at ~3–4 s; `ics_auth:100:SOK`; card prefix 41111111, suffix, expiry, billTo/buyer readable; a reversal appears only under `_links.relatedTransactions` | C4, C11 |
+| 15 | Duplicates | same `code` + new `transactionId` → AUTHORIZED again; same `code` + same `transactionId` → 400 `DUPLICATE_REQUEST` ("used in the last 60 days") | local guard is the only dedupe |
+| 16 | Decline triggers | PAN 4111111111111112 → 201 `DECLINED INVALID_ACCOUNT`; expiry 1998 → 201 `DECLINED EXPIRED_CARD` | `classifyAuth` correct; the Microform year select (`PayForm.tsx:10`) can't pick 1998 |
+| 17 | `merchantDescriptor` "TAB PARTNER VENUE" | accepted | rendering unverifiable |
+| 18 | TMS `getCustomer` / `deleteCustomer` | 200 / 204 | cleanup is possible (optional) |
+| 19 | Latency and limits (28 timed calls / 5 min) | auth 257–604 ms (TOKEN_CREATE 840–1084); capture ~320; reverse 300–460; context 417–555; TSS 375–813; **no 429, no 5xx** | keep rehearsals light |
+
+**Still UNVERIFIED:**
+- the reply to a 2nd timeout reversal (C10 probe);
+- reversal of a captured auth;
+- partial capture;
+- whether Microform rejects a Luhn-invalid PAN client-side;
+- the real `/pay/[token]` route on Vercel with testrest;
+- Vercel redeploy time;
+- the team merchant with `http_signature`.
+
+The verification runs left a few unreversed $1 test auths on testrest. They carry test data only; no action needed.
+
+**B. Browser test on testrest: Microform → authorize → capture / release.** Run it locally on `localhost:3001`, then on the Vercel URL from an iPhone on cellular.
+1. `pnpm --filter @tab/venue dev` with the testrest column in `apps/venue/.env.local`, then run `scripts/seed-test-share.ts`.
+2. Open the link. Check that the header reads "… · Cybersource sandbox · shared public test merchant" and that the **test-cards-only** notice is visible (C8).
+3. Enter 4111 1111 1111 1111, a future expiry, CVC 123 and a made-up name, with save ☑. Expect "Held $X on Visa ••1111" (C3), a `payment_ops` row with `status ok`, and a `venue.customers` row with `card_last4 1111`.
+4. On a new link for the same payer: one-tap "Hold $X on Visa ••1111" → Held.
+5. Cancel (`agent-sim.ts cancel`): the shares go RELEASED and the ledger shows the reversal.
+6. Commit (`agent-sim.ts happy`): 6 ✓ TAP, then all CAPTURED. Then `check-share.ts <shareId>` → `ics_auth:100:SOK` and a related reversal or capture.
+7. Ledger ids show `sandbox …12345678` (C7).
+8. Negative TAP modes (`tamper`, `replay`, `expired`, `wrong_tag`) behave as in §8.
+9. The sweep after a C2 deploy: force one AUTH_UNKNOWN (kill the dev server mid-auth). After about 60–90 s the share is RELEASED, with a fresh link.
+
+**C. Mock-mode full demo run (the backup must be rehearsed, not assumed).**
+1. Flip Vercel to the mock column (§0.6) and **time the redeploy**. Record the time in PLAN §19.
+2. Run the full 4-phone table demo:
+   - the header reads "Simulated payments (no Cybersource call)";
+   - the button reads "Mock hold (no card)";
+   - name `decline` → state 3 + retry;
+   - name `timeout` → state 7(b), then RELEASED + a fresh link after the sweep;
+   - save + one-tap;
+   - TAP commit → CAPTURED;
+   - Tamper → step 6;
+   - "I'm out" → RELEASED;
+   - the ledger reads `SIM …`.
+3. `pnpm --filter @tab/venue test` (with `TEST_DATABASE_URL`). `flow.integration.test.ts` covers decline/retry, capture-all + idempotency, tamper + cancel, timeout + sweep, concurrent commits, the deadline sweep and saved-card one-tap.
+4. Flip back to testrest (runbook §0.2, including `delete from venue.customers`, which now holds `mock_cus_*` rows).
+
+### 0.5 Implications and risks
+
+| Risk | Consequence | Mitigation |
+|---|---|---|
+| **Shared public account.** Anyone with the published keys can read TSS records and TMS tokens (verified). | Names, ZIPs and card data we send become effectively public. | Test data only. C4 placeholder `billTo`; the test-cards-only notice (C8); `payer_ref` is already an opaque HMAC. Never type a real card, even "just once". |
+| **No Business Center.** | No console to debug in; the planned screenshots (§5, lines 684–685; §8 #7–8) are impossible. | Use `check-share.ts` TSS output (C11) and the console ledger ids as evidence, plus the `venue.payment_ops` rows (`status`, `http_status`, redacted `response`). |
+| **Rate limit, rotation or deletion.** Cybersource can change testrest at any time. There is no published owner, SLA or limit; the sandbox terms forbid load testing and allow data deletion without notice. | Live calls fail mid-demo. | §0.6 decision rule plus the pre-flight probe. No loops or stress tests; keep rehearsals to real runs. |
+| **TMS tokens in a shared account.** A third party can use or delete a saved customer. | A one-tap gets a 4xx → DECLINED → retry link. The retry page still offers the saved card (`PayForm.tsx:19`) until the user taps "Use a different card". | Recoverable. Say "Use a different card" on the retry. Purge `venue.customers` before judging blocks if anything looks off. Optionally cut one-tap (cut list #2). |
+| **Mixed mode across a flip.** | Mock fake-captures a real hold, or a wrong-merchant reverse reads as released (C1/C2 accept `MISSING_AUTH`/`INVALID_DATA`). | Runbook §0.2: flip only with zero in-flight shares; never flip mid-judge. |
+| **Microform needs a same-merchant context.** | Old pages fail after a flip (`INVALID_DATA tokenInformation.jti`). | Fresh links after every flip. |
+| **`CYBS_MODE` silently defaults to `mock`** (`env.ts:7`). | A missing Vercel var makes the demo mock while the presenter believes it is live. | The C8 header label shows the real mode on every pay page, and C7 tags every ledger id. Check both before each judge. |
+| **`MISSING_AUTH` also means "foreign or unknown id".** | Wrongly treated as released if ids cross merchants. | Drain-before-flip rule; ids only ever come from our own AUTHORIZED replies. |
+| **Honesty.** testrest is published by Cybersource but not licensed for app use. Visa said it can't give hackathon teams sandbox or API access and to "feel free to simulate". | Overclaiming loses Trust points. | §0.7 lines. Never "our merchant account", "Visa-provided", "approved" or "Visa-verified". Quote the Visa rep only if a teammate heard it. |
+| **Real-processor reason codes may differ** from testrest's sandbox processor. | C1/C2 encode sandbox behaviour. | Acceptable for the hackathon. The stricter path (TSS `relatedTransactions` check) is noted for later. |
+
+### 0.6 Simulation backup
+
+- **Flip to mock:**
+  1. Reset; wait for the sweep.
+  2. Run the §0.2 check query (0 rows).
+  3. On Vercel `tab-venue`, set `CYBS_MODE=mock`, Redeploy, and wait for Ready.
+  4. Issue fresh links.
+- **Flip back:** `CYBS_MODE=live`, Redeploy, `delete from venue.customers;`, then `cybs-smoke.ts`.
+- **What the demo looks like in mock:**
+  - The same pay page, minus Microform: name + ZIP + **"Mock hold (no card)"**.
+  - The header reads "Simulated payments (no Cybersource call)".
+  - Ledger ids read `SIM …`.
+  - TAP, the 6-step verifier, Tamper/Replay/Expired/Wrong-tag, all-or-nothing, the sweep, timeout release and holdGate are all **real code paths**. Only the Cybersource calls are stubbed (`mock.ts`).
+  - Decline and timeout are triggered by name (`decline` / `timeout`).
+  - **Do not** use agent-side `VENUE_MODE=mock`. It has no pay page (`pay_url https://mock-venue.invalid`) and no real TAP; it is a last resort only.
+- **What to say:** "The shared Cybersource sandbox is flaking, so this run uses our labelled simulation. The merchant, the TAP verification and the all-or-nothing logic are the same code; only the processor call is stubbed. Here are tonight's real sandbox ids from the same flow." (Show the `check-share.ts` output saved in rehearsal.)
+- **Decision rule.** The thresholds are our judgment, not vendor guidance.
+  - **A "testrest failure"** is HTTP ≥ 500, our 20 s client timeout, or a network error. A 400 such as `INVALID_DATA` is a request bug, not a failure.
+  - **Flip after:**
+    - (a) **two failures within 10 minutes**, counting a failed retry; or
+    - (b) **one** 401, 403 or 429 on an unchanged request, which suggests rotation or throttling.
+  - **Pre-flight**, about 2 min before each judge: run `cybs-smoke.ts` (or a trimmed probe: capture context + $1 auth + reverse). If it fails, retry once after 30 s. A second failure means mock.
+  - **At the table:**
+    - On the first live failure, show the "try another card" or "couldn't confirm" state.
+    - On a second failure, finish the plan (cancel + sweep), flip at the boundary, restart from the pay step in mock, and say the line above.
+    - **Never flip back during a judge session.**
+  - **Stage (Sunday):** decide at the 9:30 AM rehearsal. If testrest had any failure in the prior hour, present in mock.
+
+### 0.7 Pitch and Q&A lines for Visa judges
+
+- **Disclosure** (say it before anyone asks):
+  > "Every payment here is a real call to Cybersource's sandbox. It uses Cybersource's published sample test merchant, with test cards and no real money."
+  - If and only if the support request was sent, add: "Our own sandbox merchant is waiting on a processor-config fix on Cybersource's side."
+  - In mock, say instead: "This run is our labelled simulation."
+- **Whose merchant?**
+  > "The storefront is ours: SquadTab Partner Venue is a demo merchant of record. The processing behind it is Cybersource's public sandbox test merchant, the one in their own samples repo. It's shared and test-only, so we send placeholder billing details and test cards. In production the partner venue brings its own merchant account, and SquadTab never holds funds."
+- **"Is testrest allowed?"**
+  > "Cybersource publishes it in its official samples for testing. We use test data only and don't load-test it. We're not claiming Visa or Cybersource endorsed this use."
+- **"Why not just simulate? Visa said that's fine."**
+  > "We do have a labelled simulation as backup. But real sandbox calls show the hold, capture and reversal states, the timeout reversal of an unknown auth, and Microform keeping card data off our servers. A mock can't show any of that. It proves the integration, not settlement: the sandbox never reaches a bank."
+- **"Business Center screenshot?"**
+  > "There's no console on the shared account, so here is the transaction lookup API instead: `check-share`."
+- **"What if their account changes?"**
+  > "Changing merchants is three environment variables and a redeploy. The simulation is one flag."
+- **"Card data / PCI?"**
+  > "Cards are typed only into Cybersource-hosted Microform. We get a transient token that lasts 15 minutes. Saved cards are Cybersource TMS tokens; on this shared sandbox account they are test-only."
+- **"HTTP Signature?"**
+  > "No. We use JWT shared-secret, Cybersource's recommended scheme. HTTP Signature is being deprecated (migration deadline March 2027 per their release notes)."
+- **Never say:** "our merchant account", "Visa gave us", "approved", "Visa-verified", or "real Cybersource sandbox IDs" while in mock.
+
+### 0.8 Switch-back procedure (if Cybersource fixes the team merchant)
+
+1. **Prove it off-stage first.** Run `cybs-smoke.ts` from `apps/venue` with `--env-file=../../.env.local` (the team creds), with `CYBS_MODE=live` set by the script. All of S1/S2/S3/S5 must pass. Then run one real-browser Microform hold locally with the team column.
+2. Do it **only at a plan boundary and never after the 7:00 AM freeze** unless all three agree. Testrest working is not a reason to switch.
+3. Follow runbook §0.2 steps 1–6 with the team column: drain, `delete from venue.customers`, Vercel env, Redeploy, smoke, fresh links.
+4. Labels flip automatically to "Cybersource sandbox · team merchant" (C5).
+5. Update the pitch: drop the "shared test merchant" clause; the Business Center screenshot becomes possible (§5, 5:30 AM).
+6. **Rollback** is the same runbook back to the testrest column.
+
+### 0.9 Time-boxed tasks (C; 10:45 PM → 4:00 AM checkpoint 2 → 7:00 AM freeze)
+
+| # | When | Est. | Task | Done when |
+|---|---|---|---|---|
+| P0 | 10:45–11:00 | 15 m | Create `apps/venue/.env.local` with the testrest column, then run `cybs-smoke.ts` locally. On Vercel: drain, purge customers, set the testrest column, Redeploy. Send the §0.1 support request. | Smoke green; Vercel Ready; request sent and logged in §19 |
+| P1 | 11:00–11:30 | 30 m | **Checkpoint 1 on testrest** (§7). If red, flip to mock and keep going. | 2 phones: hold → TAP → capture |
+| P2 | 11:30–12:30 | 60 m | C1, C2, C3, C4 + unit tests; `pnpm test && pnpm typecheck` | Tests green |
+| P3 | 12:30–1:15 | 45 m | C5–C8 labels + the test-cards notice; UI skills pass | Pay page and ledger show the source |
+| P4 | 1:15–1:35 | 20 m | C10 smoke updates (record the 2nd-timeout-reversal reason → §19) and the C11 retry | Recorded |
+| P5 | 1:35–2:15 | 40 m | Deploy; run §0.4 B on an iPhone (Vercel) | All 9 steps pass |
+| P6 | 2:15–3:00 | 45 m | §0.4 C mock drill, timed, then flip back to testrest | Redeploy time recorded; mock run clean |
+| P7 | 3:00–3:30 | 30 m | Existing T8/T11 work left over; Q&A dry run of §0.7 with A/B | — |
+| P8 | 3:30–4:00 | 30 m | Buffer. **4:00 checkpoint 2 on testrest** (4 phones, 3 clean runs, Reset leaves zero in-flight shares per §0.2) | Checkpoint 2 green |
+| P9 | 5:30–7:00 | — | Replaces the Business Center screenshot task: save `check-share.ts` output for one captured and one reversed share, plus a ledger screenshot, for Devpost. C9 copy if time allows. | Evidence saved |
+| — | 7:00 | — | **Freeze.** After this, only env flips per §0.6; no code. | — |
+
+**Cut first if behind:** C9, C11, then C7/C8 styling (keep the label text), then one-tap (cut list #2). **Never cut:** C1, C2, C4, and the test-cards-only notice.
+
+---
+
 ## 1. Context and goal
 
 SquadTab's money promise is **"nobody pays until everyone's in."** You build the merchant side that makes it true and checkable:
@@ -132,6 +395,8 @@ holdGate lives **in the agent** (`apps/agent/src/money/holdGate.ts`, A's file), 
 
 ### 4.1 Accounts (in order)
 
+> **Superseded (§0):** the team merchant activated, but it can't authorize (reason 150, fdiglobal). Payments run on `testrest`. Keep the team Key ID and secret only for the §0.8 switch-back.
+
 | # | Do | Done when |
 |---|---|---|
 | 1 | **4:25 now:** sign up at https://developer.cybersource.com/hello-world/sandbox.html. The Organization ID becomes the merchant ID and can't be reused for go-live. Activation time is **UNVERIFIED**. Then go to the Visa booth (§4.2). | Activation email received |
@@ -147,7 +412,7 @@ holdGate lives **in the agent** (`apps/agent/src/money/holdGate.ts`, A's file), 
 3. Is "N cardholder-initiated auths captured all-or-nothing at one merchant of record" the pattern Visa would recommend?
 4. Do judges weight real Cybersource sandbox transactions?
 5. How long does sandbox activation take? Is TMS (TOKEN_CREATE) enabled on new sandboxes? Is `merchantDescriptor` allowed on sandbox merchants?
-6. Is the 15-minute `DUPLICATE_REQUEST` check on by default?
+6. Is the 15-minute `DUPLICATE_REQUEST` check on by default? **Answered live (§0.4 A #15):** it is keyed on `transactionId` for 60 days, not on `code`.
 
 ### 4.3 Throwaway spikes: `scratch/cybs/` (git-ignored; outside the pnpm workspace globs; use **npm**)
 
@@ -178,6 +443,14 @@ module.exports = {
 | **S5 timeout reversal** (≈10 min) | Auth with a known `transactionId`, then `ReversalApi.mitReversal(body, cb)` → `POST /pts/v2/reversals` with `{clientReferenceInformation:{code, transactionId}, reversalInformation:{amountDetails:{totalAmount}, reason}}` (shape from the official `timeout-reversal.js`). Then repeat with a transactionId that was **never sent**. | `201 REVERSED`; record the never-sent response exactly (**UNVERIFIED**; the sweep logic depends on it) |
 | **S6 capture context + Microform** (≈20 min) | `new cybs.MicroformIntegrationApi(cfg, apiClient).generateCaptureContext({clientVersion:'v2', targetOrigins:['http://localhost:3001'], allowedCardNetworks:['VISA','MASTERCARD','AMEX'], allowedPaymentTypes:['CARD']}, cb)`. Verified: `accepts:['application/jwt']`, `returnType:'String'`, so `data` is the JWT. Decode with `JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString())` and read `ctx[0].data.clientLibrary` and `ctx[0].data.clientLibraryIntegrity` (path verified in the official sample `app.js`). Serve a static HTML page on `localhost:3001` with the §5 T2 Microform code, tokenize 4111…, then auth with `tokenInformation:{transientTokenJwt}`. | Both values present; the auth is AUTHORIZED; brand/last4 location. The official sample uses an `http://localhost:3000` origin, so localhost should work (**UNVERIFIED**; the docs don't state it). The capture context is valid for 15 min (docs). |
 | **S7 Ed25519** | Already run on Node 22.20.0: `generateKeyPairSync('ed25519')` → `crypto.sign(null, base, priv)` → `createPublicKey(priv).export({format:'jwk'})` = `{crv,x,kty}` → `crypto.verify(null, base, createPublicKey({key:jwk, format:'jwk'}), sig)` = true; a tampered base gives false. The signature is 64 bytes. | done |
+
+**Spike results (testrest, Sat ~10 PM; details in §0.4 A):**
+- S1: AUTHORIZED; the card block holds `type` only.
+- S2: `PENDING`, then 2nd capture → 400 `MISSING_AUTH`.
+- S3: `REVERSED`, then 2nd reversal → 400 `MISSING_AUTH` (not `AUTH_ALREADY_REVERSED`).
+- S4: AUTHORIZED.
+- S5: known → `REVERSED`; never-sent → 400 `INVALID_DATA`.
+- S6: AUTHORIZED. The v2 token keeps card data at `content.paymentInformation.card.number`.
 
 Skip `CaptureContextParsingUtility.parseCaptureContextResponse` (it exists and is exported). It adds a public-key fetch to every page load, and we receive the JWT directly from Cybersource over TLS.
 
@@ -306,7 +579,9 @@ const save = saveCard && !oneTap;
 - `id`; `status` ∈ `AUTHORIZED | PARTIAL_AUTHORIZED | AUTHORIZED_PENDING_REVIEW | AUTHORIZED_RISK_DECLINED | PENDING_AUTHENTICATION | PENDING_REVIEW | DECLINED | INVALID_REQUEST`; `errorInformation.{reason,message}`.
 - `tokenInformation.customer.id` and `tokenInformation.paymentInstrument.id`.
 - `paymentAccountInformation.card.{suffix,type}` and `paymentInformation.card.{suffix,type}` both exist in the schema. Which one is populated is **UNVERIFIED** (S1/S6).
-- Fallback for Microform: the transient token's JWT payload `data.number` (masked, e.g. `411111XXXXXX1111`) and `data.type`. This was seen in a sample token of format `mf-0.11.0`; the v2 shape is **UNVERIFIED**.
+- Fallback for Microform: the transient token's JWT payload `data.number` (masked, e.g. `411111XXXXXX1111`) and `data.type`. This was seen in a sample token of format `mf-0.11.0`.
+  - **Verified on testrest (§0.4 A #7–8):** auth responses carry `card.type` only.
+  - The v2 (`mf-2.1.0`) payload has no `data` key; read `content.paymentInformation.card.number.maskedValue` / `.detectedCardTypes[0]` (fix C3).
 - Card type codes: `001` Visa, `002` Mastercard, `003` Amex.
 
 **`classifyAuth` (pure)** maps an outcome to the next state and any reversal:
@@ -314,7 +589,7 @@ const save = saveCard && !oneTap;
 | Outcome | Next state | Reversal |
 |---|---|---|
 | `ok` + `AUTHORIZED` | AUTHORIZED | none |
-| `ok` + `PARTIAL_AUTHORIZED`, `AUTHORIZED_PENDING_REVIEW`, `AUTHORIZED_RISK_DECLINED` or `PENDING_REVIEW`, with an `id` (these may hold funds) | DECLINED if the reversal is `REVERSED` or `AUTH_ALREADY_REVERSED`; AUTH_UNKNOWN on any other reversal outcome (the sweep then timeout-reverses by `transactionId`) | `authReversal` |
+| `ok` + `PARTIAL_AUTHORIZED`, `AUTHORIZED_PENDING_REVIEW`, `AUTHORIZED_RISK_DECLINED` or `PENDING_REVIEW`, with an `id` (these may hold funds) | DECLINED if the reversal is `REVERSED`, `AUTH_ALREADY_REVERSED` or `MISSING_AUTH` (§0.3 C1); AUTH_UNKNOWN on any other reversal outcome (the sweep then timeout-reverses by `transactionId`) | `authReversal` |
 | `ok` + `DECLINED`, `INVALID_REQUEST` or `PENDING_AUTHENTICATION`, or no `id`; or `rejected` | DECLINED | none |
 | `unknown` | AUTH_UNKNOWN | none |
 
@@ -521,7 +796,7 @@ It then sets `delivered_at`, or `attempts+1`. Handlers `await deliver(...)` afte
 1. In a transaction: `update venue.orders set status='CANCELLING', updated_at=now() where id=$1 and status='OPEN' returning *`. Only the caller that gets the row proceeds; others return the current `OrderStatus`.
 2. PENDING → `VOID` (token dead).
 3. AUTHORIZED → `REVERSING` (committed) → `reverse(...)`:
-   - `REVERSED` or `AUTH_ALREADY_REVERSED` → `RELEASED` + `share.released{retry:false}`.
+   - `REVERSED`, `AUTH_ALREADY_REVERSED` or `MISSING_AUTH` (§0.3 C1) → `RELEASED` + `share.released{retry:false}`.
    - Anything else → stays REVERSING for the sweep.
 4. AUTHORIZING / AUTH_UNKNOWN shares are left to the authorize handler / sweep.
 5. When every share is in {VOID, RELEASED, DECLINED}: order `CANCELLED` + `order.cancelled`.
@@ -666,11 +941,11 @@ UI rules (apply `vercel-react-best-practices`, `vercel-composition-patterns` and
 T9 sweep actions:
 - **(a)** AUTHORIZING with `updated_at < now()-90s` (the function died) → AUTH_UNKNOWN.
 - **(b)** AUTH_UNKNOWN with `updated_at < now()-60s` → TIMEOUT_REVERSING → `timeoutReverse` with the auth row's `transaction_id`. The new payment_ops row (`op timeout_reverse`) gets its own unique `transaction_id`; the request carries the original one. Then:
-  - `REVERSED`, or a definitive 4xx (meaning per S5 must be confirmed) → RELEASED. If the order is OPEN: new token → PENDING + `share.released{retry:true, pay_url, expires_at}`. Otherwise `retry:false`.
+  - `REVERSED`, or a 400 with reason `INVALID_DATA` / `AUTH_ALREADY_REVERSED` / `MISSING_AUTH` → RELEASED. S5 is confirmed: never-sent → 400 `INVALID_DATA`. Any other 4xx (401/403/404/429) stays AUTH_UNKNOWN (§0.3 C2). If the order is OPEN: new token → PENDING + `share.released{retry:true, pay_url, expires_at}`. Otherwise `retry:false`.
   - Unknown → stay; retry on the next sweep.
 - **(c)** OPEN orders past `deadline_at` → the cancel logic (reverse all).
 - **(d)** CANCELLING orders → finish them.
-- **(e)** AUTHORIZED shares on CANCELLING/CANCELLED orders, and REVERSING shares with `updated_at < now()-60s` → reverse (`AUTH_ALREADY_REVERSED` counts as RELEASED).
+- **(e)** AUTHORIZED shares on CANCELLING/CANCELLED orders, and REVERSING shares with `updated_at < now()-60s` → reverse (`AUTH_ALREADY_REVERSED` and `MISSING_AUTH` count as RELEASED; §0.3 C1).
 - **(f)** COMMITTING orders older than 2 min → NEEDS_ATTENTION.
 - **(g)** Outbox rows with `delivered_at is null and attempts < 20` → deliver.
 - **(h)** `delete from venue.tap_nonces where seen_at < now()-interval '8 min'`.
@@ -681,8 +956,8 @@ T9 sweep actions:
 - **5:30–7:00:**
   - Pay-page polish.
   - Optional OG image: `app/opengraph-image.tsx` with `ImageResponse` from `next/og` (Next 16.4.2 docs), reading "SquadTab Partner Venue · secure hold". **No amount, no budget.**
-  - Screenshot the Business Center transaction search (auth, capture and reversal rows) for the Devpost.
-  - Check `merchantDescriptor`.
+  - ~~Screenshot the Business Center transaction search~~. There is no Business Center on testrest. Save the `check-share.ts` TSS output for one captured and one reversed share, plus a ledger screenshot (§0.9 P9).
+  - ~~Check `merchantDescriptor`~~ (accepted on testrest; rendering unverifiable).
 - **7:00 freeze.**
 - **7:00–9:30:**
   - Verify the ledger and TAP shots for B's video.
@@ -696,7 +971,7 @@ T9 sweep actions:
 
 | Missing piece | Use | Switch to real |
 |---|---|---|
-| Cybersource keys / sandbox not active | `CYBS_MODE=mock` (T1 `mock.ts`). The pay page skips Microform and shows "Mock hold (no card)". Outcomes come from `first_name` `decline` / `timeout`. | `CYBS_MODE=live` + keys in Vercel env; redeploy |
+| Cybersource keys / sandbox not active (**now: team merchant broken → testrest primary, mock backup; §0.2 / §0.6**) | `CYBS_MODE=mock` (T1 `mock.ts`). The pay page skips Microform and shows "Mock hold (no card)". Outcomes come from `first_name` `decline` / `timeout`. | `CYBS_MODE=live` + keys in Vercel env; redeploy |
 | A's agent not calling the venue yet | `apps/venue/scripts/agent-sim.ts` (tsx). It uses the shared `tap.ts` + a local test key to: create an order for 2–4 fake 32-hex `payer_ref`s, print pay URLs, poll `GET /orders/{id}`, `commit` (plus each test mode) and `cancel`. Locally, point `TAP_KEY_DIRECTORY_JSON` at the sim key. | A calls `VenuePort` with `VENUE_MODE=live` |
 | Agent `/venue/hook` not mounted | `scripts/hook-echo.ts`: a Node HTTP server on :8090 that verifies the HMAC and prints `VenueEvent`s; `AGENT_HOOK_URL=http://localhost:8090` | `AGENT_HOOK_URL=https://tab-agent.fly.dev/venue/hook` |
 | Agent side before the venue is live | The foundation's in-memory mock `VenuePort` (`VENUE_MODE=mock`) | `VENUE_MODE=live` + `VENUE_BASE_URL` + `TAP_*` Fly secrets |
@@ -751,8 +1026,8 @@ T9 sweep actions:
 | 4 | Link past its TTL | State 4 |
 | 5 | Mock mode, `first_name=decline` | State 3; "Try another card" works; the agent receives `share.declined` with a new URL |
 | 6 | Mock mode, `first_name=timeout` | State 7(b); after the next sweep, RELEASED + a fresh-link event |
-| 7 | All shares held | Auto-commit → all CAPTURED; Business Center shows the captures |
-| 8 | Team phone "I'm out" | All RELEASED; DM "Nobody was charged; your pending authorization was released."; Business Center shows reversals |
+| 7 | All shares held | Auto-commit → all CAPTURED; `check-share.ts` shows the capture under `relatedTransactions` (no Business Center on testrest) |
+| 8 | Team phone "I'm out" | All RELEASED; DM "Nobody was charged; your pending authorization was released."; `check-share.ts` shows the reversal under `relatedTransactions` |
 | 9 | Airplane-mode toggle mid-form | The page recovers, or state 7(a) → Reload works |
 
 ---
@@ -774,14 +1049,14 @@ T9 sweep actions:
 - Timeout reversal (never blind-retry).
 - Single-use, amount-bound pay links.
 - "Released" copy.
-- Real Cybersource sandbox IDs on the ledger.
+- Real Cybersource sandbox IDs on the ledger (testrest). In mock they are tagged `SIM` and never called real.
 
 ---
 
 ## 10. Your demo and pitch responsibilities
 
 **Table demo (PLAN §15):**
-- **2:30** You drive the money beat: pay link → Microform → "Held" → team lanes → TAP ✓ (point at the 6 steps) → all CAPTURED. Say: "Real Cybersource sandbox IDs. Each friend's card was authorized by them, at the merchant."
+- **2:30** You drive the money beat: pay link → Microform → "Held" → team lanes → TAP ✓ (point at the 6 steps) → all CAPTURED. Say: "Real Cybersource sandbox IDs, on Cybersource's shared public test merchant. Each friend's card was authorized by them, at the merchant." In mock, say instead: "This run is our labelled simulation" (§0.6).
 - **3:30** Press **Tamper**: "We changed one share by a dollar after the agent signed. The digest no longer matches and nothing is captured." Then the reset + "I'm out" beat (A's phone) → RELEASED.
 
 **Stage (1:20–2:10):** holds → TAP-verified consent set → capture → tamper rejected.
@@ -791,6 +1066,7 @@ T9 sweep actions:
 
 **Merchant honesty (say it before a judge asks):**
 - "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours: SquadTab Partner Venue, a sandbox merchant of record selling a prepaid, ticketed dinner + show bundle, so capture at booking is normal."
+- "The payment processing behind it is Cybersource's published sample test merchant, shared and test-only. It is not our merchant account, and not something Visa gave us." (§0.7)
 - "The key directory is a labelled mock; production is Visa agent registration."
 
 **Q&A you answer** (from PLAN §16, plus payments specifics):
@@ -802,7 +1078,7 @@ T9 sweep actions:
 | Where does the venue's price come from? | From the bundle the agent submits in a TAP-signed, content-digested `POST /orders`. The venue computes every amount itself with the shared `priceBundle()`, and no amount is accepted from any request. A real partner merchant would price from its own catalog. |
 | Double charges on network failure? | Cybersource has no idempotency header. Every call gets a unique `(share, op, attempt)` row, a deterministic reference code and a persisted `transactionId`. An unknown auth outcome gets a timeout reversal after 60 s, never a blind retry. Captures are never auto-retried; we check the transaction status first. |
 | Capturing at booking for a restaurant? | It's a prepaid, ticketed bundle. Holds are released at our deadline, well inside Visa's 10-calendar-day authorization-to-clearing window for cardholder-initiated card-not-present transactions (Visa Business News AI13522, effective Apr 2024). |
-| Card data / PCI? | Card numbers live only in Cybersource-hosted Microform fields. Our server sees a transient token, and saved cards are merchant-scoped TMS tokens at the venue. The agent and its LLMs never see card data. |
+| Card data / PCI? | Card numbers live only in Cybersource-hosted Microform fields. Our server sees a transient token (15 min), and saved cards are TMS tokens at the venue. On the shared testrest account they are test-only and readable by anyone with the sample keys, so we send test cards and placeholder billing only. The agent and its LLMs never see card data. |
 | What if a pay link is forwarded? | It's single-use and bound to that person's share and amount. It is delivered only in their own DM. A saved card can only be held for that person's own share, and only captured if everyone's in. |
 | Money transmitter? | The merchant charges each friend directly (split tender); we never hold or move funds. A pooled-card variant is what would raise that question. (Not legal advice.) |
 | Why not 3DS, Click to Pay, network tokens, ICC mandates? | They're gated or in pilot for a hackathon sandbox; they're on our production-path slide. The consent model maps onto ICC purchase-intent mandates. |
@@ -816,12 +1092,29 @@ T9 sweep actions:
 - **Capture context:** `new MicroformIntegrationApi(cfg, apiClient).generateCaptureContext(req, cb)` → `POST /microform/v2/sessions`, accepts `application/jwt`, returns a String JWT. Read `ctx[0].data.clientLibrary` / `clientLibraryIntegrity` from the payload. Source: SDK `src/api/MicroformIntegrationApi.js`; official flex sample `app.js`.
 - **Microform JS:** `new Flex(cc)` → `flex.microform('card', {styles})` → `createField('number'|'securityCode', {placeholder}).load(sel)` → `createToken({expirationMonth, expirationYear}, (err, token) => …)`. The token goes in as `tokenInformation.transientTokenJwt`. Source: official `views/index.ejs` / `app.js`.
 - **SDK signatures:** `createPayment(body, cb)`, `capturePayment(body, id, cb)`, `authReversal(id, body, cb)`, `mitReversal(body, cb)` → `/pts/v2/reversals`, `getTransaction(id, cb)` → `/tss/v2/transactions/{id}`.
-- **Auth config:** `jwtKeyType:'SHARED_SECRET'` (README: "Recommended migration from HTTP Signature"); default timeout 60 s (`apiClient.timeout`); MLE optional, off by default.
+- **Auth config:** `jwtKeyType:'SHARED_SECRET'` (README: "Recommended migration from HTTP Signature"). Verified live on testrest Sat ~10 PM; no P12 is needed (§0.2). Default timeout 60 s (`apiClient.timeout`); MLE optional, off by default.
 - **Spec limits:** `clientReferenceInformation.code` max 59, `transactionId` max 30. The COF fields (`initiator.type` customer|merchant, `credentialStoredOnFile`, `storedCredentialUsed`), `paymentInformation.customer.id` and the TOKEN_CREATE response ids exist in the spec.
 - **Vercel durations:** fluid compute is on by default, with a 300 s default and 300 s max on Hobby. `maxDuration` 60/120 is fine.
 - **Next 16.4.2:** `serverExternalPackages`, `transpilePackages`, `maxDuration`, `await params`, `connection()` and `next/og` are all documented.
 
+**Closed Sat ~10 PM on testrest (§0.4 A).** These rows below are now answered:
+- TMS enabled;
+- COF flags (first auth and one-tap);
+- TOKEN_CREATE on Microform auths;
+- minimal `billTo` (S1 needs `administrativeArea`, per `live.ts:71`);
+- `merchantDescriptor` accepted (rendering unverifiable);
+- brand/last4 location (C3);
+- timeout reversal never-sent → 400 `INVALID_DATA`;
+- `DUPLICATE_REQUEST` (keyed on `transactionId`, 60 days);
+- double capture → 400 `MISSING_AUTH`;
+- Microform on `http://localhost` with `strict-origin` (throwaway page).
+
 **Still open:**
+- the real `/pay/[token]` route on the Vercel origin;
+- `serverExternalPackages` on Vercel;
+- a decline through the Microform UI;
+- the 2nd-timeout-reversal reply;
+- Vercel redeploy time.
 
 | Item | Smoke test | When |
 |---|---|---|

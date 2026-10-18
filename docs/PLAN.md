@@ -89,6 +89,7 @@ Rubric: Innovation 25, UX 25, Technical 20, Commerce Impact 15, Trust 15.
 - Never put a real business's name or brand on the pay page.
 - Say: "CREAO finds real options; partner merchants integrate SquadTab checkout; this demo merchant is ours."
 - Say: "We send no Agentic Payment Container. Each human pays their own share; the agent's signature only proves which consent set it may commit."
+- Say (Sat 10:45 PM change; C plan §0): "Payments are real Cybersource sandbox calls on Cybersource's published sample test merchant (`testrest`): shared, test cards only, no real money." In mock mode, say "labelled simulation" instead. Never say "our merchant account", "Visa-provided" or "approved".
 
 ### 2.4 Photon iMessage ($700 / $300)
 
@@ -985,8 +986,8 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 |---|---|
 | `VENUE_PUBLIC_URL`, `VENUE_PUBLIC_HOST` | stable production domain (Microform `targetOrigins`, TAP `@authority`) |
 | `DATABASE_URL` | transaction pooler :6543, role `tab_venue`, `prepare:false` |
-| `CYBS_MODE` | `live` \| `mock` |
-| `CYBS_MERCHANT_ID`, `CYBS_KEY_ID`, `CYBS_SECRET_KEY` | REST shared secret |
+| `CYBS_MODE` | `live` \| `mock` (defaults to `mock` if unset: always set it explicitly) |
+| `CYBS_MERCHANT_ID`, `CYBS_KEY_ID`, `CYBS_SECRET_KEY` | REST shared secret, JWT `SHARED_SECRET` auth. **Primary:** `testrest` plus the public key ID and secret from Cybersource's `cybersource-rest-samples-node` `Data/Configuration.js`; set them in Vercel and `apps/venue/.env.local`, never in tracked files. **Alternate:** the team merchant (blocked, reason 150). Switch matrix and runbook: C plan §0.2. No new variables. |
 | `CYBS_RUN_ENV` | `apitest.cybersource.com` |
 | `TAP_KEY_DIRECTORY_JSON` | `{"tab-agent-ed25519-1":{"kty":"OKP","crv":"Ed25519","x":"…"}}`, served at `/keys/[keyid]` labelled **mock** |
 | `AGENT_HOOK_URL` | `https://tab-agent.fly.dev/venue/hook` |
@@ -1133,6 +1134,16 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 12. **"Why this scoring?"** Maximizing the product of satisfaction means nobody gets a zero, without letting one picky person dominate. A comfort factor nudges toward everyone's target in code only.
 13. **"Prior art: Sunday (TreeHacks 2026)?"** Sunday takes a public group budget inside the group chat. We take sealed constraints in private and add an all-or-nothing assurance contract.
 14. **"Business model?"** Merchant side: guaranteed group conversion, so a fee per committed group booking. This is a hypothesis, not validated.
+15. **"Whose merchant account is this?"** (Visa)
+    - The storefront is ours: SquadTab Partner Venue, a demo merchant of record.
+    - Processing runs on Cybersource's published sample test merchant (`testrest`). It is shared and test-only, so we send test cards and placeholder billing.
+    - Our own sandbox merchant fails at a Cybersource-side processor config (reason 150). Say "waiting on Cybersource" only if the support request was sent.
+    - In production the partner venue brings its own merchant account. No Business Center on the shared account: show `check-share.ts` (the TSS lookup) instead.
+16. **"Why not just simulate?"** (Visa)
+    - We have a labelled simulation as backup.
+    - Real sandbox calls show what a mock can't: holds, capture and reversal states, the timeout reversal of an unknown auth, and Microform keeping card data off our servers.
+    - It proves integration, not settlement.
+    - Quote "Visa said simulation is fine" only if a teammate heard it directly.
 
 ---
 
@@ -1201,13 +1212,21 @@ export interface VenuePort {                           // C. real: TAP-signed fe
 | CREAO GET-run response field names | Log the raw JSON once; adjust `CreaoRun` | B | |
 | Python 3 in the CREAO sandbox | Ask in chat: `python3 --version` | B | |
 | Notion page create in an unattended run | Concierge test run | B | |
-| Cybersource sandbox activation time | — | C | |
-| COF flags accepted (`credentialStoredOnFile`, `type:"customer"` + `storedCredentialUsed`) | Scratch auth with each | C | |
-| `merchantDescriptor` rendering | Check the response / Business Center | C | |
-| Microform on the Vercel production origin; localhost exception | Load `/pay/test` on a phone | C | |
-| Microform JS API (`new Flex(cc)`, `microform.createField`, `createToken`) | Cybersource developer MCP → code sample | C | |
+| Cybersource sandbox activation time | — | C | Activated Sat, but **every auth fails** on `lahacksshopexp_1792286686`: 502 SERVER_ERROR; BC reason 150 `usd_outlet_id, usd_terminal_id` on fdiglobal (Cybersource-side). → `testrest` primary, mock backup (C plan §0). Support request sent: [time / link] |
+| COF flags accepted (`credentialStoredOnFile`, `type:"customer"` + `storedCredentialUsed`) | Scratch auth with each | C | ✓ testrest: TOKEN_CREATE returns customer + paymentInstrument ids; one-tap 201 AUTHORIZED |
+| `merchantDescriptor` rendering | Check the response / Business Center | C | Accepted on testrest; rendering unverifiable (no Business Center) |
+| Microform on the Vercel production origin; localhost exception | Load `/pay/test` on a phone | C | `http://localhost` ✓ and `https://*.vercel.app` ✓ as `targetOrigins`; `http://127.0.0.1` and paths → 400. Real browser token → AUTHORIZED (throwaway page). Real `/pay` route on Vercel: **open** (C §0.4 B) |
+| Microform JS API (`new Flex(cc)`, `microform.createField`, `createToken`) | Cybersource developer MCP → code sample | C | ✓ live in a browser; v2 token payload has card at `content.paymentInformation.card.number` (no `data`) |
 | `cybersource-rest-client` bundling in Next route handlers (may need `serverExternalPackages`) | `next build` on Vercel | C | |
-| Required `billTo` fields in sandbox | Auth with name + ZIP + email only | C | |
+| Required `billTo` fields in sandbox | Auth with name + ZIP + email only | C | `administrativeArea` required (S1); `live.ts` sends placeholders |
+| testrest auth scheme | Live auth with C's unchanged config | C | ✓ JWT `SHARED_SECRET` works (no P12); `http_signature` also works, not used |
+| 2nd reversal / 2nd capture reason | Repeat the call | C | 400 `MISSING_AUTH` for both (not `AUTH_ALREADY_REVERSED`) → fix C1 |
+| Timeout reversal: never-sent `transactionId` | `mitReversal` with an unused id | C | 400 `INVALID_DATA`; known id → 201 REVERSED → fix C2 |
+| 2nd timeout reversal of the same `transactionId` | `cybs-smoke.ts` (C10) | C | |
+| `DUPLICATE_REQUEST` scope | Same code ± same transactionId | C | Keyed on `transactionId` (60 days); a repeated `code` re-authorizes |
+| Cross-merchant transient token | Team context → testrest auth | C | 400 `INVALID_DATA` on `tokenInformation.jti` → flip all CYBS_* together, then fresh links |
+| TSS lookup lag | `getTransaction` right after auth | C | 404 at ~1–2 s, 200 at ~3–4 s |
+| Vercel redeploy time for a `CYBS_MODE` flip | Timed flip (C §0.4 C) | C | |
 | Refund vs void on a same-day sandbox capture (stretch) | Scratch | C | |
 | Supavisor login with custom roles | psql with `tab_agent.<ref>` | A | |
 | LA sales-tax rate for `TAX` (0.1025 per L-1037) | CDTFA address lookup, 325 Westwood Plaza | B | |
