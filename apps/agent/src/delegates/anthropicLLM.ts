@@ -26,13 +26,16 @@ import { buildRateUserMessage, RATE_SYSTEM, REPAIR_SYSTEM } from "../decide/rate
 import { log } from "../log";
 import type { LLMPort } from "../ports";
 import { EMPTY_PREFERENCES } from "../repo/preferences";
-import { BALLOT_SYSTEM, BUDGET_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
+import { ConverseResult, type ConverseInput, type DelegateConverser } from "./converseSchema";
+import { BALLOT_SYSTEM, BUDGET_SYSTEM, CONVERSE_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
 
 export type LlmModel = "claude-haiku-5-5" | "claude-sonnet-5-5";
 export type LlmCallOptions = { model: LlmModel; maxTokens: number; timeoutMs: number; maxRetries: number };
 
 /** Delegate parses (budget, prefs, ballot): worst case ~20 s, inside the consumer's 45 s per-event timeout. */
 export const DELEGATE_CALL: LlmCallOptions = { model: "claude-haiku-5-5", maxTokens: 2048, timeoutMs: 10_000, maxRetries: 1 };
+/** Conversational delegate reply: short text, so a tighter budget and timeout (the T_HELP fallback covers a miss). */
+export const CONVERSE_CALL: LlmCallOptions = { model: "claude-haiku-5-5", maxTokens: 1024, timeoutMs: 8_000, maxRetries: 1 };
 /** rateBundles (standard-names call settings). */
 export const RATE_CALL: LlmCallOptions = { model: "claude-sonnet-5-5", maxTokens: 4096, timeoutMs: 30_000, maxRetries: 2 };
 /** repairScoutJson (standard-names call settings). */
@@ -46,7 +49,8 @@ export type LlmRequestBody = {
   messages: { role: "user"; content: string }[];
   output_config: { format: unknown; effort: "low" };
 };
-export type LlmRecorder = (r: { method: keyof LLMPort; body: LlmRequestBody }) => void;
+export type LlmMethod = keyof LLMPort | keyof DelegateConverser;
+export type LlmRecorder = (r: { method: LlmMethod; body: LlmRequestBody }) => void;
 
 let recorder: LlmRecorder | null = null;
 
@@ -96,7 +100,7 @@ export function toPreferences(p: z.infer<typeof PrefsLoose>): Preferences {
   };
 }
 
-export class AnthropicLLM implements LLMPort {
+export class AnthropicLLM implements LLMPort, DelegateConverser {
   #client: Anthropic | undefined;
 
   /** `client` defaults to `new Anthropic()` (reads ANTHROPIC_API_KEY), created lazily on first call. */
@@ -109,7 +113,7 @@ export class AnthropicLLM implements LLMPort {
   }
 
   /** One structured call with the rules above; resolves to the parsed value or null (low confidence). Never throws. */
-  async structuredParse<T>(method: keyof LLMPort, schema: z.ZodType<T>, system: string, userContent: string, o: LlmCallOptions): Promise<T | null> {
+  async structuredParse<T>(method: LlmMethod, schema: z.ZodType<T>, system: string, userContent: string, o: LlmCallOptions): Promise<T | null> {
     try {
       const body = {
         model: o.model,
@@ -155,6 +159,11 @@ export class AnthropicLLM implements LLMPort {
       approvals: [...new Set(p.approvals)].filter((n) => valid.has(n)),
       constraints: p.constraints.filter((c) => c.kind !== "exclude" || valid.has(c.index)),
     };
+  }
+
+  /** CONVERSE_SYSTEM over JSON(ConverseInput): the private delegate's free-form reply. Null on failure (caller falls back to templates). */
+  async converse(i: ConverseInput): Promise<ConverseResult | null> {
+    return this.structuredParse("converse", ConverseResult, CONVERSE_SYSTEM, JSON.stringify(i), CONVERSE_CALL);
   }
 
   /** B's RATE_SYSTEM + buildRateUserMessage(prefs, candidates), RATE_CALL. Null → {ratings: []} (B defaults in code). */

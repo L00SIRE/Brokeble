@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_PREFERENCES } from "../repo/preferences";
 import {
   AnthropicLLM,
+  CONVERSE_CALL,
   DELEGATE_CALL,
   LOW_BALLOT,
   LOW_BUDGET,
@@ -15,7 +16,8 @@ import {
   toPreferences,
   type LlmRequestBody,
 } from "./anthropicLLM";
-import { BALLOT_SYSTEM, BUDGET_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
+import { ConverseInput, ConverseResult } from "./converseSchema";
+import { BALLOT_SYSTEM, BUDGET_SYSTEM, CONVERSE_SYSTEM, PREFS_SYSTEM, ballotExtra } from "./prompts";
 
 vi.mock("../decide/ratePrompt", () => ({
   RATE_SYSTEM: "rate-system",
@@ -87,6 +89,37 @@ describe("AnthropicLLM request shape (P5)", () => {
     expect(bodies[1]!.body.messages[0]!.content).toBe("Category: show\n\n{oops");
     expect(parse.mock.calls[0]![1]).toEqual({ timeout: 30_000, maxRetries: 2 });
     expect(parse.mock.calls[1]![1]).toEqual({ timeout: 30_000, maxRetries: 2 });
+  });
+
+  it("converse: Haiku, CONVERSE_SYSTEM over the person's own JSON context, no tools/prefill, its own call settings", async () => {
+    const bodies: { method: string; body: LlmRequestBody }[] = [];
+    setLlmRecorder((r) => bodies.push(r));
+    const out = { reply: "Sushi, love it!", intent: "chat", confidence: "high" };
+    const { llm, parse } = fakeClient({ parsed_output: out });
+    const ci: ConverseInput = {
+      user_first_name: "Sam", mode: "prefs_ack", message_text: "sushi", plan: null, is_organizer: false, where_things_stand: "x",
+      my_preferences: EMPTY_PREFERENCES, my_budget_set: true, commands: ["status"], picks: [],
+    };
+    expect(await llm.converse(ci)).toEqual(out);
+    const { method, body } = bodies[0]!;
+    expect(method).toBe("converse");
+    expect(Object.keys(body).sort()).toEqual(["max_tokens", "messages", "model", "output_config", "system"]);
+    expect(body).toMatchObject({ model: "claude-haiku-5-5", max_tokens: CONVERSE_CALL.maxTokens, system: CONVERSE_SYSTEM });
+    expect(body.messages).toEqual([{ role: "user", content: JSON.stringify(ci) }]);
+    for (const k of ["tools", "tool_choice", "thinking", "temperature", "top_p", "top_k"]) expect(body).not.toHaveProperty(k);
+    expect(parse.mock.calls[0]![1]).toEqual({ timeout: CONVERSE_CALL.timeoutMs, maxRetries: CONVERSE_CALL.maxRetries });
+    expect(() => zodOutputFormat(ConverseResult)).not.toThrow();
+    expect(CONVERSE_SYSTEM).not.toMatch(/\$\{/);
+  });
+
+  it("converse failures resolve to null (caller falls back to templates)", async () => {
+    for (const reply of [new Error("boom"), { stop_reason: "refusal" }, { stop_reason: "max_tokens" }, { parsed_output: null }] as Reply[]) {
+      const { llm } = fakeClient(reply);
+      expect(await llm.converse(ConverseInput.parse({
+        user_first_name: "Sam", mode: "chat", message_text: "hi", plan: null, is_organizer: false, where_things_stand: "x",
+        my_preferences: null, my_budget_set: false, commands: [], picks: [],
+      }))).toBeNull();
+    }
   });
 
   it("rateBundles with no candidates makes no call", async () => {

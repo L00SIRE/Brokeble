@@ -1,9 +1,13 @@
-// Everything else: T_ONLY_YOURS for questions about others, else T_HELP (A plan T6). Owner A.
-import type { InboundEvent } from "@tab/shared";
+// Everything else goes to the person's private delegate (natural reply); T_ONLY_YOURS for questions about others;
+// T_HELP when no generated reply is usable (A plan T6). Owner A.
+import type { InboundEvent, PublicBundle } from "@tab/shared";
 import { notify, replyKey } from "../notify/notify";
 import { ports } from "../ports";
 import { listMembers } from "../repo/participants";
 import type { MemberContext, UserRow } from "../repo/types";
+import { handleCommand } from "../router/handlers";
+import { askDelegate, buildConverseInput, sendGuardedReply } from "./converse";
+import { asConverser } from "./converseSchema";
 import { buildDelegateInput, emitDelegateXray } from "./input";
 
 const MONEY = /budget|afford|spend|\bmax\b/i;
@@ -41,20 +45,62 @@ export function sendOnlyYours(userId: string, planId: string | undefined, e: Inb
   return notify(userId, "T_ONLY_YOURS", {}, { key: replyKey(e.message_id, 1), planId, replyTo: e.message_id });
 }
 
-/** parseBallot({…stage:"free"}, []) intent ask_about_others OR mentionsOthersBudget → T_ONLY_YOURS (replyTo), else T_HELP. */
+/** Text that steers a would-be "I'm out" to the deterministic command: an LLM guess never removes anyone from a plan. */
+export const OUT_HINT = "No worries if plans changed. Just text \"I'm out\" and I'll take you off this one. Nobody's told why.";
+
+/**
+ * Everything that isn't a command, budget, prefs or ballot answer. The code check for another member's budget runs
+ * first (deterministic, no LLM). Then the person's private delegate (converse.ts) writes a natural reply:
+ * ask_about_others → T_ONLY_YOURS; wants_change_budget → the change-budget command; wants_out → OUT_HINT (the user
+ * still has to text the command); otherwise the guarded generated reply (wants_status falls back to T_STATUS).
+ * No converser (LLM_MODE=mock), a failed or unconfident call, or a blocked reply → T_HELP.
+ */
 export async function handleFreeText(user: UserRow, ctx: MemberContext | null, e: InboundEvent): Promise<void> {
   const text = e.text ?? "";
   const planId = ctx?.plan.id;
-  // Code check first: deterministic, free, and works with no LLM at all.
   if (ctx && mentionsOthersBudget(text, await otherFirstNames(ctx))) {
     await sendOnlyYours(user.id, planId, e);
     return;
   }
-  if (ctx) void emitDelegateXray(ctx.participant.lane);
-  const parse = await ports.llm.parseBallot(buildDelegateInput(user.first_name, "free", text), []);
-  if (parse.intent === "ask_about_others") {
-    await sendOnlyYours(user.id, planId, e);
-    return;
+  if (await converseReply(user, ctx, e)) return;
+  if (!asConverser(ports.llm)) {
+    // Template-only path (LLM_MODE=mock): the ballot parser still recognizes questions about other people.
+    if (ctx) void emitDelegateXray(ctx.participant.lane);
+    const parse = await ports.llm.parseBallot(buildDelegateInput(user.first_name, "free", text), []);
+    if (parse.intent === "ask_about_others") {
+      await sendOnlyYours(user.id, planId, e);
+      return;
+    }
   }
   await notify(user.id, "T_HELP", {}, { key: replyKey(e.message_id, 1), planId });
+}
+
+/**
+ * The delegate's reply with intent dispatch. Returns false (caller sends its own fallback) when there is no usable
+ * reply: no converser, a failed/unconfident call, or a generated text the guard blocked. `shortlist` = public picks
+ * while voting is open.
+ */
+export async function converseReply(user: UserRow, ctx: MemberContext | null, e: InboundEvent, o: { shortlist?: readonly PublicBundle[] } = {}): Promise<boolean> {
+  if (!asConverser(ports.llm)) return false;
+  const planId = ctx?.plan.id;
+  const input = await buildConverseInput(user, ctx, e.text ?? "", "chat", o);
+  const r = await askDelegate(input, ctx?.participant.lane ?? null);
+  if (!r) return false;
+  switch (r.intent) {
+    case "ask_about_others":
+      await sendOnlyYours(user.id, planId, e);
+      return true;
+    case "wants_change_budget":
+      await handleCommand(user, ctx, { kind: "change_budget" }, e);
+      return true;
+    case "wants_out":
+      await notify(user.id, "T_DELEGATE_REPLY", { text: OUT_HINT }, { key: replyKey(e.message_id, 1), ...(planId ? { planId } : {}) });
+      return true;
+    case "wants_status":
+      if (await sendGuardedReply(user.id, planId, r.reply, e)) return true;
+      await handleCommand(user, ctx, { kind: "status" }, e);
+      return true;
+    default:
+      return sendGuardedReply(user.id, planId, r.reply, e);
+  }
 }

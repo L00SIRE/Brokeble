@@ -4,12 +4,13 @@ import { notify, replyKey, tplKey } from "../notify/notify";
 import { publicShortlist, recordBallot } from "../plan/ballots";
 import { ports } from "../ports";
 import type { MemberContext } from "../repo/types";
-import { mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "./free";
+import { converseReply, mentionsOthersBudget, otherFirstNames, sendOnlyYours } from "./free";
 import { buildDelegateInput, emitDelegateXray } from "./input";
 
 /**
  * VOTING free text: parseBallot(input, publicShortlist). ask_about_others → T_ONLY_YOURS (replyTo);
- * low confidence or intent "other" → T_BALLOT_CLARIFY once per version, then T_HELP; otherwise
+ * intent "other" (not a vote: "thanks", "when does voting close?") → the private delegate's natural reply (free.ts);
+ * low confidence, or no usable delegate reply → T_BALLOT_CLARIFY once per version, then T_HELP; otherwise
  * plan/ballots.recordBallot(ctx, parse, "delegate", e) (none_of_these → empty approvals).
  */
 export async function handleBallotText(ctx: MemberContext, e: InboundEvent): Promise<void> {
@@ -29,6 +30,7 @@ export async function handleBallotText(ctx: MemberContext, e: InboundEvent): Pro
   }
   const decided = parse.none_of_these || parse.approvals.length > 0 || parse.constraints.length > 0;
   if (parse.confidence === "low" || parse.intent === "other" || !decided) {
+    if (parse.intent === "other" && (await converseReply(user, ctx, e, { shortlist }))) return;
     // The tplKey makes the clarification once-per-version: a second unclear reply comes back "duplicate" → T_HELP.
     const outcome = await notify(user.id, "T_BALLOT_CLARIFY", {}, { key: tplKey(plan.id, user.id, "T_BALLOT_CLARIFY", plan.version), planId: plan.id });
     if (outcome === "duplicate") await notify(user.id, "T_HELP", {}, { key: replyKey(e.message_id, 1), planId: plan.id });

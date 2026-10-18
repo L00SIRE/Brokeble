@@ -177,6 +177,12 @@ describe("route", () => {
     ["PREFS_DONE", "VOTING", "the first one", "handleBallotText"],
     ["VOTED", "VOTING", "actually the second", "handleBallotText"],
     ["GATED", "APPROVING", "ok cool", "handleFreeText"],
+    // Ordinary chat in every stage reaches a delegate (free → conversational delegate; VOTING → ballot, which converses on non-votes).
+    ["PREFS_DONE", "COLLECTING", "ok thanks!", "handleFreeText"],
+    ["PREFS_DONE", "RESEARCHING", "what's next?", "handleFreeText"],
+    ["VOTED", "VOTING", "thanks!!", "handleBallotText"],
+    ["HELD", "APPROVING", "when do we eat", "handleFreeText"],
+    ["CAPTURED", "CONFIRMED", "yay", "handleFreeText"],
   ] as const)("stage %s in %s: %j goes to %s", async (stage, state, text, expected) => {
     lane(stage, { state });
     await route(ev(text));

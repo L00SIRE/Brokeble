@@ -58,8 +58,8 @@ beforeEach(() => {
 
 describe("render", () => {
   it("fills every placeholder and throws on a missing one", () => {
-    expect(render("T_BUDGET_CONFIRM", { target: "30", max: "40" })).toBe("Just between us: aim ~$30, never over $40. Text 'change budget' anytime.");
-    expect(render("T_VOTE_TALLY", { k: 0, n: 3 })).toBe("0 of 3 voted.");
+    expect(render("T_BUDGET_CONFIRM", { target: "30", max: "40" })).toBe("Got it. Just between us: aim ~$30, never over $40. Text 'change budget' anytime.");
+    expect(render("T_VOTE_TALLY", { k: 0, n: 3 })).toBe("0 of 3 have voted so far.");
     expect(() => render("T_WINNER", {} as never)).toThrow(/missing \{title\}/);
   });
 
@@ -197,7 +197,7 @@ describe("fanout", () => {
     const spy = sendSpy();
     expect(await fanout(P, "T_VOTE_TALLY", () => ({ k: 1, n: 2 }), { version: 3, suffix: 1 })).toBe(2);
     expect(spy.mock.calls.map((c) => c[2].idempotencyKey).sort()).toEqual([tplKey(P, U1, "T_VOTE_TALLY", 3, 1), tplKey(P, U2, "T_VOTE_TALLY", 3, 1)].sort());
-    expect(db.events).toEqual([{ type: "xray", contexts: [{ name: "fanout", locked: false, preview: "1 of 2 voted." }] }]);
+    expect(db.events).toEqual([{ type: "xray", contexts: [{ name: "fanout", locked: false, preview: "1 of 2 have voted so far." }] }]);
     // Re-running is safe: keyed, so nothing is re-sent.
     expect(await fanout(P, "T_VOTE_TALLY", () => ({ k: 1, n: 2 }), { version: 3, suffix: 1 })).toBe(0);
     expect(spy).toHaveBeenCalledTimes(2);
