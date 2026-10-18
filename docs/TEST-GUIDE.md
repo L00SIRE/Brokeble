@@ -62,6 +62,9 @@
 ## 6. Trust Console demo checks (laptop, with `&ops=1`)
 - **Tamper / Replay / Expired / Wrong-tag:** each should be rejected, with the failed step shown.
 - **Reset:** clears the demo and re-seeds it. Never press it while a judge is mid-flow.
+  - Press Reset **at most 4 minutes before** the judge joins. With `DEMO_TIMERS` on, the seeded plan closes its vote by itself 5 minutes after Reset (even with zero votes), then texts the team the winner and pay links. If the console already shows ORDERING or APPROVING when the judge sits down, press Reset again.
+  - A judge who joins while the plan is VOTING re-runs the shortlist. If the picks change, the 5-minute vote window restarts; if they don't, the original deadline still stands.
+  - The Tamper / Replay / Expired / Wrong-tag buttons need a plan with a venue order (APPROVING or later). Right after Reset they answer "Request failed… an order exists" (409 no_order).
 - **Live Scout:** starts a real CREAO run, and progress lines stream in.
 
 ---

@@ -233,6 +233,9 @@ Verdict today: not top 5. After the deploy and the section 3 steps: a top-5 cont
    - Run `cybs-smoke.ts` with the prod venue env.
    - `fly logs` shows no `creao.run.unparsed` and no Photon errors.
 2. **Reset before each judge.** Press Reset, then Confirm within 3 s. VOTING with 3 real picks arrives in 4 to 9 s. Afterwards, press Release seats.
+   - Press Reset **at most 4 minutes before** the judge joins. `DEMO_TIMERS` puts a 5-minute vote deadline on the seeded plan (`WINDOWS.demo`, `plan/order.ts`), and the deadline picks a winner with zero ballots, moves to ORDERING and texts the team the winner and pay links. If the console already shows ORDERING or APPROVING, press Reset again.
+   - A judge joining while VOTING re-runs the shortlist. A changed shortlist publishes a new version with a fresh 5-minute deadline; an unchanged one keeps the original deadline (`plan/decision.ts` recompute).
+   - The TAP Break-it buttons return 409 `no_order` until the plan has a venue order, so use them only from APPROVING onward (step 3, 3:30).
 3. **Table demo, about 4 to 5 minutes:**
    - 0:00 Press Live Scout and show the progress lines.
    - 0:45 The judge opens `/j/4821`, joins and texts JOIN. They say "honestly 45 tops tonight", get a private confirmation in under 1 s, and send their prefs; the team phones get fresh picks.
