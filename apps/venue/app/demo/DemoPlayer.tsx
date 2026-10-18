@@ -49,7 +49,7 @@ const PICKS =
 
 function holdFlow(at: number, who: Who, idTail: string): Ev[] {
   return [
-    ...tab(at, who, `Here's your share for ${TITLE}: $${AMT}. It's only a hold, and it turns into a charge only if everyone's in by Sat 5:00 PM. Otherwise it's released. tab-venue.vercel.app/pay/•••`),
+    ...tab(at, who, `Here's your share for ${TITLE}: $${AMT}. It's only a hold, and it turns into a charge only if everyone's in by Sat 5:00 PM. Otherwise it's released. squadtab-venue.vercel.app/pay/•••`),
     ...lane(at, who, "LINK_SENT"),
     { at: at * S + 700, kind: "pay", who, state: "open" },
     { at: at * S + 1300, kind: "pay", who, state: "typing" },

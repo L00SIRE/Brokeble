@@ -6,7 +6,7 @@ What is real: Cybersource **sandbox** auth / capture / reversal on the shared pu
 
 | # | Path | When | Command |
 |---|---|---|---|
-| 1 | **Production** `https://tab-venue.vercel.app` with the agent | Supabase writes work (see "Production DB" below) and Vercel has the testrest env | the full SquadTab flow on phones |
+| 1 | **Production** `https://squadtab-venue.vercel.app` with the agent (the old `tab-venue.vercel.app` is simulated) | Supabase writes work (see "Production DB" below) and Vercel has the testrest env | the full SquadTab flow on phones |
 | 2 | **Local venue + real Cybersource sandbox** | production DB still read-only | `cd apps/venue` → terminal 1: `pnpm demo:serve` → terminal 2: `pnpm demo` |
 | 3 | Local, simulated | Cybersource sandbox down | set `CYBS_MODE=mock` in `apps/venue/.env.local`, restart `pnpm demo:serve`; say "simulated" (the page header says it too) |
 
