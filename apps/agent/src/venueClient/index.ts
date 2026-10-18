@@ -111,12 +111,11 @@ export class LiveVenue implements VenuePort {
     try {
       let out;
       if (test === "tamper") {
-        const first = consent.shares[0];
-        if (!first) throw new Error("tamper needs at least one share");
-        const forged = canonicalConsent({ ...consent, shares: [{ ...first, amount_cents: first.amount_cents + 100 }, ...consent.shares.slice(1)] });
-        out = await send(Buffer.from(forged), body); // original headers/digest, forged body
+        out = await send(Buffer.from(forgeConsent(consent)), body); // original headers/digest, forged body
       } else if (test === "replay") {
-        out = await replay(d, path, body, signOpts);
+        // Both legs carry a validly signed but FORGED consent set. Leg one passes all six TAP steps (burning the nonce) and
+        // is then refused by the business check, so it can never capture; leg two is the replay and dies at step 4.
+        out = await replay(d, path, Buffer.from(forgeConsent(consent)), signOpts);
       } else {
         out = await send(body, body);
       }
@@ -135,6 +134,16 @@ export class LiveVenue implements VenuePort {
       throw e;
     }
   }
+}
+
+/** A consent set the venue can never accept: it rebuilds the real one from its DB, so any change cannot match. */
+export function forgeConsent(consent: ConsentSet): string {
+  const first = consent.shares[0];
+  return canonicalConsent(
+    first
+      ? { ...consent, shares: [{ ...first, amount_cents: first.amount_cents + 100 }, ...consent.shares.slice(1)] }
+      : { ...consent, total_cents: consent.total_cents + 100 },
+  );
 }
 
 /** Sends the identical signed request twice and returns the second result (expected: rejected at step 4). */

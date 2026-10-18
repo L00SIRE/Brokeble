@@ -19,9 +19,7 @@ export function testConsent(order: OrderStatus): ConsentSet {
 /** Negative TAP modes for the console panel. Expected rejection step: wrong_tag 1, expired 3, replay 4, tamper 6. */
 export async function runTapTest(kind: TapTestKind, orderId: string, venue: VenuePort): Promise<CommitResult & { expected_step: number }> {
   const order = await venue.getOrder(orderId);
-  // A replay's first leg would capture a fully held OPEN order, so refuse that state (other states make leg one a no-op).
-  if (kind === "replay" && order.status === "OPEN" && order.shares.length > 0 && order.shares.every((s) => s.status === "AUTHORIZED")) {
-    throw new Error("replay test refused: the first request would capture this order");
-  }
+  // Every kind is non-committing by construction: wrong_tag/expired/tamper fail TAP verification, and replay signs a forged
+  // consent set (see venueClient forgeConsent) that the business check always refuses. Safe in every order state.
   return { ...(await venue.commit(orderId, testConsent(order), kind)), expected_step: EXPECT[kind] };
 }

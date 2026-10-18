@@ -44,6 +44,7 @@ vi.mock("../src/ports", () => ({ ports: { venue: { cancel: m.cancelVenue } } }))
 vi.mock("../src/creao/research", () => ({ cancelResearch: m.cancelResearch }));
 vi.mock("../src/delegates/awaiting", () => ({ clearAwaiting: m.clearAwaiting }));
 vi.mock("../src/router/route", () => ({ route: m.route }));
+vi.mock("../src/venueClient", () => ({ VenueHttpError: class extends Error {} }));
 vi.mock("../src/venueClient/tapTest", () => ({ runTapTest: m.runTapTest }));
 vi.mock("../src/creao/liveDemo", () => ({ startLiveScoutDemo: m.startLiveScoutDemo }));
 vi.mock("../src/join/seats", () => ({ releaseAllExceptTeam: m.releaseAllExceptTeam }));
@@ -248,11 +249,11 @@ describe("/ops routes", () => {
     expect(await none.json()).toMatchObject({ ok: false });
 
     m.plans.latestPlanWithOrder.mockResolvedValue(plan({ venue_order_id: "ord-9" }));
-    m.runTapTest.mockResolvedValue({ result: "rejected" });
+    m.runTapTest.mockResolvedValue({ result: "rejected", expected_step: 3, tap: { reason: "expired 480s ago", steps: [{ n: 3, name: "timestamps", ok: false, detail: "d" }] } });
     const ok = await call("/ops/tap-test", { body: { kind: "wrong_tag" } });
     expect(m.runTapTest).toHaveBeenCalledWith("wrong_tag", "ord-9", expect.objectContaining({ cancel: m.cancelVenue }));
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ ok: true, result: "rejected" });
+    expect(await ok.json()).toMatchObject({ ok: true, result: "rejected", failed_step: 3, matched: true });
     expect(m.cancelVenue).not.toHaveBeenCalled(); // tap tests never cancel the order (PLAN §3.2)
   });
 

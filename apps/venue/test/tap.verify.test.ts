@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canonicalConsent } from "@tab/shared/tap";
+import { decideCommit } from "../src/orders/commit";
 import { verifyTap } from "../src/tap/verify";
 import { AUTHORITY, keys, memNonces, signedRequest } from "./helpers/sign";
 
@@ -84,6 +85,34 @@ describe("TAP verifier (M8)", () => {
   it('accepts alg="Ed25519" (case-insensitive)', async () => {
     const r = await verifyTap(signedRequest("GET", "/orders/x", null, NOW, { alg: "Ed25519" }), deps());
     expect(r.accepted).toBe(true);
+  });
+});
+
+describe("agent tap-test replay is non-committing", () => {
+  // The agent signs a FORGED consent set twice with the same nonce (venueClient forgeConsent).
+  const order = { id: "ord_x", status: "OPEN", total_cents: 200 };
+  const shares = [
+    { id: "shr_a", status: "AUTHORIZED", amount_cents: 100, cybs_payment_id: "p1" },
+    { id: "shr_b", status: "AUTHORIZED", amount_cents: 100, cybs_payment_id: "p2" },
+  ];
+  const forged = canonicalConsent({
+    order_id: "ord_x", total_cents: 200,
+    shares: [{ share_id: "shr_a", cybs_payment_id: "p1", amount_cents: 200 }, { share_id: "shr_b", cybs_payment_id: "p2", amount_cents: 100 }],
+  });
+  it("leg one passes TAP but the business check refuses a fully held OPEN order; leg two dies at step 4", async () => {
+    const nonces = memNonces();
+    const req = signedRequest("POST", "/checkout/ord_x", forged, NOW);
+    const one = await verifyTap(req, deps(nonces));
+    expect(one.accepted).toBe(true);
+    expect(decideCommit(order, shares, req.body).kind).toBe("rejected");
+    const two = await verifyTap(req, deps(nonces));
+    expect(failedStep(two)).toBe(4);
+    expect(two.reason).toMatch(/nonce replayed/);
+  });
+  it("is never accepted for any order state", () => {
+    for (const status of ["OPEN", "COMMITTING", "CAPTURED", "CANCELLED", "NEEDS_ATTENTION"]) {
+      expect(["proceed", "idempotent"]).not.toContain(decideCommit({ ...order, status }, shares, Buffer.from(forged)).kind);
+    }
   });
 });
 
