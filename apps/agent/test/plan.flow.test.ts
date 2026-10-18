@@ -32,6 +32,7 @@ const m = vi.hoisted(() => {
     cancel: vi.fn(async () => {}),
     maybeCloseVote: vi.fn(async () => {}),
     transition: vi.fn(),
+    optionsReady: vi.fn(async () => false),
   };
 });
 vi.mock("../src/db", () => ({ sql: m.sql }));
@@ -45,9 +46,11 @@ vi.mock("../src/notify/notify", async (orig) => ({ ...(await orig<typeof import(
 vi.mock("../src/notify/presence", () => ({ startPlanTyping: m.startPlanTyping, stopPlanTyping: m.stopPlanTyping }));
 vi.mock("../src/notify/render", () => ({
   fmtDate: () => "Sat, Oct 17",
+  usd2: (c: number) => `${Math.floor(c / 100)}.${String(c % 100).padStart(2, "0")}`,
   picksLines: (bs: { index: number }[]) => bs.map((b) => `${b.index}.`).join("\n"),
   sanitizePitch: (s: string, max = 140) => s.replace(/\s+/g, " ").trim().slice(0, max),
 }));
+vi.mock("../src/repo/options", () => ({ optionsReady: m.optionsReady }));
 vi.mock("../src/repo/bundles", () => ({ writeBundles: m.writeBundles, getShortlist: m.getShortlist }));
 vi.mock("../src/repo/participants", () => ({ getParticipant: m.getParticipant, listMembers: m.listMembers, updateStage: m.updateStage }));
 vi.mock("../src/repo/plans", () => ({ getPlan: m.getPlan, getPlanByCode: m.getPlanByCode, mergeDeadlines: m.mergeDeadlines }));
@@ -59,7 +62,8 @@ vi.mock("../src/jobs/ladder", () => ({}));
 vi.mock("../src/plan/commit", () => ({}));
 vi.mock("../src/plan/machine", async (orig) => ({ ...(await orig<typeof import("../src/plan/machine")>()), transition: m.transition }));
 
-import { bundleTitle, onOptionsReady, recompute, toPublicBundle } from "../src/plan/decision";
+import { VARS } from "@tab/shared";
+import { budgetDeadlineJob, bundleTitle, onOptionsReady, recompute, toPublicBundle } from "../src/plan/decision";
 import { onGo, onJoinText, onOut, onPrefsDone, setStage, triggerResearch } from "../src/plan/membership";
 
 const PLAN = "3f1c2b8e-6a0d-4c1f-9e2a-7b5d4c3a2f10";
@@ -135,6 +139,91 @@ describe("recompute", () => {
     expect(m.fanout).toHaveBeenCalledWith(PLAN, "T_NO_FIT", expect.any(Function), { version: 1 });
     expect(m.writeBundles).not.toHaveBeenCalled();
     expect(m.stopPlanTyping).toHaveBeenCalledWith(PLAN);
+  });
+
+  describe("budget recovery (only the budget blocked every bundle)", () => {
+    const U_LOW = "u-low";
+    const U_OK = "u-ok";
+    const blocked = (state: "RESEARCHING" | "VOTING" = "RESEARCHING") => {
+      m.getPlan.mockResolvedValue(plan({ state, version: 1 }));
+      m.computeShortlist.mockResolvedValue({ ...shortlistOf([]), cheapest_fit_pp_cents: 4250, over_budget_user_ids: [U_LOW] });
+      m.listMembers.mockResolvedValue([member(U_LOW, "PREFS_DONE", 1), member(U_OK, "PREFS_DONE", 2)]);
+    };
+
+    it("does not cancel: T_BUDGET_TOO_LOW goes only to over-budget members, with the public price and nothing else", async () => {
+      blocked();
+      await recompute(PLAN);
+      expect(m.transition).not.toHaveBeenCalled();
+      expect(m.cancelResearch).not.toHaveBeenCalled();
+      expect(m.fanout.mock.calls.map((c) => (c as unknown[])[1])).toEqual(["T_BUDGET_TOO_LOW"]);
+      const [, , varsFor, opts] = m.fanout.mock.calls[0] as unknown as [string, string, (r: MemberRow) => unknown, { version: number; suffix: number; only: (r: MemberRow) => boolean }];
+      // P1: the vars carry the cheapest plan's price (public) and no member's budget; the schema is strict, so nothing else can ride along.
+      const vars = varsFor(member(U_LOW, "PREFS_DONE"));
+      expect(vars).toEqual({ price: "42.50" });
+      expect(VARS.T_BUDGET_TOO_LOW.safeParse(vars).success).toBe(true);
+      expect(VARS.T_BUDGET_TOO_LOW.safeParse({ price: "42.50", max: "30" }).success).toBe(false);
+      expect(opts.version).toBe(1);
+      expect(opts.suffix).toBe(4250); // idempotent tplKey: a re-run with the same price never double-sends
+      expect(opts.only(member(U_LOW, "PREFS_DONE"))).toBe(true);
+      expect(opts.only(member(U_OK, "PREFS_DONE"))).toBe(false);
+      expect(opts.only(member("u-late", "PREFS_DONE"))).toBe(false); // not part of this computation
+      expect(opts.only(member(U_LOW, "BUDGET_LOCKED"))).toBe(false);
+    });
+
+    it("schedules the budget deadline once per plan version (10 min)", async () => {
+      blocked();
+      const before = Date.now();
+      await recompute(PLAN);
+      const call = m.enqueue.mock.calls.find((c) => (c as unknown[])[0] === "budget_deadline") as unknown as [string, string, Date, unknown, unknown];
+      expect(call[1]).toBe(`budget:${PLAN}:1`);
+      expect(call[2].getTime() - before).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+      expect(call[2].getTime() - before).toBeLessThan(10 * 60_000 + 5000);
+      expect(call[3]).toEqual({ version: 1 });
+      expect(call[4]).toEqual({ planId: PLAN });
+    });
+
+    it("VOTING is not cancelled either", async () => {
+      blocked("VOTING");
+      await recompute(PLAN);
+      expect(m.transition).not.toHaveBeenCalled();
+      expect(m.fanout.mock.calls.map((c) => (c as unknown[])[1])).toEqual(["T_BUDGET_TOO_LOW"]);
+    });
+
+    it("nothing fits prefs/times (cheapest_fit null) → immediate cancel as before, no budget DM or deadline", async () => {
+      m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+      m.computeShortlist.mockResolvedValue({ ...shortlistOf([]), cheapest_fit_pp_cents: null, over_budget_user_ids: [] });
+      win(1, "RESEARCHING");
+      await recompute(PLAN);
+      expect(m.fanout.mock.calls.map((c) => (c as unknown[])[1])).toEqual(["T_NO_FIT"]);
+      expect(m.cancelResearch).toHaveBeenCalledWith(PLAN);
+      expect(m.enqueue).not.toHaveBeenCalled();
+    });
+
+    describe("budget_deadline job", () => {
+      const job = (version = 1) => ({ id: 1, plan_id: PLAN, kind: "budget_deadline", dedupe_key: "k", due_at: new Date(), payload: { version }, attempts: 1 });
+
+      it("still RESEARCHING at that version with no shortlist → CANCELLED + T_NO_FIT + cancelResearch", async () => {
+        m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+        m.getShortlist.mockResolvedValue([]);
+        win(1, "RESEARCHING");
+        await budgetDeadlineJob(job());
+        expect(m.transition).toHaveBeenCalledWith(PLAN, ["RESEARCHING", "VOTING"], "CANCELLED", { version: 1 });
+        expect(m.fanout).toHaveBeenCalledWith(PLAN, "T_NO_FIT", expect.any(Function), { version: 1 });
+        expect(m.cancelResearch).toHaveBeenCalledWith(PLAN);
+      });
+
+      it("no-op when the plan moved on, the version differs, or a shortlist exists", async () => {
+        m.getPlan.mockResolvedValueOnce(plan({ state: "CANCELLED", version: 1 }));
+        await budgetDeadlineJob(job());
+        m.getPlan.mockResolvedValueOnce(plan({ state: "VOTING", version: 2 }));
+        await budgetDeadlineJob(job(1));
+        m.getPlan.mockResolvedValueOnce(plan({ state: "VOTING", version: 2 }));
+        m.getShortlist.mockResolvedValueOnce([bundle("a")]);
+        await budgetDeadlineJob(job(2));
+        expect(m.transition).not.toHaveBeenCalled();
+        expect(m.fanout).not.toHaveBeenCalled();
+      });
+    });
   });
 
   it("one or two picks still go to a vote (VOTING + T_PICKS), never T_NO_FIT", async () => {
@@ -397,6 +486,25 @@ describe("membership", () => {
     expect(m.transition).toHaveBeenCalledWith(PLAN, ["RESEARCHING", "VOTING"], "CANCELLED");
     expect(m.fanout).toHaveBeenCalledWith(PLAN, "T_CANCELLED", expect.any(Function), { version: 3 });
     expect(m.cancelResearch).toHaveBeenCalledWith(PLAN);
+    expect(m.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("onOut in RESEARCHING: with options in and 2+ left, recompute runs (a budget-blocked plan may have been waiting on the leaver)", async () => {
+    const ctx = { user: user("u3"), plan: plan({ state: "RESEARCHING", version: 1 }), participant: member("u3", "PREFS_DONE") };
+    const setup = () => {
+      m.getPlan.mockResolvedValue(plan({ state: "RESEARCHING", version: 1 }));
+      m.getParticipant.mockResolvedValue(member("u3", "PREFS_DONE"));
+      m.updateStage.mockResolvedValue({ lane: 3 });
+      m.listMembers.mockResolvedValue([member("a", "PREFS_DONE"), member("b", "PREFS_DONE")]);
+    };
+    setup();
+    m.optionsReady.mockResolvedValueOnce(true);
+    await onOut(ctx, ev, "member_out");
+    expect(m.enqueue).toHaveBeenCalledWith("recompute", `recompute:${PLAN}:evt_1`, expect.any(Date), {}, { planId: PLAN });
+
+    vi.clearAllMocks();
+    setup();
+    await onOut(ctx, ev, "member_out"); // options not in yet: onOptionsReady will recompute
     expect(m.enqueue).not.toHaveBeenCalled();
   });
 

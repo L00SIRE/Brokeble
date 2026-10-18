@@ -54,3 +54,9 @@ export async function categoriesWithOptions(planId: string, tx: Db = sql): Promi
     select distinct category from app.options where plan_id = ${planId} order by category`;
   return rows.map((r) => r.category);
 }
+
+/** Both categories have options (the condition under which B's onOptionsReady queues the recompute). */
+export async function optionsReady(planId: string, tx: Db = sql): Promise<boolean> {
+  const have = await categoriesWithOptions(planId, tx);
+  return have.includes("dinner") && have.includes("show");
+}

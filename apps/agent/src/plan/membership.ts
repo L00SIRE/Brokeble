@@ -12,6 +12,7 @@ import { fanout } from "../notify/fanout";
 import { notify, replyKey, tplKey } from "../notify/notify";
 import { startPlanTyping, stopPlanTyping } from "../notify/presence";
 import { fmtDate } from "../notify/render";
+import { optionsReady } from "../repo/options";
 import { getParticipant, listMembers, updateStage } from "../repo/participants";
 import { getPlan, getPlanByCode } from "../repo/plans";
 import type { MemberContext, PlanState, UserRow } from "../repo/types";
@@ -191,7 +192,8 @@ export async function onOut(ctx: MemberContext, e: InboundEvent | null, reason: 
         stopPlanTyping(plan.id);
         await fanout(plan.id, "T_CANCELLED", () => ({}), { version: t.version });
         await cancelResearch(plan.id).catch((err: unknown) => log.warn({ ...errInfo(err), plan_id: plan.id }, "plan.onOut cancelResearch"));
-      } else if (plan.state === "VOTING") {
+      } else if (plan.state === "VOTING" || (await optionsReady(plan.id))) {
+        // RESEARCHING with options in: the plan may be waiting on a budget (T_BUDGET_TOO_LOW) and this leaver may have been the one.
         await enqueue(A_JOB_KINDS.recompute, aJobKeys.recompute(plan.id, e?.event_id ?? `out:${user.id}`), new Date(), {}, { planId: plan.id });
       }
       return;

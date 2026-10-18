@@ -13,7 +13,7 @@ import { A_JOB_KINDS, aJobKeys } from "../jobs/kinds";
 import { errInfo, log } from "../log";
 import { fanout } from "../notify/fanout";
 import { stopPlanTyping } from "../notify/presence";
-import { picksLines, sanitizePitch } from "../notify/render";
+import { picksLines, sanitizePitch, usd2 } from "../notify/render";
 import { getShortlist, writeBundles } from "../repo/bundles";
 import { usersSentTemplate } from "../repo/outbound";
 import { listMembers } from "../repo/participants";
@@ -57,13 +57,21 @@ export async function recompute(planId: string): Promise<void> {
   const included = before.ids;
 
   if (result.top3.length === 0) {
-    const t = await transition(planId, ["RESEARCHING", "VOTING"], "CANCELLED", { version: plan.version });
-    if (!t) return;
-    // Counts only: never which constraint or whose (P1/P7).
-    log.info({ plan_id: planId, from_count: result.from_count, survived_count: result.survived_count, top3: 0 }, "plan.no_fit");
-    stopPlanTyping(planId);
-    await fanout(planId, "T_NO_FIT", () => ({}), { version: t.version });
-    await cancelResearch(planId).catch((err: unknown) => log.warn({ ...errInfo(err), plan_id: planId }, "plan.recompute cancelResearch"));
+    const cheapest = result.cheapest_fit_pp_cents;
+    const over = new Set(result.over_budget_user_ids ?? []);
+    // Only the budget blocked it: ask the members who are over, instead of ending the plan on them. Counts only in logs (P1/P7).
+    if (typeof cheapest === "number" && over.size > 0) {
+      log.info({ plan_id: planId, state: plan.state, from_count: result.from_count, over_budget: over.size }, "plan.budget_blocked");
+      await fanout(planId, "T_BUDGET_TOO_LOW", () => ({ price: usd2(cheapest) }), {
+        version: plan.version,
+        suffix: cheapest,
+        only: (m) => over.has(m.user_id) && included.has(m.user_id) && stageAtLeast(m.stage, "PREFS_DONE"),
+      });
+      const at = new Date(Date.now() + BUDGET_RECOVERY_MS[env.DEMO_TIMERS ? "demo" : "normal"]);
+      await enqueue(A_JOB_KINDS.budgetDeadline, aJobKeys.budgetDeadline(planId, plan.version), at, { version: plan.version }, { planId });
+      return;
+    }
+    await cancelNoFit(planId, plan.version, result);
     return;
   }
 
@@ -94,6 +102,33 @@ export async function recompute(planId: string): Promise<void> {
   for (const m of members) if (m.stage === "VOTED") await setStage(planId, m.user_id, "PREFS_DONE");
   await emit({ type: "vote.tally", plan_id: planId, voted: 0, total: members.length });
   await sendPicks(planId, t.version, publicTop3, holders, included);
+}
+
+/** How long a budget-blocked plan waits for someone to raise a max (or leave) before it is called off. */
+export const BUDGET_RECOVERY_MS = { normal: 10 * 60_000, demo: 4 * 60_000 } as const;
+
+/** [RESEARCHING|VOTING]→CANCELLED at `version` + T_NO_FIT fan-out (never who or why) + cancelResearch. No-op if the plan moved on. */
+async function cancelNoFit(planId: string, version: number, counts?: Pick<ShortlistResult, "from_count" | "survived_count">): Promise<void> {
+  const t = await transition(planId, ["RESEARCHING", "VOTING"], "CANCELLED", { version });
+  if (!t) return;
+  // Counts only: never which constraint or whose (P1/P7).
+  log.info({ plan_id: planId, from_count: counts?.from_count, survived_count: counts?.survived_count, top3: 0 }, "plan.no_fit");
+  stopPlanTyping(planId);
+  await fanout(planId, "T_NO_FIT", () => ({}), { version: t.version });
+  await cancelResearch(planId).catch((err: unknown) => log.warn({ ...errInfo(err), plan_id: planId }, "plan.recompute cancelResearch"));
+}
+
+/**
+ * due_jobs kind `budget_deadline` (payload {version}): the budget-recovery window is over. If the plan is still
+ * RESEARCHING (or VOTING) at that version with no shortlist, call it off exactly as an immediate no-fit would.
+ */
+export async function budgetDeadlineJob(job: DueJob): Promise<void> {
+  const version = Number(job.payload.version);
+  if (!job.plan_id || !Number.isInteger(version)) return;
+  const plan = await getPlan(job.plan_id);
+  if (!plan || plan.version !== version || (plan.state !== "RESEARCHING" && plan.state !== "VOTING")) return;
+  if ((await getShortlist(plan.id, plan.version)).length > 0) return;
+  await cancelNoFit(plan.id, plan.version);
 }
 
 /** Sorted active member ids, their join key and a short hash (a dedupe-key suffix: one queued recompute per member set). */

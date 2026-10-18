@@ -84,6 +84,28 @@ describe("computeShortlist", () => {
     repo.getPlan.mockResolvedValue(null);
     await expect(computeShortlist(PLAN_ID)).rejects.toThrow();
   });
+
+  it("budget-blocked: cheapest_fit is the cheapest fitsPrefs bundle (pre-budget) and only members under it are over", async () => {
+    repo.listForPlan.mockResolvedValue([budget(U1, 500, 500), budget(U2, 20000)]);
+    const r = await computeShortlist(PLAN_ID);
+    expect(r).toMatchObject({ survived_count: 0, top3: [] });
+    const cheapest = Math.min(...compose(options, PLAN).filter((b) => b.dinner.data.name !== "Steak").map((b) => b.all_in_pp_cents));
+    expect(r.cheapest_fit_pp_cents).toBe(cheapest);
+    expect(r.cheapest_fit_pp_cents).toBeGreaterThan(500);
+    expect(r.over_budget_user_ids).toEqual([U1]);
+  });
+
+  it("nothing over budget: cheapest_fit is set but nobody is over", async () => {
+    const r = await computeShortlist(PLAN_ID);
+    expect(r.cheapest_fit_pp_cents).not.toBeNull();
+    expect(r.over_budget_user_ids).toEqual([]);
+  });
+
+  it("nothing passes prefs/time: cheapest_fit_pp_cents is null and nobody is over", async () => {
+    repo.listOptions.mockResolvedValue([]);
+    const r = await computeShortlist(PLAN_ID);
+    expect(r).toMatchObject({ from_count: 0, top3: [], cheapest_fit_pp_cents: null, over_budget_user_ids: [] });
+  });
 });
 
 describe("computeWinner", () => {

@@ -24,6 +24,10 @@ export type ShortlistResult = {
   survived_count: number; // after fitsPrefs + private filter
   survivors: Bundle[];
   top3: Bundle[]; // < 3 ⇒ A sends T_NO_FIT
+  /** Cheapest all-in over the fitsPrefs survivors, before the budget filter; null when nothing passes prefs/time. */
+  cheapest_fit_pp_cents: number | null;
+  /** Members whose effective hard max is below cheapest_fit_pp_cents (A DMs only them; never logged or emitted). */
+  over_budget_user_ids: string[];
 };
 
 type Budget = Pick<PrivateConstraints, "user_id" | "target_pp_cents" | "hard_max_pp_cents">;
@@ -115,13 +119,13 @@ export async function computeShortlist(planId: string): Promise<ShortlistResult>
   const members = userIds.map((user_id) => ({ user_id, prefs: prefsOf.get(user_id) ?? EMPTY_PREFERENCES }));
 
   const composed = compose(options, plan);
-  const survivors = filter(
-    fitsPrefs(
-      composed,
-      members.map((m) => m.prefs),
-    ),
-    constraints,
+  const fitting = fitsPrefs(
+    composed,
+    members.map((m) => m.prefs),
   );
+  const survivors = filter(fitting, constraints);
+  const cheapest = fitting.length > 0 ? Math.min(...fitting.map((b) => b.all_in_pp_cents)) : null;
+  const overBudget = cheapest === null ? [] : constraints.filter((c) => effectiveHardMax(c) < cheapest).map((c) => c.user_id);
   const candidates = selectForRating(survivors);
   const rateInput = toRateCandidates(candidates);
 
@@ -143,7 +147,14 @@ export async function computeShortlist(planId: string): Promise<ShortlistResult>
   }
 
   const vetoers = new Set(members.filter((m) => m.prefs.cuisines_avoid.length + m.prefs.dealbreakers.length > 0).map((m) => m.user_id));
-  return { from_count: composed.length, survived_count: survivors.length, survivors, top3: shortlist(dropVetoed(candidates, ratings, vetoers), ratings, constraints) };
+  return {
+    from_count: composed.length,
+    survived_count: survivors.length,
+    survivors,
+    top3: shortlist(dropVetoed(candidates, ratings, vetoers), ratings, constraints),
+    cheapest_fit_pp_cents: cheapest,
+    over_budget_user_ids: overBudget,
+  };
 }
 
 /** Loads the version's shortlist (app.bundles shortlist_rank), ballots, ratings and constraints → pickWinner. Active members only. */

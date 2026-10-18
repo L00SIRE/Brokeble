@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   getPc: vi.fn(async (..._a: unknown[]): Promise<unknown> => null),
   upsertPrefs: vi.fn(async (..._a: unknown[]) => {}),
   enqueue: vi.fn(async (..._a: unknown[]) => true),
+  optionsReady: vi.fn(async (..._a: unknown[]) => true),
   recheck: vi.fn(async (..._a: unknown[]) => {}),
   recordBallot: vi.fn(async (..._a: unknown[]) => {}),
   shortlist: vi.fn(async (..._a: unknown[]): Promise<PublicBundle[]> => []),
@@ -45,6 +46,7 @@ vi.mock("../repo/privateConstraints", () => ({ upsert: m.upsertPc, get: m.getPc,
 vi.mock("../repo/preferences", () => ({ upsertPreferences: m.upsertPrefs, getPreferences: m.getPrefs, EMPTY_PREFERENCES: { cuisines_like: [], cuisines_avoid: [], dietary: [], vibe: [], earliest_start: null, latest_end: null, dealbreakers: [] } }));
 vi.mock("../repo/participants", () => ({ listMembers: m.members, countByStage: m.countByStage }));
 vi.mock("../repo/plans", () => ({ getPlan: m.getPlan }));
+vi.mock("../repo/options", () => ({ optionsReady: m.optionsReady }));
 vi.mock("../repo/bundles", () => ({ getBundle: m.getBundle }));
 vi.mock("../router/handlers", () => ({ handleCommand: m.handleCommand }));
 vi.mock("../dueJobs", () => ({ enqueue: m.enqueue, jobKeys: { recomputeOptions: (p: string) => `recompute:${p}:options` } }));
@@ -212,6 +214,19 @@ describe("budget delegate", () => {
     expect(sent()).toEqual([["T_BUDGET_CONFIRM", { target: "$40", max: "$50" }, "reply:pho_msg_1:1"]]);
     expect(m.enqueue).toHaveBeenCalledWith("recompute", `recompute:${PLAN}:evt_1`, expect.any(Date), {}, { planId: PLAN });
     expect(m.recheck).toHaveBeenCalledWith(c);
+  });
+
+  it("change budget while RESEARCHING (options in) enqueues a recompute and never moves the stage", async () => {
+    const c = ctx({ stage: "PREFS_DONE", state: "RESEARCHING" });
+    await applyTier(c, 3, ev("3"));
+    expect(m.setStage).not.toHaveBeenCalled();
+    expect(m.enqueue).toHaveBeenCalledWith("recompute", `recompute:${PLAN}:evt_1`, expect.any(Date), {}, { planId: PLAN });
+  });
+
+  it("change budget while RESEARCHING before options exist does not recompute (it would find nothing and call the plan off)", async () => {
+    m.optionsReady.mockResolvedValueOnce(false);
+    await applyTier(ctx({ stage: "PREFS_DONE", state: "RESEARCHING" }), 3, ev("3"));
+    expect(m.enqueue).not.toHaveBeenCalled();
   });
 
   it("confirmFormBudget: no stored budget → false and silent", async () => {
